@@ -1,0 +1,65 @@
+import { create } from 'zustand'
+import { User } from '../types'
+import { loginApi, getMeApi } from '../services/api'
+
+interface AuthState {
+  user: User | null
+  token: string | null
+  isAuthenticated: boolean
+  loading: boolean
+  error: string | null
+  login: (email: string, password: string) => Promise<void>
+  logout: () => void
+  loadUser: () => Promise<void>
+  clearError: () => void
+}
+
+export const useAuthStore = create<AuthState>((set) => ({
+  user: null,
+  token: localStorage.getItem('token'),
+  isAuthenticated: false,
+  loading: false,
+  error: null,
+
+  login: async (email: string, password: string) => {
+    set({ loading: true, error: null })
+    try {
+      const response = await loginApi(email, password)
+      const { token, user } = response.data
+      localStorage.setItem('token', token)
+      set({ token, user, isAuthenticated: true, loading: false })
+    } catch (err: any) {
+      const message =
+        err.response?.data?.message || 'Invalid email or password'
+      set({ loading: false, error: message, isAuthenticated: false })
+      throw new Error(message)
+    }
+  },
+
+  logout: () => {
+    localStorage.removeItem('token')
+    set({ user: null, token: null, isAuthenticated: false, error: null })
+  },
+
+  loadUser: async () => {
+    const token = localStorage.getItem('token')
+    if (!token) {
+      set({ isAuthenticated: false, loading: false })
+      return
+    }
+    set({ loading: true })
+    try {
+      const response = await getMeApi()
+      set({
+        user: response.data,
+        isAuthenticated: true,
+        loading: false,
+      })
+    } catch {
+      localStorage.removeItem('token')
+      set({ user: null, token: null, isAuthenticated: false, loading: false })
+    }
+  },
+
+  clearError: () => set({ error: null }),
+}))

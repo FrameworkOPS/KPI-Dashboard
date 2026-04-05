@@ -1,0 +1,160 @@
+import { Response, NextFunction } from 'express';
+import { pool } from '../config/database';
+import { AuthRequest } from '../middleware/auth';
+import { canAccessTeam } from '../utils/auth';
+
+export async function getScorecardEntries(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { team, week } = req.query;
+    const user = req.user!;
+
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+    let paramCount = 1;
+
+    if (team) {
+      if (!canAccessTeam(user.role, user.team, team as string)) {
+        res.status(403).json({ error: 'Access to this team is not allowed' });
+        return;
+      }
+      conditions.push(`se.team = $${paramCount++}`);
+      values.push(team);
+    } else {
+      // Filter by user's accessible teams
+      if (user.role !== 'admin' && user.role !== 'leadership' && user.team !== 'all') {
+        conditions.push(`se.team = $${paramCount++}`);
+        values.push(user.team);
+      }
+    }
+
+    if (week) {
+      conditions.push(`se.week_of = $${paramCount++}`);
+      values.push(week);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const result = await pool.query(
+      `SELECT se.*, u.first_name, u.last_name, u.email
+       FROM scorecard_entries se
+       LEFT JOIN users u ON se.created_by = u.id
+       ${whereClause}
+       ORDER BY se.week_of DESC, se.team, se.metric_name`,
+      values
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createScorecardEntry(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { team, week_of, metric_name, goal, actual, data_source, notes } = req.body;
+    const user = req.user!;
+
+    if (!team || !week_of || !metric_name) {
+      res.status(400).json({ error: 'team, week_of, and metric_name are required' });
+      return;
+    }
+
+    if (!canAccessTeam(user.role, user.team, team)) {
+      res.status(403).json({ error: 'Access to this team is not allowed' });
+      return;
+    }
+
+    const isOnTrack = goal != null && actual != null ? actual >= goal : null;
+
+    const result = await pool.query(
+      `INSERT INTO scorecard_entries
+         (team, week_of, metric_name, goal, actual, is_on_track, data_source, notes, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (team, week_of, metric_name) DO UPDATE SET
+         goal = EXCLUDED.goal,
+         actual = EXCLUDED.actual,
+         is_on_track = EXCLUDED.is_on_track,
+         data_source = EXCLUDED.data_source,
+         notes = EXCLUDED.notes,
+         updated_at = NOW()
+       RETURNING *`,
+      [team, week_of, metric_name, goal ?? null, actual ?? null, isOnTrack, data_source || 'manual', notes || null, user.id]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateScorecardEntry(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const { goal, actual, is_on_track, data_source, notes, metric_name } = req.body;
+    const user = req.user!;
+
+    const existing = await pool.query('SELECT * FROM scorecard_entries WHERE id = $1', [id]);
+    if (!existing.rows[0]) {
+      res.status(404).json({ error: 'Scorecard entry not found' });
+      return;
+    }
+
+    const entry = existing.rows[0];
+    if (!canAccessTeam(user.role, user.team, entry.team)) {
+      res.status(403).json({ error: 'Access to this team is not allowed' });
+      return;
+    }
+
+    const updatedGoal = goal !== undefined ? goal : entry.goal;
+    const updatedActual = actual !== undefined ? actual : entry.actual;
+    const computedIsOnTrack = is_on_track !== undefined
+      ? is_on_track
+      : (updatedGoal != null && updatedActual != null ? updatedActual >= updatedGoal : null);
+
+    const result = await pool.query(
+      `UPDATE scorecard_entries SET
+         metric_name = COALESCE($1, metric_name),
+         goal = $2,
+         actual = $3,
+         is_on_track = $4,
+         data_source = COALESCE($5, data_source),
+         notes = $6,
+         updated_at = NOW()
+       WHERE id = $7
+       RETURNING *`,
+      [metric_name || null, updatedGoal, updatedActual, computedIsOnTrack, data_source || null, notes !== undefined ? notes : entry.notes, id]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteScorecardEntry(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const user = req.user!;
+
+    const existing = await pool.query('SELECT * FROM scorecard_entries WHERE id = $1', [id]);
+    if (!existing.rows[0]) {
+      res.status(404).json({ error: 'Scorecard entry not found' });
+      return;
+    }
+
+    if (!canAccessTeam(user.role, user.team, existing.rows[0].team)) {
+      res.status(403).json({ error: 'Access to this team is not allowed' });
+      return;
+    }
+
+    if (user.role === 'manager' && existing.rows[0].created_by !== user.id) {
+      res.status(403).json({ error: 'You can only delete your own entries' });
+      return;
+    }
+
+    await pool.query('DELETE FROM scorecard_entries WHERE id = $1', [id]);
+    res.json({ message: 'Scorecard entry deleted' });
+  } catch (err) {
+    next(err);
+  }
+}
