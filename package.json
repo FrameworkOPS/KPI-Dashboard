@@ -1,0 +1,13 @@
+{
+  "name": "kpi-dashboard",
+  "version": "1.0.0",
+  "description": "EOS KPI Dashboard",
+  "scripts": {
+    "start": "bash start.sh",
+    "build": "cd frontend && npm install && npm run build && cd ../backend && npm install && npm run build",
+    "dev": "cd frontend && npm run dev"
+  },
+  "engines": {
+    "node": "20"
+  }
+}
