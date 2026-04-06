@@ -29,21 +29,23 @@ const toISO = (date: Date) => date.toISOString().split('T')[0]
 
 // ── Formatting ────────────────────────────────────────────────────────────────
 
-function formatValue(value: number | null | undefined, format: string): string {
-  if (value === null || value === undefined) return '—'
+function formatValue(value: number | string | null | undefined, format: string): string {
+  if (value === null || value === undefined || value === '') return '—'
+  const n = typeof value === 'string' ? parseFloat(value) : value
+  if (isNaN(n)) return String(value)
   switch (format) {
     case 'currency':
       return new Intl.NumberFormat('en-US', {
         style: 'currency',
         currency: 'USD',
         maximumFractionDigits: 0,
-      }).format(value)
+      }).format(n)
     case 'percent':
-      return `${(value * 100).toFixed(1)}%`
+      return `${(n * 100).toFixed(1)}%`
     case 'number':
-      return value % 1 === 0 ? value.toString() : value.toFixed(1)
+      return n % 1 === 0 ? n.toString() : n.toFixed(1)
     default:
-      return value.toString()
+      return n.toString()
   }
 }
 
