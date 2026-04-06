@@ -113,7 +113,7 @@ export async function callback(req: Request, res: Response): Promise<void> {
     process.env.QBO_REFRESH_TOKEN = refresh_token;
     process.env.QBO_REALM_ID = realmId;
 
-    res.redirect(`${appUrl}/?qbo=connected`);
+    res.redirect(`${appUrl}/integrations?qbo=connected`);
   } catch (err) {
     console.error('QBO OAuth callback error:', err);
     res.status(500).json({ error: 'Failed to exchange authorization code for tokens' });

@@ -149,4 +149,10 @@ export const syncHubSpotApi = () =>
 export const getQBOSummaryApi = () =>
   api.get('/integrations/qbo')
 
+export const getQBOStatusApi = () =>
+  api.get('/integrations/qbo/status')
+
+export const disconnectQBOApi = () =>
+  api.post('/integrations/qbo/disconnect')
+
 export default api
