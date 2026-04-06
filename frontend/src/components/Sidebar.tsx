@@ -67,6 +67,11 @@ const IconLogout = () => (
       d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
   </svg>
 )
+const IconClose = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+  </svg>
+)
 
 interface NavItem {
   to: string
@@ -76,28 +81,37 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { to: '/', label: 'Dashboard', icon: <IconDashboard /> },
-  { to: '/scorecard', label: 'Scorecard', icon: <IconScorecard /> },
-  { to: '/rocks', label: 'Rocks', icon: <IconRocks /> },
-  { to: '/issues', label: 'Issues', icon: <IconIssues /> },
-  { to: '/todos', label: 'To-Dos', icon: <IconTodos /> },
-  { to: '/vto', label: 'V/TO', icon: <IconVTO />, roles: ['admin', 'leadership'] },
+  { to: '/',               label: 'Dashboard',      icon: <IconDashboard /> },
+  { to: '/scorecard',      label: 'Scorecard',      icon: <IconScorecard /> },
+  { to: '/rocks',          label: 'Rocks',          icon: <IconRocks /> },
+  { to: '/issues',         label: 'Issues',         icon: <IconIssues /> },
+  { to: '/todos',          label: 'To-Dos',         icon: <IconTodos /> },
+  { to: '/vto',            label: 'V/TO',           icon: <IconVTO />,            roles: ['admin', 'leadership'] },
   { to: '/accountability', label: 'Accountability', icon: <IconAccountability /> },
-  { to: '/meetings', label: 'Meetings', icon: <IconMeetings /> },
-  { to: '/users', label: 'Users', icon: <IconUsers />, roles: ['admin'] },
+  { to: '/meetings',       label: 'Meetings',       icon: <IconMeetings /> },
+  { to: '/users',          label: 'Users',          icon: <IconUsers />,          roles: ['admin'] },
 ]
 
-const Sidebar: React.FC = () => {
+interface SidebarProps {
+  onClose?: () => void
+}
+
+const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
 
   const initials = user
-    ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase()
+    ? `${user.first_name?.[0] ?? ''}${user.last_name?.[0] ?? ''}`.toUpperCase()
     : '??'
 
   const handleLogout = () => {
     logout()
     navigate('/login')
+  }
+
+  const handleNavClick = () => {
+    // Close drawer on mobile after navigation
+    onClose?.()
   }
 
   const visibleItems = navItems.filter((item) => {
@@ -106,9 +120,10 @@ const Sidebar: React.FC = () => {
   })
 
   return (
-    <aside className="w-64 bg-slate-900 border-r border-slate-700/50 flex flex-col flex-shrink-0 h-full">
-      {/* Logo */}
-      <div className="h-16 flex items-center px-5 border-b border-slate-700/50 flex-shrink-0">
+    <aside className="w-72 md:w-64 bg-slate-900 border-r border-slate-700/50 flex flex-col flex-shrink-0 h-full">
+
+      {/* Logo + close button */}
+      <div className="h-16 flex items-center justify-between px-5 border-b border-slate-700/50 flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
             <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -118,6 +133,17 @@ const Sidebar: React.FC = () => {
           </div>
           <span className="text-white font-bold text-base">KPI Dashboard</span>
         </div>
+
+        {/* Close button — mobile drawer only */}
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            aria-label="Close menu"
+          >
+            <IconClose />
+          </button>
+        )}
       </div>
 
       {/* Nav */}
@@ -128,8 +154,9 @@ const Sidebar: React.FC = () => {
               <NavLink
                 to={item.to}
                 end={item.to === '/'}
+                onClick={handleNavClick}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  `flex items-center gap-3 px-3 py-3 md:py-2.5 rounded-lg text-sm font-medium transition-colors ${
                     isActive
                       ? 'bg-blue-500/20 text-blue-400 border border-blue-500/20'
                       : 'text-slate-400 hover:bg-slate-800 hover:text-white'
@@ -159,7 +186,7 @@ const Sidebar: React.FC = () => {
           <button
             onClick={handleLogout}
             title="Log out"
-            className="text-slate-500 hover:text-red-400 transition-colors p-1 rounded"
+            className="text-slate-500 hover:text-red-400 transition-colors p-1.5 rounded"
           >
             <IconLogout />
           </button>
