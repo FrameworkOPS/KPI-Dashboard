@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express';
-import { pool } from '../config/database';
+import { pool, query } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
 import { canAccessTeam } from '../utils/auth';
 
@@ -154,6 +154,73 @@ export async function deleteScorecardEntry(req: AuthRequest, res: Response, next
 
     await pool.query('DELETE FROM scorecard_entries WHERE id = $1', [id]);
     res.json({ message: 'Scorecard entry deleted' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getTemplates(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const team = req.query.team as string | undefined;
+    const userTeam = req.user?.team;
+    const userRole = req.user?.role;
+
+    let targetTeam = team;
+    if (userRole === 'manager' && userTeam !== 'all') {
+      targetTeam = userTeam;
+    }
+
+    const whereClause = targetTeam ? 'WHERE team = $1 AND is_active = true' : 'WHERE is_active = true';
+    const params = targetTeam ? [targetTeam] : [];
+
+    const result = await query(
+      `SELECT * FROM scorecard_templates ${whereClause} ORDER BY team, sort_order`,
+      params
+    );
+    res.json(result.rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createWeekFromTemplate(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { team, week_of } = req.body;
+    if (!team || !week_of) {
+      res.status(400).json({ error: 'team and week_of are required' });
+      return;
+    }
+
+    // Get templates for this team
+    const templates = await query(
+      'SELECT * FROM scorecard_templates WHERE team = $1 AND is_active = true ORDER BY sort_order',
+      [team]
+    );
+
+    if (templates.rows.length === 0) {
+      res.status(404).json({ error: 'No templates found for this team' });
+      return;
+    }
+
+    // Insert entries (skip if already exist)
+    let created = 0;
+    for (const t of templates.rows) {
+      const existing = await query(
+        'SELECT id FROM scorecard_entries WHERE team=$1 AND week_of=$2 AND metric_name=$3',
+        [team, week_of, t.metric_name]
+      );
+      if (existing.rows.length === 0) {
+        await query(
+          `INSERT INTO scorecard_entries
+           (team, week_of, metric_name, goal, goal_text, display_format, lower_is_better, data_source, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'manual',$8)`,
+          [team, week_of, t.metric_name, t.goal, t.goal_text, t.display_format, t.lower_is_better, req.user?.id]
+        );
+        created++;
+      }
+    }
+
+    res.json({ message: `Created ${created} entries for week of ${week_of}`, created });
   } catch (err) {
     next(err);
   }

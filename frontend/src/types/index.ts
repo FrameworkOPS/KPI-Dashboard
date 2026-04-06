@@ -14,11 +14,27 @@ export interface ScorecardEntry {
   week_of: string;
   metric_name: string;
   goal: number | null;
+  goal_text: string | null;
   actual: number | null;
   is_on_track: boolean | null;
+  display_format: string;
+  lower_is_better: boolean;
   data_source: string;
   notes: string | null;
   created_by: string;
+  sort_order?: number;
+}
+
+export interface ScorecardTemplate {
+  id: string;
+  team: string;
+  metric_name: string;
+  goal: number | null;
+  goal_text: string | null;
+  display_format: string;
+  lower_is_better: boolean;
+  sort_order: number;
+  is_active: boolean;
 }
 
 export interface Rock {

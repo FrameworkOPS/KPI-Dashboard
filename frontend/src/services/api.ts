@@ -52,6 +52,9 @@ export const deleteUserApi = (id: string) =>
 export const getScorecardApi = (team?: string, week?: string) =>
   api.get('/scorecard', { params: { team, week_of: week } })
 
+export const getScorecardTemplatesApi = (team?: string) =>
+  api.get('/scorecard/templates', { params: { team } })
+
 export const createScorecardEntryApi = (data: any) =>
   api.post('/scorecard', data)
 
@@ -60,6 +63,9 @@ export const updateScorecardEntryApi = (id: string, data: any) =>
 
 export const deleteScorecardEntryApi = (id: string) =>
   api.delete(`/scorecard/${id}`)
+
+export const createWeekFromTemplateApi = (team: string, week_of: string) =>
+  api.post('/scorecard/new-week', { team, week_of })
 
 // ── Rocks ─────────────────────────────────────────────────────────────────────
 export const getRocksApi = (team?: string, quarter?: number, year?: number) =>

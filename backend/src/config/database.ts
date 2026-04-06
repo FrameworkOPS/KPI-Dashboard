@@ -216,6 +216,93 @@ export async function initializeDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_oauth_tokens_provider ON oauth_tokens(provider)
     `);
 
+    // scorecard_templates table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS scorecard_templates (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        team VARCHAR(50) NOT NULL,
+        metric_name VARCHAR(255) NOT NULL,
+        goal DECIMAL(14,2),
+        goal_text VARCHAR(100),
+        display_format VARCHAR(20) NOT NULL DEFAULT 'number',
+        lower_is_better BOOLEAN NOT NULL DEFAULT false,
+        sort_order INT NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(team, metric_name)
+      )
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_scorecard_templates_team ON scorecard_templates(team)
+    `);
+
+    // Add new columns to scorecard_entries if they don't exist
+    await client.query(`
+      ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS display_format VARCHAR(20) NOT NULL DEFAULT 'number'
+    `);
+    await client.query(`
+      ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS lower_is_better BOOLEAN NOT NULL DEFAULT false
+    `);
+    await client.query(`
+      ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS goal_text VARCHAR(100)
+    `);
+
+    // Seed leadership scorecard templates
+    await client.query(`
+      INSERT INTO scorecard_templates (team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order)
+      SELECT * FROM (VALUES
+        ('leadership', 'Weekly Sales',          120000::DECIMAL,    '$120,000',           'currency', false,  1),
+        ('leadership', 'Total Sales (YTD)',     10000000::DECIMAL,  '$10,000,000',        'currency', false,  2),
+        ('leadership', 'Closing Rate',          0.40::DECIMAL,      '40%',                'percent',  false,  3),
+        ('leadership', 'Appointments',          12::DECIMAL,        '12',                 'number',   false,  4),
+        ('leadership', 'Weekly Invoiced',       120000::DECIMAL,    '$120K / $230K',      'currency', false,  5),
+        ('leadership', 'Total Invoiced (YTD)',  9000000::DECIMAL,   '$9,000,000',         'currency', false,  6),
+        ('leadership', 'Backlog (Weeks)',        4::DECIMAL,        '4 weeks',            'number',   true,   7),
+        ('leadership', 'Callbacks (Weeks)',      1::DECIMAL,        '1 week',             'number',   true,   8),
+        ('leadership', 'COGS % (YTD)',           0.59::DECIMAL,     '59%',                'percent',  true,   9),
+        ('leadership', 'Net % (YTD)',            0.175::DECIMAL,    '17.5%',              'percent',  false,  10),
+        ('leadership', 'Cash Balance',          100000::DECIMAL,    'Min $100,000',       'currency', false,  11),
+        ('leadership', 'AR',                    500000::DECIMAL,    '$500,000',           'currency', false,  12),
+        ('leadership', 'DSO (Days)',             20::DECIMAL,       '20 days',            'number',   true,   13)
+      ) AS v(team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order)
+      WHERE NOT EXISTS (SELECT 1 FROM scorecard_templates WHERE team = 'leadership')
+    `);
+
+    // Seed current week (2026-04-05) leadership scorecard entries
+    await client.query(`
+      INSERT INTO scorecard_entries (team, week_of, metric_name, goal, goal_text, actual, is_on_track, display_format, lower_is_better, data_source, notes)
+      SELECT * FROM (VALUES
+        ('leadership','2026-04-05'::DATE,'Weekly Sales',         120000::DECIMAL,   '$120,000',      15564::DECIMAL,       false, 'currency', false, 'hubspot',  'Weighted by the week'),
+        ('leadership','2026-04-05'::DATE,'Total Sales (YTD)',    10000000::DECIMAL, '$10,000,000',   812648.45::DECIMAL,   true,  'currency', false, 'hubspot',  ''),
+        ('leadership','2026-04-05'::DATE,'Closing Rate',         0.40::DECIMAL,     '40%',           0.18::DECIMAL,        false, 'percent',  false, 'hubspot',  ''),
+        ('leadership','2026-04-05'::DATE,'Appointments',         12::DECIMAL,       '12',            21::DECIMAL,          true,  'number',   false, 'hubspot',  ''),
+        ('leadership','2026-04-05'::DATE,'Weekly Invoiced',      120000::DECIMAL,   '$120K / $230K', 17646::DECIMAL,       false, 'currency', false, 'qbo',      ''),
+        ('leadership','2026-04-05'::DATE,'Total Invoiced (YTD)', 9000000::DECIMAL,  '$9,000,000',    898129.49::DECIMAL,   true,  'currency', false, 'qbo',      ''),
+        ('leadership','2026-04-05'::DATE,'Backlog (Weeks)',       4::DECIMAL,       '4 weeks',       8::DECIMAL,           false, 'number',   true,  'manual',   ''),
+        ('leadership','2026-04-05'::DATE,'Callbacks (Weeks)',     1::DECIMAL,       '1 week',        3::DECIMAL,           true,  'number',   true,  'manual',   ''),
+        ('leadership','2026-04-05'::DATE,'COGS % (YTD)',          0.59::DECIMAL,    '59%',           0.76::DECIMAL,        false, 'percent',  true,  'qbo',      'Big delivery billed this week for Charter Academy. Will balance with end of month billing.'),
+        ('leadership','2026-04-05'::DATE,'Net % (YTD)',           0.175::DECIMAL,   '17.5%',         -0.1775::DECIMAL,     false, 'percent',  false, 'qbo',      ''),
+        ('leadership','2026-04-05'::DATE,'Cash Balance',          100000::DECIMAL,  'Min $100,000',  168855::DECIMAL,      true,  'currency', false, 'qbo',      ''),
+        ('leadership','2026-04-05'::DATE,'AR',                    500000::DECIMAL,  '$500,000',      500000::DECIMAL,      true,  'currency', false, 'qbo',      ''),
+        ('leadership','2026-04-05'::DATE,'DSO (Days)',            20::DECIMAL,      '20 days',       37.4::DECIMAL,        false, 'number',   true,  'qbo',      '')
+      ) AS v(team, week_of, metric_name, goal, goal_text, actual, is_on_track, display_format, lower_is_better, data_source, notes)
+      WHERE NOT EXISTS (SELECT 1 FROM scorecard_entries WHERE team='leadership' AND week_of='2026-04-05')
+    `);
+
+    // Seed recurring IDS issues for leadership
+    await client.query(`
+      INSERT INTO issues (team, title, description, priority, status)
+      SELECT * FROM (VALUES
+        ('leadership', 'People',                 'Weekly people update: hiring, performance, org changes', 'medium', 'open'),
+        ('leadership', 'Cash Flow',              'Weekly cash flow review: AR, AP, runway',                'medium', 'open'),
+        ('leadership', 'Capital Purchases',      'Equipment, vehicles, and capital expenditure decisions', 'medium', 'open'),
+        ('leadership', 'Marketing / Comm. Eng.', 'Marketing campaigns, truck wraps, community engagement', 'medium', 'open'),
+        ('leadership', 'Sales',                  'Sales team updates, pipeline, new business development', 'medium', 'open')
+      ) AS v(team, title, description, priority, status)
+      WHERE NOT EXISTS (SELECT 1 FROM issues WHERE team='leadership' AND title='People')
+    `);
+
     console.log('Database initialized successfully');
   } finally {
     client.release();
