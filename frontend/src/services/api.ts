@@ -141,9 +141,12 @@ export const deleteMeetingApi = (id: string) =>
 
 // ── Integrations ──────────────────────────────────────────────────────────────
 export const getHubSpotSummaryApi = () =>
-  api.get('/integrations/hubspot/summary')
+  api.get('/integrations/hubspot')
+
+export const syncHubSpotApi = () =>
+  api.post('/integrations/hubspot/sync')
 
 export const getQBOSummaryApi = () =>
-  api.get('/integrations/qbo/summary')
+  api.get('/integrations/qbo')
 
 export default api

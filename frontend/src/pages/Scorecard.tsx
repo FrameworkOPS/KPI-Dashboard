@@ -7,6 +7,7 @@ import {
   updateScorecardEntryApi,
   deleteScorecardEntryApi,
   createWeekFromTemplateApi,
+  syncHubSpotApi,
 } from '../services/api'
 import { ScorecardEntry, TeamType } from '../types'
 import { useAuthStore } from '../store/authStore'
@@ -310,8 +311,26 @@ const Scorecard: React.FC = () => {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showNewWeekModal, setShowNewWeekModal] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState<string | null>(null)
 
   const isLeadershipOrAdmin = user?.role === 'admin' || user?.role === 'leadership'
+
+  const handleHubSpotSync = async () => {
+    setSyncing(true)
+    setSyncMsg(null)
+    try {
+      await syncHubSpotApi()
+      setSyncMsg('HubSpot synced ✓')
+      await loadEntries()
+      setTimeout(() => setSyncMsg(null), 3000)
+    } catch (e: any) {
+      setSyncMsg(e.response?.data?.error || 'Sync failed')
+      setTimeout(() => setSyncMsg(null), 4000)
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const loadEntries = useCallback(async () => {
     setLoading(true)
@@ -425,6 +444,21 @@ const Scorecard: React.FC = () => {
         title="Scorecard"
         actions={
           <div className="flex items-center gap-2">
+            {/* HubSpot sync button — leadership team only */}
+            {isLeadershipOrAdmin && (team === 'all' || team === 'leadership') && (
+              <button
+                onClick={handleHubSpotSync}
+                disabled={syncing}
+                className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors flex items-center gap-2"
+                title="Pull latest data from HubSpot into this week's scorecard"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {syncing ? 'Syncing…' : syncMsg ?? 'HubSpot'}
+              </button>
+            )}
             {isLeadershipOrAdmin && (
               <button
                 onClick={() => setShowNewWeekModal(true)}

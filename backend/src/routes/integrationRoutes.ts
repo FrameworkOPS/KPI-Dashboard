@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { authenticate, requireAdmin, requireLeadershipOrAdmin } from '../middleware/auth';
 import { AuthRequest } from '../middleware/auth';
-import { getHubSpotSummary } from '../services/hubspotService';
+import { getHubSpotSummary, syncHubSpotToScorecard } from '../services/hubspotService';
 import { getQBOSummary } from '../services/qboService';
 import { connect, callback, disconnect, reconnect, status, refreshQBOToken } from '../controllers/qboOAuthController';
 
@@ -38,6 +38,16 @@ router.get('/qbo', authenticate, requireLeadershipOrAdmin, async (req: AuthReque
       res.status(503).json({ error: 'QuickBooks Online integration is not configured or token expired', detail: error.message });
       return;
     }
+    next(err);
+  }
+});
+
+// HubSpot sync → pushes latest data into current week's scorecard entries
+router.post('/hubspot/sync', authenticate, requireLeadershipOrAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    await syncHubSpotToScorecard();
+    res.json({ success: true, message: 'HubSpot data synced to scorecard' });
+  } catch (err) {
     next(err);
   }
 });
