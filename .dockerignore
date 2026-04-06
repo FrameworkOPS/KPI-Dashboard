@@ -1,0 +1,47 @@
+# Dependencies — installed fresh during build
+node_modules/
+*/node_modules/
+**/.node_modules/
+
+# Build output — rebuilt during build
+dist/
+*/dist/
+build/
+*/build/
+
+# Environment variables — never include in image
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+
+# Git
+.git/
+.gitignore
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Test files
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+__tests__/
+coverage/
