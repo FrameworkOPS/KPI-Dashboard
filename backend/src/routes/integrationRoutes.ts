@@ -1,8 +1,9 @@
 import { Router, Response, NextFunction } from 'express';
-import { authenticate, requireLeadershipOrAdmin } from '../middleware/auth';
+import { authenticate, requireAdmin, requireLeadershipOrAdmin } from '../middleware/auth';
 import { AuthRequest } from '../middleware/auth';
 import { getHubSpotSummary } from '../services/hubspotService';
 import { getQBOSummary } from '../services/qboService';
+import { connect, callback, disconnect, reconnect, status, refreshQBOToken } from '../controllers/qboOAuthController';
 
 const router = Router();
 
@@ -22,6 +23,13 @@ router.get('/hubspot', authenticate, requireLeadershipOrAdmin, async (req: AuthR
 
 router.get('/qbo', authenticate, requireLeadershipOrAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    // Attempt token refresh if the stored token is expired before fetching summary
+    try {
+      await refreshQBOToken();
+    } catch {
+      // Refresh failure is non-fatal here — getQBOSummary will throw its own error
+      // if tokens are truly missing or invalid
+    }
     const summary = await getQBOSummary();
     res.json(summary);
   } catch (err) {
@@ -33,5 +41,12 @@ router.get('/qbo', authenticate, requireLeadershipOrAdmin, async (req: AuthReque
     next(err);
   }
 });
+
+// QBO OAuth — connect/disconnect (admin only for connect, public for callback)
+router.get('/qbo/connect', authenticate, requireAdmin, connect);
+router.get('/qbo/callback', callback); // public — called by Intuit
+router.post('/qbo/disconnect', authenticate, requireAdmin, disconnect);
+router.get('/qbo/reconnect', authenticate, requireAdmin, reconnect);
+router.get('/qbo/status', authenticate, requireLeadershipOrAdmin, status);
 
 export default router;

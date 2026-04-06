@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import { query } from '../config/database';
 
 const QBO_BASE_URL = 'https://quickbooks.api.intuit.com/v3/company';
 const QBO_AUTH_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
@@ -192,6 +193,17 @@ export interface QBOSummary {
 }
 
 export async function getQBOSummary(): Promise<QBOSummary> {
+  // Load tokens from DB if not in env
+  if (!process.env.QBO_ACCESS_TOKEN) {
+    const result = await query("SELECT access_token, refresh_token, realm_id FROM oauth_tokens WHERE provider='qbo' LIMIT 1");
+    if (result.rows.length > 0) {
+      const row = result.rows[0];
+      process.env.QBO_ACCESS_TOKEN = row.access_token;
+      process.env.QBO_REFRESH_TOKEN = row.refresh_token;
+      process.env.QBO_REALM_ID = row.realm_id;
+    }
+  }
+
   const { client } = await getQBOClient();
   const dates = getDateRanges();
 

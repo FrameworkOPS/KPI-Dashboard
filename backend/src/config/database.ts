@@ -15,6 +15,9 @@ export const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
+// Convenience wrapper so callers don't need to import pool directly
+export const query = (text: string, params?: unknown[]) => pool.query(text, params);
+
 export async function initializeDatabase(): Promise<void> {
   const client = await pool.connect();
   try {
@@ -186,6 +189,24 @@ export async function initializeDatabase(): Promise<void> {
       );
       console.log('Default admin user created: admin@company.com');
     }
+
+    // oauth_tokens table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS oauth_tokens (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        provider VARCHAR(50) NOT NULL UNIQUE,
+        realm_id VARCHAR(255),
+        access_token TEXT,
+        refresh_token TEXT,
+        token_expiry TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_oauth_tokens_provider ON oauth_tokens(provider)
+    `);
 
     console.log('Database initialized successfully');
   } finally {

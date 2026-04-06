@@ -6,6 +6,8 @@ import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 
 import Login from './pages/Login'
+import EULA from './pages/EULA'
+import PrivacyPolicy from './pages/PrivacyPolicy'
 import Dashboard from './pages/Dashboard'
 import Scorecard from './pages/Scorecard'
 import Rocks from './pages/Rocks'
@@ -120,6 +122,10 @@ const App: React.FC = () => {
             </ProtectedRoute>
           }
         />
+
+        {/* Public legal pages */}
+        <Route path="/eula" element={<EULA />} />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
 
         {/* Catch-all */}
         <Route path="*" element={<Navigate to="/" replace />} />
