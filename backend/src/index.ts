@@ -82,36 +82,37 @@ app.use(errorHandler);
 
 // Start server
 async function start(): Promise<void> {
+  // Try to connect to DB but don't crash if unavailable — Railway may need a moment
   try {
     await initializeDatabase();
-    console.log('Database initialized');
-
-    const server = app.listen(PORT, () => {
-      console.log(`KPI Dashboard backend running on port ${PORT}`);
-      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    });
-
-    // Graceful shutdown
-    const shutdown = async (signal: string) => {
-      console.log(`\n${signal} received — shutting down gracefully`);
-      server.close(async () => {
-        await pool.end();
-        console.log('Database pool closed');
-        process.exit(0);
-      });
-      // Force exit after 10 seconds
-      setTimeout(() => {
-        console.error('Forced shutdown after timeout');
-        process.exit(1);
-      }, 10000);
-    };
-
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-    process.on('SIGINT', () => shutdown('SIGINT'));
-  } catch (err) {
-    console.error('Failed to start server:', err);
-    process.exit(1);
+    console.log('✅ Database initialized');
+  } catch (dbErr) {
+    console.warn('⚠️  Database connection failed — server will start anyway.');
+    console.warn('⚠️  Set DATABASE_URL env var and redeploy to enable database features.');
+    console.warn('⚠️  Error:', (dbErr as Error).message);
   }
+
+  const server = app.listen(PORT, () => {
+    console.log(`✅ KPI Dashboard running on port ${PORT}`);
+    console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
+  });
+
+  // Graceful shutdown
+  const shutdown = async (signal: string) => {
+    console.log(`\n${signal} received — shutting down gracefully`);
+    server.close(async () => {
+      await pool.end();
+      console.log('Database pool closed');
+      process.exit(0);
+    });
+    setTimeout(() => {
+      console.error('Forced shutdown after timeout');
+      process.exit(1);
+    }, 10000);
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 start();
