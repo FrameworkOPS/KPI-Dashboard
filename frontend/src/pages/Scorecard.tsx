@@ -60,7 +60,7 @@ function getStatus(entry: ScorecardEntry): StatusState {
   if (
     entry.metric_name.toLowerCase().includes('net %') &&
     entry.actual !== null &&
-    entry.actual < 0
+    parseFloat(String(entry.actual)) < 0
   ) {
     return 'at_risk'
   }
@@ -129,7 +129,7 @@ interface InlineEditProps {
 
 function InlineActualCell({ value, format, entryId, onSave }: InlineEditProps) {
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState<string>(value !== null ? String(value) : '')
+  const [draft, setDraft] = useState<string>(value !== null && value !== undefined ? String(parseFloat(String(value))) : '')
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
