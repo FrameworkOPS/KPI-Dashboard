@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { pool } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
 import { canAccessTeam } from '../utils/auth';
+import { sendMeetingReminder } from '../services/emailService';
 
 export async function getMeetings(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -45,7 +46,8 @@ export async function getMeetings(req: AuthRequest, res: Response, next: NextFun
 export async function createMeeting(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const {
-      team, meeting_date, segue, scorecard_notes, rocks_notes,
+      team, meeting_date, meeting_time, meeting_link, attendee_emails,
+      segue, scorecard_notes, rocks_notes,
       headlines, todos_notes, ids_issues, conclude_notes, rating, status,
     } = req.body;
     const user = req.user!;
@@ -73,12 +75,16 @@ export async function createMeeting(req: AuthRequest, res: Response, next: NextF
 
     const result = await pool.query(
       `INSERT INTO meetings
-         (team, meeting_date, segue, scorecard_notes, rocks_notes, headlines,
+         (team, meeting_date, meeting_time, meeting_link, attendee_emails,
+          segue, scorecard_notes, rocks_notes, headlines,
           todos_notes, ids_issues, conclude_notes, rating, status, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        RETURNING *`,
       [
         team, meeting_date,
+        meeting_time || null,
+        meeting_link || null,
+        attendee_emails ? JSON.stringify(attendee_emails) : null,
         segue || null, scorecard_notes || null, rocks_notes || null,
         headlines || null, todos_notes || null, ids_issues || null,
         conclude_notes || null, rating || null, status || 'scheduled', user.id,
@@ -95,6 +101,7 @@ export async function updateMeeting(req: AuthRequest, res: Response, next: NextF
   try {
     const { id } = req.params;
     const {
+      meeting_time, meeting_link, attendee_emails,
       segue, scorecard_notes, rocks_notes, headlines,
       todos_notes, ids_issues, conclude_notes, rating, status,
     } = req.body;
@@ -118,19 +125,25 @@ export async function updateMeeting(req: AuthRequest, res: Response, next: NextF
 
     const result = await pool.query(
       `UPDATE meetings SET
-         segue = COALESCE($1, segue),
-         scorecard_notes = COALESCE($2, scorecard_notes),
-         rocks_notes = COALESCE($3, rocks_notes),
-         headlines = COALESCE($4, headlines),
-         todos_notes = COALESCE($5, todos_notes),
-         ids_issues = COALESCE($6, ids_issues),
-         conclude_notes = COALESCE($7, conclude_notes),
-         rating = COALESCE($8, rating),
-         status = COALESCE($9, status),
+         meeting_time = COALESCE($1, meeting_time),
+         meeting_link = COALESCE($2, meeting_link),
+         attendee_emails = COALESCE($3, attendee_emails),
+         segue = COALESCE($4, segue),
+         scorecard_notes = COALESCE($5, scorecard_notes),
+         rocks_notes = COALESCE($6, rocks_notes),
+         headlines = COALESCE($7, headlines),
+         todos_notes = COALESCE($8, todos_notes),
+         ids_issues = COALESCE($9, ids_issues),
+         conclude_notes = COALESCE($10, conclude_notes),
+         rating = COALESCE($11, rating),
+         status = COALESCE($12, status),
          updated_at = NOW()
-       WHERE id = $10
+       WHERE id = $13
        RETURNING *`,
       [
+        meeting_time !== undefined ? meeting_time : null,
+        meeting_link !== undefined ? meeting_link : null,
+        attendee_emails !== undefined ? JSON.stringify(attendee_emails) : null,
         segue !== undefined ? segue : null,
         scorecard_notes !== undefined ? scorecard_notes : null,
         rocks_notes !== undefined ? rocks_notes : null,
@@ -169,6 +182,76 @@ export async function deleteMeeting(req: AuthRequest, res: Response, next: NextF
     await pool.query('DELETE FROM meetings WHERE id = $1', [id]);
     res.json({ message: 'Meeting deleted' });
   } catch (err) {
+    next(err);
+  }
+}
+
+export async function sendReminder(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const user = req.user!;
+
+    const result = await pool.query('SELECT * FROM meetings WHERE id = $1', [id]);
+    const meeting = result.rows[0];
+    if (!meeting) {
+      res.status(404).json({ error: 'Meeting not found' });
+      return;
+    }
+
+    if (!canAccessTeam(user.role, user.team, meeting.team)) {
+      res.status(403).json({ error: 'Access to this team is not allowed' });
+      return;
+    }
+
+    // Build recipient list: attendee_emails stored in meeting, plus optionally from query
+    let recipients: string[] = [];
+    if (meeting.attendee_emails) {
+      try {
+        const parsed = typeof meeting.attendee_emails === 'string'
+          ? JSON.parse(meeting.attendee_emails)
+          : meeting.attendee_emails;
+        recipients = Array.isArray(parsed) ? parsed : [];
+      } catch { /* ignore */ }
+    }
+
+    // Allow additional/override emails in request body
+    if (req.body.emails && Array.isArray(req.body.emails)) {
+      recipients = req.body.emails;
+    }
+
+    if (recipients.length === 0) {
+      res.status(400).json({ error: 'No recipient emails found. Add attendee emails to the meeting or provide emails in the request body.' });
+      return;
+    }
+
+    const dateStr = new Date(meeting.meeting_date + 'T00:00:00').toLocaleDateString('en-US', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    });
+    const timeStr = meeting.meeting_time || '9:00 AM';
+    const teamName = meeting.team.charAt(0).toUpperCase() + meeting.team.slice(1);
+
+    await sendMeetingReminder({
+      to: recipients,
+      teamName,
+      meetingDate: dateStr,
+      meetingTime: timeStr,
+      meetingLink: meeting.meeting_link || null,
+      appUrl: process.env.APP_URL || 'https://web-production-c3567.up.railway.app',
+    });
+
+    // Mark reminder as sent
+    await pool.query(
+      'UPDATE meetings SET reminder_sent = true, updated_at = NOW() WHERE id = $1',
+      [id]
+    );
+
+    res.json({ success: true, sent_to: recipients });
+  } catch (err) {
+    const error = err as Error;
+    if (error.message.includes('SMTP_')) {
+      res.status(503).json({ error: 'Email not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASS in environment variables.' });
+      return;
+    }
     next(err);
   }
 }

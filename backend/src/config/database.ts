@@ -166,6 +166,12 @@ export async function initializeDatabase(): Promise<void> {
       )
     `);
 
+    // Add new meeting columns if they don't exist (safe for existing deploys)
+    await client.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS meeting_time VARCHAR(10)`);
+    await client.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS meeting_link TEXT`);
+    await client.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS attendee_emails JSONB DEFAULT '[]'`);
+    await client.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN DEFAULT false`);
+
     // Seed VTO sections
     const vtoSections = [
       { key: 'core_values', title: 'Core Values' },

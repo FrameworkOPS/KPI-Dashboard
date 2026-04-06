@@ -139,6 +139,9 @@ export const updateMeetingApi = (id: string, data: any) =>
 export const deleteMeetingApi = (id: string) =>
   api.delete(`/meetings/${id}`)
 
+export const sendMeetingReminderApi = (id: string, emails?: string[]) =>
+  api.post(`/meetings/${id}/reminder`, emails ? { emails } : {})
+
 // ── Integrations ──────────────────────────────────────────────────────────────
 export const getHubSpotSummaryApi = () =>
   api.get('/integrations/hubspot')

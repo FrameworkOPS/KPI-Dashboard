@@ -8,6 +8,7 @@ import { initializeDatabase, pool } from './config/database';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
 import authRoutes from './routes/authRoutes';
+import userRoutes from './routes/userRoutes';
 import scorecardRoutes from './routes/scorecardRoutes';
 import rocksRoutes from './routes/rocksRoutes';
 import issuesRoutes from './routes/issuesRoutes';
@@ -50,6 +51,7 @@ app.get('/api/health', (_req, res) => {
 
 // API routes
 app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
 app.use('/api/scorecard', scorecardRoutes);
 app.use('/api/rocks', rocksRoutes);
 app.use('/api/issues', issuesRoutes);

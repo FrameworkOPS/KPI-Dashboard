@@ -1,0 +1,12 @@
+import { Router } from 'express';
+import { getUsers, createUser, updateUser, deleteUser } from '../controllers/userController';
+import { authenticate, requireAdmin } from '../middleware/auth';
+
+const router = Router();
+
+router.get('/',     authenticate, requireAdmin, getUsers);
+router.post('/',    authenticate, requireAdmin, createUser);
+router.put('/:id',  authenticate, requireAdmin, updateUser);
+router.delete('/:id', authenticate, requireAdmin, deleteUser);
+
+export default router;

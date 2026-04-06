@@ -76,7 +76,7 @@ export interface HubSpotSummary {
   appointments_this_week: number;
   weekly_sales_amount:    number;
   ytd_sales_amount:       number;
-  closing_rate_ytd:       number;   // decimal  e.g. 0.18 = 18 %
+  closing_rate_ytd:       number;   // decimal  e.g. 0.18 = 18%
   appt_ytd_count:         number;
   contract_ytd_count:     number;
 }
@@ -86,7 +86,11 @@ export async function getHubSpotSummary(): Promise<HubSpotSummary> {
   const since7d  = last7DaysStart();
   const sinceYTD = ytdStart();
 
-  // Run all queries in parallel
+  // Use hs_date_entered_{stageId} for all time-based filters.
+  // This property tracks when a deal ENTERED a given stage (historical, stays set
+  // even after the deal moves forward) — more reliable than hs_v2_date_entered_current_stage
+  // which is calculated and not filterable in the CRM search API.
+
   const [
     apptWeek,
     salesWeek,
@@ -96,26 +100,22 @@ export async function getHubSpotSummary(): Promise<HubSpotSummary> {
   ] = await Promise.all([
 
     // 1. Appointments set in the last 7 days
-    //    Deals CURRENTLY in Appointment Set stage, entered that stage ≤ 7 days ago
+    //    Deals that entered Appointment Set stage within the last 7 days
     searchDeals(client, [
-      { propertyName: 'dealstage',                        operator: 'EQ',  value: STAGE_APPOINTMENT_SET },
-      { propertyName: 'hs_v2_date_entered_current_stage', operator: 'GTE', value: since7d },
+      { propertyName: `hs_date_entered_${STAGE_APPOINTMENT_SET}`, operator: 'GTE', value: since7d },
     ], ['dealname'], /* countOnly */ true),
 
     // 2. Weekly Sales – deals that entered Contract Signed in the last 7 days
     searchDeals(client, [
-      { propertyName: 'dealstage',                        operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
-      { propertyName: 'hs_v2_date_entered_current_stage', operator: 'GTE', value: since7d },
+      { propertyName: `hs_date_entered_${STAGE_CONTRACT_SIGNED}`, operator: 'GTE', value: since7d },
     ], ['amount', 'dealname']),
 
     // 3. YTD Sales – deals that entered Contract Signed since Jan 1
     searchDeals(client, [
-      { propertyName: 'dealstage',                        operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
-      { propertyName: 'hs_v2_date_entered_current_stage', operator: 'GTE', value: sinceYTD },
+      { propertyName: `hs_date_entered_${STAGE_CONTRACT_SIGNED}`, operator: 'GTE', value: sinceYTD },
     ], ['amount', 'dealname']),
 
     // 4. Closing rate denominator – deals that EVER entered Appointment Set YTD
-    //    hs_date_entered_{stageId} persists even after the deal moves forward
     searchDeals(client, [
       { propertyName: `hs_date_entered_${STAGE_APPOINTMENT_SET}`, operator: 'GTE', value: sinceYTD },
     ], ['dealname'], /* countOnly */ true),
@@ -143,7 +143,6 @@ export async function getHubSpotSummary(): Promise<HubSpotSummary> {
 }
 
 // ── Sync HubSpot data → scorecard_entries ─────────────────────────────────────
-// Call this after getHubSpotSummary to write values into the current week's scorecard.
 export async function syncHubSpotToScorecard(): Promise<void> {
   const summary = await getHubSpotSummary();
 

@@ -103,6 +103,9 @@ export interface Meeting {
   id: string;
   team: string;
   meeting_date: string;
+  meeting_time: string | null;
+  meeting_link: string | null;
+  attendee_emails: string[] | null;
   segue: string | null;
   scorecard_notes: string | null;
   rocks_notes: string | null;
@@ -112,6 +115,7 @@ export interface Meeting {
   conclude_notes: string | null;
   rating: number | null;
   status: 'scheduled' | 'in_progress' | 'complete';
+  reminder_sent: boolean;
   created_by: string;
 }
 
