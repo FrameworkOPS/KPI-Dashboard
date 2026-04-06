@@ -1,8 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import express from 'express';
-import cors from 'cors';
+import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import path from 'path';
 import { initializeDatabase, pool } from './config/database';
@@ -21,28 +20,23 @@ import integrationRoutes from './routes/integrationRoutes';
 const app = express();
 const PORT = parseInt(process.env.PORT || '5001', 10);
 
+// CORS — allow all origins (must run before helmet)
+app.use((req: Request, res: Response, next: NextFunction) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  next();
+});
+
 // Security middleware
 app.use(helmet({
-  contentSecurityPolicy: false, // Disable for SPA
+  contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
-}));
-
-// CORS
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:5173,http://localhost:5001')
-  .split(',')
-  .map((o) => o.trim());
-
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error(`CORS: origin ${origin} not allowed`));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  crossOriginResourcePolicy: false,
 }));
 
 // Body parsing
