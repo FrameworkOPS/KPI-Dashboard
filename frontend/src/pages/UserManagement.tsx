@@ -234,7 +234,7 @@ const UserManagement: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-700/50">
                 {filtered.map((u) => {
-                  const initials = `${u.first_name[0]}${u.last_name[0]}`.toUpperCase()
+                  const initials = `${(u.first_name || '?')[0]}${(u.last_name || '')[0] || ''}`.toUpperCase()
                   return (
                     <tr key={u.id} className={`hover:bg-slate-700/20 transition-colors ${!u.active ? 'opacity-50' : ''}`}>
                       <td className="px-4 py-3">
@@ -242,7 +242,7 @@ const UserManagement: React.FC = () => {
                           <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
                             <span className="text-xs font-bold text-white">{initials}</span>
                           </div>
-                          <span className="text-white font-medium">{u.first_name} {u.last_name}</span>
+                          <span className="text-white font-medium">{u.first_name || ''} {u.last_name || ''}</span>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-slate-400">{u.email}</td>

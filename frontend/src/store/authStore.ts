@@ -50,14 +50,18 @@ export const useAuthStore = create<AuthState>((set) => ({
       return
     }
     set({ loading: true })
+
+    // Safety timeout — if the API doesn't respond in 8s, stop the spinner
+    const timeout = setTimeout(() => {
+      set({ loading: false, isAuthenticated: false })
+    }, 8000)
+
     try {
       const response = await getMeApi()
-      set({
-        user: response.data,
-        isAuthenticated: true,
-        loading: false,
-      })
+      clearTimeout(timeout)
+      set({ user: response.data, isAuthenticated: true, loading: false })
     } catch {
+      clearTimeout(timeout)
       localStorage.removeItem('token')
       set({ user: null, token: null, isAuthenticated: false, loading: false })
     }

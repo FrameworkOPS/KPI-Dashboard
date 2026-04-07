@@ -4,6 +4,7 @@ import { useAuthStore } from './store/authStore'
 
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
+import ErrorBoundary from './components/ErrorBoundary'
 
 import Login from './pages/Login'
 import EULA from './pages/EULA'
@@ -27,6 +28,7 @@ const App: React.FC = () => {
   }, [loadUser])
 
   return (
+    <ErrorBoundary>
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         {/* Public */}
@@ -143,6 +145,7 @@ const App: React.FC = () => {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
+    </ErrorBoundary>
   )
 }
 
