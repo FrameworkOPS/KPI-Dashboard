@@ -110,7 +110,7 @@ const Dashboard: React.FC = () => {
   return (
     <>
       <Header title="Dashboard" />
-      <div className="p-6 space-y-6">
+      <div className="p-4 md:p-6 space-y-4 md:space-y-6">
 
         {/* Stat cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -166,7 +166,7 @@ const Dashboard: React.FC = () => {
 
         {/* Integration tiles — admin/leadership only */}
         {(user?.role === 'admin' || user?.role === 'leadership') && (hubspot || qbo) && (
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {hubspot && (
               <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">
                 <div className="flex items-center gap-2 mb-4">

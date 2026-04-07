@@ -503,7 +503,7 @@ const Scorecard: React.FC = () => {
         />
       )}
 
-      <div className="p-6 space-y-4">
+      <div className="p-4 md:p-6 space-y-4">
         {error && (
           <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">
             {error}
@@ -609,8 +609,82 @@ const Scorecard: React.FC = () => {
           </form>
         )}
 
-        {/* Table */}
-        <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-x-auto">
+        {/* ── Mobile card list (< md) ──────────────────────────────────────── */}
+        <div className="md:hidden space-y-2">
+          {loading ? (
+            <div className="flex items-center justify-center h-32">
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500" />
+            </div>
+          ) : entries.length === 0 ? (
+            <div className="text-center py-12 text-slate-500 text-sm">
+              No entries for this week.
+              {isLeadershipOrAdmin && (
+                <span> <button onClick={() => setShowNewWeekModal(true)} className="text-blue-400 underline">Create from template</button></span>
+              )}
+            </div>
+          ) : (
+            entries.map((entry) => {
+              const status = getStatus(entry)
+              const dotColor = status === 'on_track' ? 'bg-green-400' : status === 'at_risk' ? 'bg-yellow-400' : 'bg-red-400'
+              return (
+                <div key={entry.id} className="bg-slate-800 border border-slate-700 rounded-xl p-4">
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 mt-0.5 ${dotColor}`} />
+                      <span className="text-white font-semibold text-sm leading-tight">{entry.metric_name}</span>
+                    </div>
+                    <StatusBadge entry={entry} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 mb-2">
+                    <div className="bg-slate-700/50 rounded-lg px-3 py-2">
+                      <p className="text-xs text-slate-400 mb-0.5">Goal</p>
+                      <p className="text-sm font-semibold text-slate-200">
+                        {entry.goal_text || formatValue(entry.goal, entry.display_format || 'number')}
+                      </p>
+                    </div>
+                    <div className="bg-slate-700/50 rounded-lg px-3 py-2">
+                      <p className="text-xs text-slate-400 mb-0.5">Actual</p>
+                      <div className="text-sm font-bold">
+                        {canEdit ? (
+                          <InlineActualCell
+                            value={entry.actual}
+                            format={entry.display_format || 'number'}
+                            entryId={entry.id}
+                            onSave={saveActual}
+                          />
+                        ) : (
+                          <span className={status === 'on_track' ? 'text-green-400' : status === 'at_risk' ? 'text-yellow-400' : 'text-red-400'}>
+                            {formatValue(entry.actual, entry.display_format || 'number')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {entry.notes && (
+                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">{entry.notes}</p>
+                  )}
+                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-700/50">
+                    <SourceBadge source={entry.data_source} />
+                    {canEdit && (
+                      <button
+                        onClick={() => startEdit(entry)}
+                        className="text-slate-500 hover:text-blue-400 transition-colors p-1"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75}
+                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        {/* ── Desktop table (md+) ──────────────────────────────────────────── */}
+        <div className="hidden md:block bg-slate-800 rounded-xl border border-slate-700 overflow-x-auto">
           {loading ? (
             <div className="flex items-center justify-center h-32">
               <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500" />
@@ -847,7 +921,7 @@ const Scorecard: React.FC = () => {
               </tbody>
             </table>
           )}
-        </div>
+        </div>{/* end hidden md:block desktop table */}
       </div>
     </>
   )

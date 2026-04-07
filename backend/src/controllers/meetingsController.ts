@@ -100,11 +100,6 @@ export async function createMeeting(req: AuthRequest, res: Response, next: NextF
 export async function updateMeeting(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const {
-      meeting_time, meeting_link, attendee_emails,
-      segue, scorecard_notes, rocks_notes, headlines,
-      todos_notes, ids_issues, conclude_notes, rating, status,
-    } = req.body;
     const user = req.user!;
 
     const existing = await pool.query('SELECT * FROM meetings WHERE id = $1', [id]);
@@ -118,43 +113,63 @@ export async function updateMeeting(req: AuthRequest, res: Response, next: NextF
       return;
     }
 
+    const {
+      meeting_time, meeting_link, attendee_emails,
+      segue, scorecard_notes, rocks_notes, headlines,
+      todos_notes, ids_issues, conclude_notes, rating, status,
+    } = req.body;
+
     if (rating !== undefined && (rating < 1 || rating > 10)) {
       res.status(400).json({ error: 'Rating must be between 1 and 10' });
       return;
     }
 
+    // Dynamic update — only set columns that were provided
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let p = 1;
+
+    // Core columns (always present)
+    const coreFields: Record<string, unknown> = {
+      segue, scorecard_notes, rocks_notes, headlines,
+      todos_notes, ids_issues, conclude_notes, rating, status,
+    };
+    for (const [col, val] of Object.entries(coreFields)) {
+      if (val !== undefined) {
+        sets.push(`${col} = $${p++}`);
+        values.push(val === '' ? null : val);
+      }
+    }
+
+    // New columns — check if they exist before trying to set them
+    let hasNewCols = true;
+    try {
+      await pool.query(`SELECT meeting_time FROM meetings LIMIT 0`);
+    } catch {
+      hasNewCols = false;
+    }
+
+    if (hasNewCols) {
+      if (meeting_time !== undefined) { sets.push(`meeting_time = $${p++}`);     values.push(meeting_time || null); }
+      if (meeting_link !== undefined) { sets.push(`meeting_link = $${p++}`);     values.push(meeting_link || null); }
+      if (attendee_emails !== undefined) {
+        sets.push(`attendee_emails = $${p++}`);
+        values.push(Array.isArray(attendee_emails) ? JSON.stringify(attendee_emails) : attendee_emails);
+      }
+    }
+
+    if (sets.length === 0) {
+      // Nothing to update — return current row
+      res.json(existing.rows[0]);
+      return;
+    }
+
+    sets.push(`updated_at = NOW()`);
+    values.push(id);
+
     const result = await pool.query(
-      `UPDATE meetings SET
-         meeting_time = COALESCE($1, meeting_time),
-         meeting_link = COALESCE($2, meeting_link),
-         attendee_emails = COALESCE($3, attendee_emails),
-         segue = COALESCE($4, segue),
-         scorecard_notes = COALESCE($5, scorecard_notes),
-         rocks_notes = COALESCE($6, rocks_notes),
-         headlines = COALESCE($7, headlines),
-         todos_notes = COALESCE($8, todos_notes),
-         ids_issues = COALESCE($9, ids_issues),
-         conclude_notes = COALESCE($10, conclude_notes),
-         rating = COALESCE($11, rating),
-         status = COALESCE($12, status),
-         updated_at = NOW()
-       WHERE id = $13
-       RETURNING *`,
-      [
-        meeting_time !== undefined ? meeting_time : null,
-        meeting_link !== undefined ? meeting_link : null,
-        attendee_emails !== undefined ? JSON.stringify(attendee_emails) : null,
-        segue !== undefined ? segue : null,
-        scorecard_notes !== undefined ? scorecard_notes : null,
-        rocks_notes !== undefined ? rocks_notes : null,
-        headlines !== undefined ? headlines : null,
-        todos_notes !== undefined ? todos_notes : null,
-        ids_issues !== undefined ? ids_issues : null,
-        conclude_notes !== undefined ? conclude_notes : null,
-        rating !== undefined ? rating : null,
-        status || null,
-        id,
-      ]
+      `UPDATE meetings SET ${sets.join(', ')} WHERE id = $${p} RETURNING *`,
+      values
     );
 
     res.json(result.rows[0]);

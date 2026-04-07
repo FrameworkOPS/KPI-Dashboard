@@ -18,7 +18,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   token: localStorage.getItem('token'),
   isAuthenticated: false,
-  loading: false,
+  // Start in loading state when a token exists so ProtectedRoute shows a
+  // spinner instead of immediately redirecting to /login on page refresh.
+  loading: !!localStorage.getItem('token'),
   error: null,
 
   login: async (email: string, password: string) => {
