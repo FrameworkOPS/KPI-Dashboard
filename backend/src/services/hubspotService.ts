@@ -38,12 +38,33 @@ async function searchDeals(
   properties: string[],
   countOnly = false,
 ): Promise<{ total: number; results: any[] }> {
+  const body = {
+    filterGroups: [{ filters }],
+    properties: countOnly ? ['dealname'] : properties,
+    limit: countOnly ? 1 : 200,
+  };
+
+  const makeRequest = async (after?: string) => {
+    try {
+      return await client.post('/crm/v3/objects/deals/search', {
+        ...body,
+        ...(after ? { after } : {}),
+      });
+    } catch (err: any) {
+      // Surface the actual HubSpot error response for debugging
+      if (err.response) {
+        const detail = JSON.stringify(err.response.data);
+        const status = err.response.status;
+        console.error(`HubSpot search error ${status}:`, detail);
+        console.error('  Request body:', JSON.stringify({ ...body, filters }));
+        throw new Error(`HubSpot API error ${status}: ${detail}`);
+      }
+      throw err;
+    }
+  };
+
   if (countOnly) {
-    const res = await client.post('/crm/v3/objects/deals/search', {
-      filterGroups: [{ filters }],
-      properties: ['dealname'],
-      limit: 1,
-    });
+    const res = await makeRequest();
     return { total: res.data.total ?? 0, results: [] };
   }
 
@@ -53,12 +74,7 @@ async function searchDeals(
   let total = 0;
 
   do {
-    const res = await client.post('/crm/v3/objects/deals/search', {
-      filterGroups: [{ filters }],
-      properties,
-      limit: 200,
-      ...(after ? { after } : {}),
-    });
+    const res = await makeRequest(after);
     total = res.data.total ?? 0;
     results.push(...(res.data.results ?? []));
     after = res.data.paging?.next?.after;

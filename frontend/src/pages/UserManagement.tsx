@@ -148,7 +148,10 @@ const UserManagement: React.FC = () => {
       const res = await getUsersApi()
       setUsers(res.data)
     } catch (e: any) {
-      setError(e.message)
+      const status = e.response?.status
+      if (status === 403) setError('Access denied — admin role required.')
+      else if (status === 404) setError('User management API not available. Ensure the latest deploy is active.')
+      else setError(e.response?.data?.error || e.message)
     } finally {
       setLoading(false)
     }

@@ -48,7 +48,37 @@ router.post('/hubspot/sync', authenticate, requireLeadershipOrAdmin, async (req:
     await syncHubSpotToScorecard();
     res.json({ success: true, message: 'HubSpot data synced to scorecard' });
   } catch (err) {
+    const error = err as Error;
+    if (error.message.includes('HUBSPOT_API_KEY')) {
+      res.status(503).json({ error: 'HubSpot integration is not configured. Set HUBSPOT_API_KEY in environment variables.' });
+      return;
+    }
+    if (error.message.includes('HubSpot API error')) {
+      res.status(502).json({ error: error.message });
+      return;
+    }
     next(err);
+  }
+});
+
+// HubSpot diagnostic — check connectivity and surface any API errors
+router.get('/hubspot/ping', authenticate, requireLeadershipOrAdmin, async (req: AuthRequest, res: Response) => {
+  const apiKey = process.env.HUBSPOT_API_KEY;
+  if (!apiKey) {
+    res.status(503).json({ ok: false, error: 'HUBSPOT_API_KEY is not set in environment variables' });
+    return;
+  }
+  try {
+    const { default: axios } = await import('axios');
+    // Simple GET to verify the key is valid
+    const r = await axios.get('https://api.hubapi.com/crm/v3/objects/deals?limit=1', {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    res.json({ ok: true, status: r.status, keyPrefix: apiKey.slice(0, 12) + '…' });
+  } catch (err: any) {
+    const detail = err.response ? JSON.stringify(err.response.data) : err.message;
+    const status = err.response?.status || 500;
+    res.status(502).json({ ok: false, hubspot_status: status, error: detail });
   }
 });
 

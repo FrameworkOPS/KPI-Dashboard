@@ -191,17 +191,26 @@ export async function initializeDatabase(): Promise<void> {
       );
     }
 
-    // Seed default admin user
-    const adminEmail = 'admin@company.com';
-    const existing = await client.query('SELECT id FROM users WHERE email = $1', [adminEmail]);
-    if (existing.rows.length === 0) {
-      const passwordHash = await bcrypt.hash('Admin1234!', 12);
-      await client.query(
-        `INSERT INTO users (email, password_hash, first_name, last_name, role, team)
-         VALUES ($1, $2, 'Admin', 'User', 'admin', 'all')`,
-        [adminEmail, passwordHash]
-      );
-      console.log('Default admin user created: admin@company.com');
+    // Seed known users — only inserts if email doesn't already exist
+    const seedUsers = [
+      { email: 'chance@skyright.com', password: process.env.SEED_CHANCE_PW || 'Redroad7318',  first: 'Chance', last: 'Peare',     role: 'admin',      team: 'all'        },
+      { email: 'jorn@skyright.com',   password: process.env.SEED_JORN_PW   || 'Bielefeld1',   first: 'Jorn',   last: 'Bielefeld', role: 'leadership', team: 'leadership' },
+      { email: 'pete@skyright.com',   password: process.env.SEED_PETE_PW   || 'TempPass1234!', first: 'Pete',   last: '',          role: 'admin',      team: 'all'        },
+      // Fallback generic admin in case of fresh install
+      { email: 'admin@company.com',   password: 'Admin1234!',                                  first: 'Admin',  last: 'User',      role: 'admin',      team: 'all'        },
+    ];
+
+    for (const u of seedUsers) {
+      const exists = await client.query('SELECT id FROM users WHERE email = $1', [u.email]);
+      if (exists.rows.length === 0) {
+        const hash = await bcrypt.hash(u.password, 12);
+        await client.query(
+          `INSERT INTO users (email, password_hash, first_name, last_name, role, team)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [u.email, hash, u.first, u.last, u.role, u.team]
+        );
+        console.log(`Seeded user: ${u.email} (${u.role})`);
+      }
     }
 
     // oauth_tokens table
