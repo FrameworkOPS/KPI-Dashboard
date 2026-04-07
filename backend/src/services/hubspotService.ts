@@ -2,8 +2,8 @@ import axios, { AxiosInstance } from 'axios';
 import { query } from '../config/database';
 
 // ── Stage IDs (Retail Pipeline) ───────────────────────────────────────────────
-const STAGE_APPOINTMENT_SET  = '87743795';
-const STAGE_CONTRACT_SIGNED  = '60609660';
+const STAGE_APPOINTMENT_SET = '87743795';
+const STAGE_CONTRACT_SIGNED = '60609660';
 
 // ── Client ────────────────────────────────────────────────────────────────────
 function getClient(): AxiosInstance {
@@ -16,6 +16,7 @@ function getClient(): AxiosInstance {
 }
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
+// HubSpot datetime filters accept epoch-ms as a string
 function msStr(d: Date): string {
   return d.getTime().toString();
 }
@@ -31,33 +32,29 @@ function ytdStart(): string {
   return msStr(new Date(new Date().getFullYear(), 0, 1));
 }
 
-// ── Paginated search ──────────────────────────────────────────────────────────
+// ── Search helper ─────────────────────────────────────────────────────────────
+type Filter = { propertyName: string; operator: string; value: string };
+
 async function searchDeals(
   client: AxiosInstance,
-  filters: { propertyName: string; operator: string; value: string }[],
+  filters: Filter[],
   properties: string[],
   countOnly = false,
 ): Promise<{ total: number; results: any[] }> {
-  const body = {
-    filterGroups: [{ filters }],
-    properties: countOnly ? ['dealname'] : properties,
-    limit: countOnly ? 1 : 200,
-  };
-
   const makeRequest = async (after?: string) => {
     try {
       return await client.post('/crm/v3/objects/deals/search', {
-        ...body,
+        filterGroups: [{ filters }],
+        properties: countOnly ? ['dealname'] : properties,
+        limit: countOnly ? 1 : 200,
         ...(after ? { after } : {}),
       });
     } catch (err: any) {
-      // Surface the actual HubSpot error response for debugging
       if (err.response) {
         const detail = JSON.stringify(err.response.data);
-        const status = err.response.status;
-        console.error(`HubSpot search error ${status}:`, detail);
-        console.error('  Request body:', JSON.stringify({ ...body, filters }));
-        throw new Error(`HubSpot API error ${status}: ${detail}`);
+        console.error(`HubSpot search error ${err.response.status}:`, detail);
+        console.error('  Filters:', JSON.stringify(filters));
+        throw new Error(`HubSpot API error ${err.response.status}: ${detail}`);
       }
       throw err;
     }
@@ -68,11 +65,9 @@ async function searchDeals(
     return { total: res.data.total ?? 0, results: [] };
   }
 
-  // Paginate to collect all results
   const results: any[] = [];
   let after: string | undefined;
   let total = 0;
-
   do {
     const res = await makeRequest(after);
     total = res.data.total ?? 0;
@@ -92,7 +87,7 @@ export interface HubSpotSummary {
   appointments_this_week: number;
   weekly_sales_amount:    number;
   ytd_sales_amount:       number;
-  closing_rate_ytd:       number;   // decimal  e.g. 0.18 = 18%
+  closing_rate_ytd:       number;
   appt_ytd_count:         number;
   contract_ytd_count:     number;
 }
@@ -102,48 +97,57 @@ export async function getHubSpotSummary(): Promise<HubSpotSummary> {
   const since7d  = last7DaysStart();
   const sinceYTD = ytdStart();
 
-  // Use hs_date_entered_{stageId} for all time-based filters.
-  // This property tracks when a deal ENTERED a given stage (historical, stays set
-  // even after the deal moves forward) — more reliable than hs_v2_date_entered_current_stage
-  // which is calculated and not filterable in the CRM search API.
+  // ── Notes on property choice ────────────────────────────────────────────────
+  // hs_date_entered_{stageId} is NOT filterable in HubSpot's CRM search API
+  // (it's stored but not indexed for search queries).
+  //
+  // We use these standard filterable properties instead:
+  //   • dealstage         — current pipeline stage (always filterable)
+  //   • hs_lastmodifieddate — updated whenever any property changes, including
+  //                          stage, so it's the best proxy for "recently moved
+  //                          into this stage"
+  //   • createdate        — when the deal was created (YTD closing rate)
+  // ────────────────────────────────────────────────────────────────────────────
 
   const [
-    apptWeek,
-    salesWeek,
-    salesYTD,
-    apptYTDCount,
-    contractYTDCount,
+    apptWeek,       // deals currently in Appointment Set, modified last 7 days
+    salesWeek,      // deals in Contract Signed, modified last 7 days  → sum amounts
+    salesYTD,       // deals in Contract Signed, created YTD           → sum amounts
+    apptYTDCount,   // deals in Appointment Set, created YTD           → denominator
+    contractYTDCount, // deals in Contract Signed, created YTD         → numerator
   ] = await Promise.all([
 
-    // 1. Appointments set in the last 7 days
-    //    Deals that entered Appointment Set stage within the last 7 days
     searchDeals(client, [
-      { propertyName: `hs_date_entered_${STAGE_APPOINTMENT_SET}`, operator: 'GTE', value: since7d },
+      { propertyName: 'dealstage',           operator: 'EQ',  value: STAGE_APPOINTMENT_SET },
+      { propertyName: 'hs_lastmodifieddate', operator: 'GTE', value: since7d },
     ], ['dealname'], /* countOnly */ true),
 
-    // 2. Weekly Sales – deals that entered Contract Signed in the last 7 days
     searchDeals(client, [
-      { propertyName: `hs_date_entered_${STAGE_CONTRACT_SIGNED}`, operator: 'GTE', value: since7d },
+      { propertyName: 'dealstage',           operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
+      { propertyName: 'hs_lastmodifieddate', operator: 'GTE', value: since7d },
     ], ['amount', 'dealname']),
 
-    // 3. YTD Sales – deals that entered Contract Signed since Jan 1
     searchDeals(client, [
-      { propertyName: `hs_date_entered_${STAGE_CONTRACT_SIGNED}`, operator: 'GTE', value: sinceYTD },
+      { propertyName: 'dealstage',  operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
+      { propertyName: 'createdate', operator: 'GTE', value: sinceYTD },
     ], ['amount', 'dealname']),
 
-    // 4. Closing rate denominator – deals that EVER entered Appointment Set YTD
     searchDeals(client, [
-      { propertyName: `hs_date_entered_${STAGE_APPOINTMENT_SET}`, operator: 'GTE', value: sinceYTD },
+      { propertyName: 'dealstage',  operator: 'EQ',  value: STAGE_APPOINTMENT_SET },
+      { propertyName: 'createdate', operator: 'GTE', value: sinceYTD },
     ], ['dealname'], /* countOnly */ true),
 
-    // 5. Closing rate numerator – deals that EVER entered Contract Signed YTD
     searchDeals(client, [
-      { propertyName: `hs_date_entered_${STAGE_CONTRACT_SIGNED}`, operator: 'GTE', value: sinceYTD },
+      { propertyName: 'dealstage',  operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
+      { propertyName: 'createdate', operator: 'GTE', value: sinceYTD },
     ], ['dealname'], /* countOnly */ true),
   ]);
 
-  const weeklySales = Math.round(sumAmounts(salesWeek.results) * 100) / 100;
-  const ytdSales    = Math.round(sumAmounts(salesYTD.results)  * 100) / 100;
+  const weeklySales = Math.round(sumAmounts(salesWeek.results)  * 100) / 100;
+  const ytdSales    = Math.round(sumAmounts(salesYTD.results)   * 100) / 100;
+
+  // Closing rate: contracts signed YTD ÷ appointments set YTD
+  // Both use createdate so the cohort is consistent
   const closingRate = apptYTDCount.total > 0
     ? Math.round((contractYTDCount.total / apptYTDCount.total) * 10000) / 10000
     : 0;
@@ -158,32 +162,30 @@ export async function getHubSpotSummary(): Promise<HubSpotSummary> {
   };
 }
 
-// ── Sync HubSpot data → scorecard_entries ─────────────────────────────────────
+// ── Sync HubSpot → scorecard_entries ──────────────────────────────────────────
 export async function syncHubSpotToScorecard(): Promise<void> {
   const summary = await getHubSpotSummary();
 
   // Current week Monday
-  const now  = new Date();
-  const diff = now.getDay() === 0 ? -6 : 1 - now.getDay();
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + diff);
-  monday.setHours(0, 0, 0, 0);
-  const weekOf = monday.toISOString().split('T')[0];
+  const now   = new Date();
+  const diff  = now.getDay() === 0 ? -6 : 1 - now.getDay();
+  const mon   = new Date(now);
+  mon.setDate(now.getDate() + diff);
+  mon.setHours(0, 0, 0, 0);
+  const weekOf = mon.toISOString().split('T')[0];
 
-  const updates: { metric: string; actual: number }[] = [
-    { metric: 'Appointments',       actual: summary.appointments_this_week },
-    { metric: 'Weekly Sales',       actual: summary.weekly_sales_amount    },
-    { metric: 'Total Sales (YTD)',  actual: summary.ytd_sales_amount       },
-    { metric: 'Closing Rate',       actual: summary.closing_rate_ytd       },
+  const updates = [
+    { metric: 'Appointments',      actual: summary.appointments_this_week },
+    { metric: 'Weekly Sales',      actual: summary.weekly_sales_amount    },
+    { metric: 'Total Sales (YTD)', actual: summary.ytd_sales_amount       },
+    { metric: 'Closing Rate',      actual: summary.closing_rate_ytd       },
   ];
 
   for (const { metric, actual } of updates) {
     await query(
       `UPDATE scorecard_entries
           SET actual = $1, updated_at = NOW()
-        WHERE team = 'leadership'
-          AND week_of = $2
-          AND metric_name = $3`,
+        WHERE team = 'leadership' AND week_of = $2 AND metric_name = $3`,
       [actual, weekOf, metric],
     );
   }
