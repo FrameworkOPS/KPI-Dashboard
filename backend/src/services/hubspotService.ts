@@ -4,6 +4,33 @@ import { query } from '../config/database';
 // ── Stage IDs (Retail Pipeline) ───────────────────────────────────────────────
 const STAGE_APPOINTMENT_SET = '87743795';
 const STAGE_CONTRACT_SIGNED = '60609660';
+// Contract Sent stage ID is looked up dynamically from the pipeline API
+// (set HUBSPOT_STAGE_CONTRACT_SENT env var to skip the lookup)
+
+// ── Pipeline stage name → ID cache ───────────────────────────────────────────
+let _stageCache: Map<string, string> | null = null;
+
+async function getStageIdByName(client: AxiosInstance, name: string): Promise<string | null> {
+  // Allow env override so we never need the extra API call in prod
+  const envKey = `HUBSPOT_STAGE_${name.toUpperCase().replace(/\s+/g, '_')}`;
+  if (process.env[envKey]) return process.env[envKey]!;
+
+  if (!_stageCache) {
+    _stageCache = new Map();
+    try {
+      const res = await client.get('/crm/v3/pipelines/deals');
+      for (const pipeline of (res.data.results ?? [])) {
+        for (const stage of (pipeline.stages ?? [])) {
+          _stageCache.set((stage.label as string).toLowerCase().trim(), stage.id as string);
+        }
+      }
+      console.log('HubSpot pipeline stages loaded:', [..._stageCache.keys()].join(', '));
+    } catch (e) {
+      console.error('Could not load HubSpot pipeline stages:', (e as Error).message);
+    }
+  }
+  return _stageCache.get(name.toLowerCase().trim()) ?? null;
+}
 
 // ── Client ────────────────────────────────────────────────────────────────────
 function getClient(): AxiosInstance {
@@ -109,12 +136,18 @@ export async function getHubSpotSummary(): Promise<HubSpotSummary> {
   //   • createdate        — when the deal was created (YTD closing rate)
   // ────────────────────────────────────────────────────────────────────────────
 
+  // Look up Contract Sent stage ID from the pipeline (cached after first call)
+  const contractSentId = await getStageIdByName(client, 'contract sent');
+  if (!contractSentId) {
+    console.warn('HubSpot: "Contract Sent" stage not found in pipeline — closing rate denominator may be 0');
+  }
+
   const [
-    apptWeek,       // deals in Appointment Set, created last 7 days      → count
-    salesWeek,      // deals in Contract Signed, project_sold_date last 7 days → sum amounts
-    salesYTD,       // deals in Contract Signed, project_sold_date YTD         → sum amounts
-    apptYTDCount,   // deals in Appointment Set, created YTD           → denominator
-    contractYTDCount, // deals in Contract Signed, created YTD         → numerator
+    apptWeek,              // Appointment Set, created last 7 days            → count
+    salesWeek,             // Contract Signed, project_sold_date last 7 days  → sum amounts
+    salesYTD,              // Contract Signed, closedate YTD                  → sum amounts
+    contractSentYTD,       // Contract Sent (still there) created YTD         → denominator part A
+    contractSignedYTD,     // Contract Signed, created YTD                    → numerator & denom part B
   ] = await Promise.all([
 
     searchDeals(client, [
@@ -127,29 +160,35 @@ export async function getHubSpotSummary(): Promise<HubSpotSummary> {
       { propertyName: 'project_sold_date', operator: 'GTE', value: since7d },
     ], ['amount', 'dealname']),
 
+    // YTD sales uses closedate — always populated when a deal closes
     searchDeals(client, [
-      { propertyName: 'dealstage',         operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
-      { propertyName: 'project_sold_date', operator: 'GTE', value: sinceYTD },
+      { propertyName: 'dealstage',  operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
+      { propertyName: 'closedate',  operator: 'GTE', value: sinceYTD },
     ], ['amount', 'dealname']),
 
-    searchDeals(client, [
-      { propertyName: 'dealstage',  operator: 'EQ',  value: STAGE_APPOINTMENT_SET },
-      { propertyName: 'createdate', operator: 'GTE', value: sinceYTD },
-    ], ['dealname'], /* countOnly */ true),
+    // Closing rate denominator: deals currently at Contract Sent (not yet signed), created YTD
+    contractSentId
+      ? searchDeals(client, [
+          { propertyName: 'dealstage',  operator: 'EQ',  value: contractSentId },
+          { propertyName: 'createdate', operator: 'GTE', value: sinceYTD },
+        ], ['dealname'], /* countOnly */ true)
+      : Promise.resolve({ total: 0, results: [] }),
 
+    // Closing rate numerator: deals that made it to Contract Signed, created YTD
     searchDeals(client, [
       { propertyName: 'dealstage',  operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
       { propertyName: 'createdate', operator: 'GTE', value: sinceYTD },
     ], ['dealname'], /* countOnly */ true),
   ]);
 
-  const weeklySales = Math.round(sumAmounts(salesWeek.results)  * 100) / 100;
-  const ytdSales    = Math.round(sumAmounts(salesYTD.results)   * 100) / 100;
+  const weeklySales = Math.round(sumAmounts(salesWeek.results) * 100) / 100;
+  const ytdSales    = Math.round(sumAmounts(salesYTD.results)  * 100) / 100;
 
-  // Closing rate: contracts signed YTD ÷ appointments set YTD
-  // Both use createdate so the cohort is consistent
-  const closingRate = apptYTDCount.total > 0
-    ? Math.round((contractYTDCount.total / apptYTDCount.total) * 10000) / 10000
+  // Closing rate = Contract Signed YTD ÷ (Contract Sent YTD + Contract Signed YTD)
+  // Denominator = total proposals that reached "Contract Sent" stage (whether or not they signed)
+  const totalSent = contractSentYTD.total + contractSignedYTD.total;
+  const closingRate = totalSent > 0
+    ? Math.round((contractSignedYTD.total / totalSent) * 10000) / 10000
     : 0;
 
   return {
@@ -157,8 +196,8 @@ export async function getHubSpotSummary(): Promise<HubSpotSummary> {
     weekly_sales_amount:    weeklySales,
     ytd_sales_amount:       ytdSales,
     closing_rate_ytd:       closingRate,
-    appt_ytd_count:         apptYTDCount.total,
-    contract_ytd_count:     contractYTDCount.total,
+    appt_ytd_count:         contractSentYTD.total,   // "sent" is now the denominator baseline
+    contract_ytd_count:     contractSignedYTD.total,
   };
 }
 
@@ -209,32 +248,45 @@ export async function getHubSpotMetricDetail(metricName: string): Promise<HubSpo
   }
 
   if ((n.includes('ytd') || n.includes('total')) && n.includes('sale')) {
+    // Use closedate — always populated, unlike project_sold_date (custom property)
     const res = await searchDeals(client, [
-      { propertyName: 'dealstage',         operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
-      { propertyName: 'project_sold_date', operator: 'GTE', value: sinceYTD },
-    ], ['dealname', 'amount', 'project_sold_date']);
-    return { label: 'YTD Sales', deals: mapDeals(res.results, true) };
+      { propertyName: 'dealstage', operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
+      { propertyName: 'closedate', operator: 'GTE', value: sinceYTD },
+    ], ['dealname', 'amount', 'closedate']);
+    const deals: HubSpotDeal[] = res.results.map(d => ({
+      id: d.id,
+      name: d.properties?.dealname || '(unnamed)',
+      amount: d.properties?.amount ? parseFloat(d.properties.amount) : null,
+      project_sold_date: d.properties?.closedate || null,
+      createdate: d.properties?.closedate || null,
+    }));
+    return { label: 'YTD Sales', deals };
   }
 
   if (n.includes('closing') || n.includes('close rate')) {
-    const [appts, contracts] = await Promise.all([
-      searchDeals(client, [
-        { propertyName: 'dealstage',  operator: 'EQ',  value: STAGE_APPOINTMENT_SET },
-        { propertyName: 'createdate', operator: 'GTE', value: sinceYTD },
-      ], ['dealname'], true),
+    const contractSentId = await getStageIdByName(client, 'contract sent');
+    const [sent, signed] = await Promise.all([
+      contractSentId
+        ? searchDeals(client, [
+            { propertyName: 'dealstage',  operator: 'EQ',  value: contractSentId },
+            { propertyName: 'createdate', operator: 'GTE', value: sinceYTD },
+          ], ['dealname'], true)
+        : Promise.resolve({ total: 0, results: [] }),
       searchDeals(client, [
         { propertyName: 'dealstage',  operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
         { propertyName: 'createdate', operator: 'GTE', value: sinceYTD },
       ], ['dealname'], true),
     ]);
-    const rate = appts.total > 0 ? contracts.total / appts.total : 0;
+    const totalSent = sent.total + signed.total;
+    const rate = totalSent > 0 ? signed.total / totalSent : 0;
     return {
       label: 'YTD Closing Rate',
       deals: [],
       summary: {
-        appointments_ytd: appts.total,
-        contracts_ytd: contracts.total,
-        closing_rate: Math.round(rate * 10000) / 10000,
+        contracts_sent_ytd:   sent.total,
+        contracts_signed_ytd: signed.total,
+        total_sent:           totalSent,
+        closing_rate:         Math.round(rate * 10000) / 10000,
       },
     };
   }

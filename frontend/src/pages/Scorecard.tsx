@@ -54,7 +54,10 @@ interface HubSpotDeal {
 interface HubSpotDetail {
   label: string
   deals: HubSpotDeal[]
-  summary?: { appointments_ytd: number; contracts_ytd: number; closing_rate: number }
+  summary?: {
+    contracts_sent_ytd: number; contracts_signed_ytd: number;
+    total_sent: number; closing_rate: number
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -324,18 +327,20 @@ function MetricDetailModal({
                 /* Closing rate summary view */
                 <div className="grid grid-cols-3 gap-3">
                   <div className="bg-slate-900/60 rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-white">{dealDetail.summary.appointments_ytd}</p>
-                    <p className="text-xs text-slate-400 mt-1">Appointments YTD</p>
+                    <p className="text-2xl font-bold text-white">{dealDetail.summary.contracts_sent_ytd}</p>
+                    <p className="text-xs text-slate-400 mt-1">Contracts Sent (pending)</p>
                   </div>
                   <div className="bg-slate-900/60 rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-white">{dealDetail.summary.contracts_ytd}</p>
-                    <p className="text-xs text-slate-400 mt-1">Contracts YTD</p>
+                    <p className="text-2xl font-bold text-green-400">{dealDetail.summary.contracts_signed_ytd}</p>
+                    <p className="text-xs text-slate-400 mt-1">Contracts Signed</p>
                   </div>
                   <div className="bg-slate-900/60 rounded-lg p-3 text-center">
                     <p className="text-2xl font-bold text-blue-400">
                       {(dealDetail.summary.closing_rate * 100).toFixed(1)}%
                     </p>
-                    <p className="text-xs text-slate-400 mt-1">Closing Rate</p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Rate ({dealDetail.summary.contracts_signed_ytd}/{dealDetail.summary.total_sent})
+                    </p>
                   </div>
                 </div>
               ) : dealDetail?.deals.length ? (
