@@ -1,17 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "==> Building frontend..."
-cd frontend
-npm install
-npm run build
-cd ..
-
-echo "==> Building backend..."
-cd backend
-npm install
-npm run build
-cd ..
-
-echo "==> Starting server..."
+# nixpacks already compiled frontend + backend during the build phase.
+# Just start the server.
+echo "==> Starting KPI Dashboard..."
 node backend/dist/index.js
