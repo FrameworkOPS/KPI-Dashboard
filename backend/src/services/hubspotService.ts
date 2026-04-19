@@ -110,26 +110,26 @@ export async function getHubSpotSummary(): Promise<HubSpotSummary> {
   // ────────────────────────────────────────────────────────────────────────────
 
   const [
-    apptWeek,       // deals currently in Appointment Set, modified last 7 days
-    salesWeek,      // deals in Contract Signed, modified last 7 days  → sum amounts
-    salesYTD,       // deals in Contract Signed, created YTD           → sum amounts
+    apptWeek,       // deals in Appointment Set, created last 7 days      → count
+    salesWeek,      // deals in Contract Signed, project_sold_date last 7 days → sum amounts
+    salesYTD,       // deals in Contract Signed, project_sold_date YTD         → sum amounts
     apptYTDCount,   // deals in Appointment Set, created YTD           → denominator
     contractYTDCount, // deals in Contract Signed, created YTD         → numerator
   ] = await Promise.all([
 
     searchDeals(client, [
-      { propertyName: 'dealstage',           operator: 'EQ',  value: STAGE_APPOINTMENT_SET },
-      { propertyName: 'hs_lastmodifieddate', operator: 'GTE', value: since7d },
+      { propertyName: 'dealstage',  operator: 'EQ',  value: STAGE_APPOINTMENT_SET },
+      { propertyName: 'createdate', operator: 'GTE', value: since7d },
     ], ['dealname'], /* countOnly */ true),
 
     searchDeals(client, [
-      { propertyName: 'dealstage',           operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
-      { propertyName: 'hs_lastmodifieddate', operator: 'GTE', value: since7d },
+      { propertyName: 'dealstage',         operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
+      { propertyName: 'project_sold_date', operator: 'GTE', value: since7d },
     ], ['amount', 'dealname']),
 
     searchDeals(client, [
-      { propertyName: 'dealstage',  operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
-      { propertyName: 'createdate', operator: 'GTE', value: sinceYTD },
+      { propertyName: 'dealstage',         operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
+      { propertyName: 'project_sold_date', operator: 'GTE', value: sinceYTD },
     ], ['amount', 'dealname']),
 
     searchDeals(client, [
