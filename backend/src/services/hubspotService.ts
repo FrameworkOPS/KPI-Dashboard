@@ -162,6 +162,86 @@ export async function getHubSpotSummary(): Promise<HubSpotSummary> {
   };
 }
 
+// ── Deal detail for metric drill-down ─────────────────────────────────────────
+export interface HubSpotDeal {
+  id: string;
+  name: string;
+  amount: number | null;
+  project_sold_date: string | null;
+  createdate: string | null;
+}
+
+export interface HubSpotMetricDetail {
+  label: string;
+  deals: HubSpotDeal[];
+  summary?: Record<string, number>;
+}
+
+export async function getHubSpotMetricDetail(metricName: string): Promise<HubSpotMetricDetail> {
+  const client = getClient();
+  const since7d  = last7DaysStart();
+  const sinceYTD = ytdStart();
+  const n = metricName.toLowerCase();
+
+  const mapDeals = (results: any[], includeSold = false): HubSpotDeal[] =>
+    results.map(d => ({
+      id: d.id,
+      name: d.properties?.dealname || '(unnamed)',
+      amount: d.properties?.amount ? parseFloat(d.properties.amount) : null,
+      project_sold_date: includeSold ? (d.properties?.project_sold_date || null) : null,
+      createdate: d.properties?.createdate || null,
+    }));
+
+  if (n.includes('appointment')) {
+    const res = await searchDeals(client, [
+      { propertyName: 'dealstage',  operator: 'EQ',  value: STAGE_APPOINTMENT_SET },
+      { propertyName: 'createdate', operator: 'GTE', value: since7d },
+    ], ['dealname', 'createdate', 'amount']);
+    return { label: 'Appointments Set This Week', deals: mapDeals(res.results) };
+  }
+
+  if (n.includes('weekly') && (n.includes('sale') || n.includes('revenue'))) {
+    const res = await searchDeals(client, [
+      { propertyName: 'dealstage',         operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
+      { propertyName: 'project_sold_date', operator: 'GTE', value: since7d },
+    ], ['dealname', 'amount', 'project_sold_date']);
+    return { label: 'Sales Closed This Week', deals: mapDeals(res.results, true) };
+  }
+
+  if ((n.includes('ytd') || n.includes('total')) && n.includes('sale')) {
+    const res = await searchDeals(client, [
+      { propertyName: 'dealstage',         operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
+      { propertyName: 'project_sold_date', operator: 'GTE', value: sinceYTD },
+    ], ['dealname', 'amount', 'project_sold_date']);
+    return { label: 'YTD Sales', deals: mapDeals(res.results, true) };
+  }
+
+  if (n.includes('closing') || n.includes('close rate')) {
+    const [appts, contracts] = await Promise.all([
+      searchDeals(client, [
+        { propertyName: 'dealstage',  operator: 'EQ',  value: STAGE_APPOINTMENT_SET },
+        { propertyName: 'createdate', operator: 'GTE', value: sinceYTD },
+      ], ['dealname'], true),
+      searchDeals(client, [
+        { propertyName: 'dealstage',  operator: 'EQ',  value: STAGE_CONTRACT_SIGNED },
+        { propertyName: 'createdate', operator: 'GTE', value: sinceYTD },
+      ], ['dealname'], true),
+    ]);
+    const rate = appts.total > 0 ? contracts.total / appts.total : 0;
+    return {
+      label: 'YTD Closing Rate',
+      deals: [],
+      summary: {
+        appointments_ytd: appts.total,
+        contracts_ytd: contracts.total,
+        closing_rate: Math.round(rate * 10000) / 10000,
+      },
+    };
+  }
+
+  return { label: metricName, deals: [] };
+}
+
 // ── Sync HubSpot → scorecard_entries ──────────────────────────────────────────
 export async function syncHubSpotToScorecard(): Promise<void> {
   const summary = await getHubSpotSummary();

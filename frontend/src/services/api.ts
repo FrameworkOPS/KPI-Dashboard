@@ -67,6 +67,12 @@ export const deleteScorecardEntryApi = (id: string) =>
 export const createWeekFromTemplateApi = (team: string, week_of: string) =>
   api.post('/scorecard/new-week', { team, week_of })
 
+export const getScorecardHistoryApi = (team?: string, weeks = 13) =>
+  api.get('/scorecard/history', { params: { team, weeks } })
+
+export const getHubSpotDealsApi = (metric: string) =>
+  api.get('/integrations/hubspot/deals', { params: { metric } })
+
 // ── Rocks ─────────────────────────────────────────────────────────────────────
 export const getRocksApi = (team?: string, quarter?: number, year?: number) =>
   api.get('/rocks', { params: { team, quarter, year } })

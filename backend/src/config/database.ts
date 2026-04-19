@@ -263,6 +263,46 @@ export async function initializeDatabase(): Promise<void> {
       ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS goal_text VARCHAR(100)
     `);
 
+    // ── Deduplication migrations ──────────────────────────────────────────────
+    // Safe to run on every boot: CTE + DELETE only removes true duplicates.
+
+    // 1. Remove duplicate scorecard_templates (keep lowest sort_order row per team+metric)
+    await client.query(`
+      WITH ranked AS (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY team, metric_name
+                 ORDER BY sort_order, created_at
+               ) AS rn
+        FROM scorecard_templates
+      )
+      DELETE FROM scorecard_templates WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
+    `);
+
+    // 2. Ensure unique index exists on templates (idempotent)
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_sc_templates_team_metric
+      ON scorecard_templates(team, metric_name)
+    `);
+
+    // 3. Remove duplicate scorecard_entries (keep row with non-null actual, then oldest)
+    await client.query(`
+      WITH ranked AS (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY team, week_of, metric_name
+                 ORDER BY (CASE WHEN actual IS NOT NULL THEN 0 ELSE 1 END), created_at
+               ) AS rn
+        FROM scorecard_entries
+      )
+      DELETE FROM scorecard_entries WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
+    `);
+
+    // 4. Add sort_order column to entries if missing (for manual entries without a template)
+    await client.query(`
+      ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS sort_order INT
+    `);
+
     // Seed leadership scorecard templates
     await client.query(`
       INSERT INTO scorecard_templates (team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order)

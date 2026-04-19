@@ -183,6 +183,110 @@ export async function getTemplates(req: AuthRequest, res: Response, next: NextFu
   }
 }
 
+export async function getScorecardHistory(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { team, weeks: weeksParam } = req.query;
+    const user = req.user!;
+    const numWeeks = Math.min(parseInt(String(weeksParam || '13')) || 13, 52);
+
+    // Current Monday
+    const now = new Date();
+    const dow = now.getDay();
+    const diff = dow === 0 ? -6 : 1 - dow;
+    const currentMonday = new Date(now);
+    currentMonday.setDate(now.getDate() + diff);
+    currentMonday.setHours(0, 0, 0, 0);
+    const toISO = (d: Date) => d.toISOString().split('T')[0];
+
+    // Window start
+    const startMonday = new Date(currentMonday);
+    startMonday.setDate(startMonday.getDate() - (numWeeks - 1) * 7);
+
+    // Ordered list of week dates (oldest → newest)
+    const weekDates: string[] = [];
+    for (let i = 0; i < numWeeks; i++) {
+      const d = new Date(startMonday);
+      d.setDate(d.getDate() + i * 7);
+      weekDates.push(toISO(d));
+    }
+
+    const conditions: string[] = [`se.week_of >= $1`, `se.week_of <= $2`];
+    const values: unknown[] = [toISO(startMonday), toISO(currentMonday)];
+    let p = 3;
+
+    if (team) {
+      if (!canAccessTeam(user.role, user.team, team as string)) {
+        res.status(403).json({ error: 'Access to this team is not allowed' });
+        return;
+      }
+      conditions.push(`se.team = $${p++}`);
+      values.push(team);
+    } else if (user.role !== 'admin' && user.role !== 'leadership' && user.team !== 'all') {
+      conditions.push(`se.team = $${p++}`);
+      values.push(user.team);
+    }
+
+    const result = await pool.query(
+      `SELECT se.*,
+              COALESCE(st.sort_order, se.sort_order, 9999) AS effective_sort
+       FROM scorecard_entries se
+       LEFT JOIN scorecard_templates st
+         ON st.team = se.team AND st.metric_name = se.metric_name AND st.is_active = true
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY COALESCE(st.sort_order, se.sort_order, 9999), se.team, se.metric_name, se.week_of`,
+      values,
+    );
+
+    interface WeekEntry {
+      id: string; actual: number | null; is_on_track: boolean | null;
+      data_source: string; notes: string | null;
+    }
+    interface MetricRow {
+      metric_name: string; team: string; display_format: string;
+      goal: number | null; goal_text: string | null; lower_is_better: boolean;
+      sort_order: number; data: Record<string, WeekEntry>;
+    }
+
+    const metricMap = new Map<string, MetricRow>();
+
+    for (const row of result.rows) {
+      const key = `${row.team}||${row.metric_name}`;
+      if (!metricMap.has(key)) {
+        metricMap.set(key, {
+          metric_name: row.metric_name,
+          team: row.team,
+          display_format: row.display_format || 'number',
+          goal: row.goal !== null ? Number(row.goal) : null,
+          goal_text: row.goal_text,
+          lower_is_better: row.lower_is_better ?? false,
+          sort_order: Number(row.effective_sort),
+          data: {},
+        });
+      }
+      const m = metricMap.get(key)!;
+      const weekKey = typeof row.week_of === 'string'
+        ? row.week_of.split('T')[0]
+        : toISO(new Date(row.week_of));
+      m.data[weekKey] = {
+        id: row.id,
+        actual: row.actual !== null ? Number(row.actual) : null,
+        is_on_track: row.is_on_track,
+        data_source: row.data_source,
+        notes: row.notes,
+      };
+      if (row.goal !== null) m.goal = Number(row.goal);
+      if (row.goal_text !== null) m.goal_text = row.goal_text;
+    }
+
+    const metrics = Array.from(metricMap.values())
+      .sort((a, b) => a.sort_order - b.sort_order || a.metric_name.localeCompare(b.metric_name));
+
+    res.json({ weeks: weekDates, metrics });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function createWeekFromTemplate(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { team, week_of } = req.body;

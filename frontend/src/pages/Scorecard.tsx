@@ -1,18 +1,65 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
+import {
+  BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, ReferenceLine, Cell,
+} from 'recharts'
 import Header from '../components/Header'
 import TeamFilter from '../components/TeamFilter'
 import {
-  getScorecardApi,
-  createScorecardEntryApi,
+  getScorecardHistoryApi,
   updateScorecardEntryApi,
   deleteScorecardEntryApi,
+  createScorecardEntryApi,
   createWeekFromTemplateApi,
   syncHubSpotApi,
+  getHubSpotDealsApi,
 } from '../services/api'
-import { ScorecardEntry, TeamType } from '../types'
+import { TeamType } from '../types'
 import { useAuthStore } from '../store/authStore'
 
-// ── Date helpers ──────────────────────────────────────────────────────────────
+// ── Local types ───────────────────────────────────────────────────────────────
+
+interface WeekEntry {
+  id: string
+  actual: number | null
+  is_on_track: boolean | null
+  data_source: string
+  notes: string | null
+}
+
+interface MetricHistory {
+  metric_name: string
+  team: string
+  display_format: string
+  goal: number | null
+  goal_text: string | null
+  lower_is_better: boolean
+  sort_order: number
+  data: Record<string, WeekEntry>
+}
+
+interface ScorecardHistory {
+  weeks: string[]
+  metrics: MetricHistory[]
+}
+
+interface HubSpotDeal {
+  id: string
+  name: string
+  amount: number | null
+  project_sold_date: string | null
+  createdate: string | null
+}
+
+interface HubSpotDetail {
+  label: string
+  deals: HubSpotDeal[]
+  summary?: { appointments_ytd: number; contracts_ytd: number; closing_rate: number }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const toISO = (d: Date) => d.toISOString().split('T')[0]
 
 const getMondayOf = (date: Date): Date => {
   const d = new Date(date)
@@ -23,183 +70,400 @@ const getMondayOf = (date: Date): Date => {
   return d
 }
 
-const formatWeek = (monday: Date) =>
-  `Week of ${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+const shortDate = (iso: string) => {
+  const [, m, d] = iso.split('-')
+  return `${parseInt(m)}/${parseInt(d)}`
+}
 
-const toISO = (date: Date) => date.toISOString().split('T')[0]
+const fullDate = (iso: string | null | undefined) => {
+  if (!iso) return '—'
+  return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+  })
+}
 
-// ── Formatting ────────────────────────────────────────────────────────────────
-
-function formatValue(value: number | string | null | undefined, format: string): string {
-  if (value === null || value === undefined || value === '') return '—'
-  const n = typeof value === 'string' ? parseFloat(value) : value
-  if (isNaN(n)) return String(value)
+function formatValue(value: number | null | undefined, format: string): string {
+  if (value === null || value === undefined) return '—'
+  const n = Number(value)
+  if (isNaN(n)) return '—'
   switch (format) {
     case 'currency':
       return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        maximumFractionDigits: 0,
+        style: 'currency', currency: 'USD', maximumFractionDigits: 0,
       }).format(n)
     case 'percent':
       return `${(n * 100).toFixed(1)}%`
     case 'number':
-      return n % 1 === 0 ? n.toString() : n.toFixed(1)
+      return n % 1 === 0 ? n.toString() : n.toFixed(2)
     default:
       return n.toString()
   }
 }
 
-// ── Status badge ──────────────────────────────────────────────────────────────
-
-type StatusState = 'on_track' | 'off_track' | 'at_risk'
-
-function getStatus(entry: ScorecardEntry): StatusState {
-  if (entry.is_on_track === null || entry.is_on_track === undefined) return 'off_track'
-  if (entry.is_on_track) return 'on_track'
-  // If net % is negative, treat as at-risk
-  if (
-    entry.metric_name.toLowerCase().includes('net %') &&
-    entry.actual !== null &&
-    parseFloat(String(entry.actual)) < 0
-  ) {
-    return 'at_risk'
-  }
-  return 'off_track'
+function formatCurrency(n: number | null) {
+  if (n === null) return '—'
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency', currency: 'USD', maximumFractionDigits: 0,
+  }).format(n)
 }
 
-function StatusBadge({ entry }: { entry: ScorecardEntry }) {
-  if (entry.is_on_track === null || entry.is_on_track === undefined) {
-    return <span className="text-slate-500 text-xs">—</span>
-  }
-  const status = getStatus(entry)
-  if (status === 'on_track') {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/15 text-green-400 border border-green-500/25">
-        On Track
-      </span>
-    )
-  }
-  if (status === 'at_risk') {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/25">
-        At Risk
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-400 border border-amber-500/25">
-      Off Track
-    </span>
-  )
+// Determine chart type: area for cumulative/percent/rate, bar for everything else
+function getChartType(m: MetricHistory): 'bar' | 'area' {
+  const n = m.metric_name.toLowerCase()
+  if (m.display_format === 'percent') return 'area'
+  if (n.includes('ytd') || n.includes('total') || n.includes('balance')) return 'area'
+  return 'bar'
 }
 
-// ── Data source badge ─────────────────────────────────────────────────────────
+// ── Metric Detail Modal ────────────────────────────────────────────────────────
 
-function SourceBadge({ source }: { source: string }) {
-  const s = (source || '').toLowerCase()
-  let label = source || '—'
-  let cls = 'bg-slate-600/40 text-slate-400 border-slate-600/40'
-
-  if (s === 'hubspot') {
-    label = 'HubSpot'
-    cls = 'bg-orange-500/10 text-orange-400 border-orange-500/20'
-  } else if (s === 'qbo') {
-    label = 'QBO'
-    cls = 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-  } else if (s === 'manual') {
-    label = 'Manual'
-    cls = 'bg-slate-600/30 text-slate-500 border-slate-600/30'
-  }
-
-  return (
-    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs border ${cls}`}>
-      {label}
-    </span>
-  )
+interface MetricDetailModalProps {
+  metric: MetricHistory
+  weeks: string[]
+  currentWeek: string
+  isLeadershipOrAdmin: boolean
+  canEdit: boolean
+  onClose: () => void
+  onEntryUpdated: () => void
+  onEntryDeleted: (id: string) => void
 }
 
-// ── Inline editable cell ──────────────────────────────────────────────────────
+function MetricDetailModal({
+  metric, weeks, currentWeek, isLeadershipOrAdmin, canEdit,
+  onClose, onEntryUpdated, onEntryDeleted,
+}: MetricDetailModalProps) {
+  const [dealDetail, setDealDetail] = useState<HubSpotDetail | null>(null)
+  const [dealLoading, setDealLoading] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editActual, setEditActual] = useState('')
+  const [editNotes, setEditNotes] = useState('')
+  const [saving, setSaving] = useState(false)
 
-interface InlineEditProps {
-  value: number | null
-  format: string
-  entryId: string
-  onSave: (id: string, actual: number | null) => Promise<void>
-}
-
-function InlineActualCell({ value, format, entryId, onSave }: InlineEditProps) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState<string>(value !== null && value !== undefined ? String(parseFloat(String(value))) : '')
-  const inputRef = useRef<HTMLInputElement>(null)
+  const currentEntry = metric.data[currentWeek]
+  const isHubSpotMetric = currentEntry?.data_source === 'hubspot'
+  const fmt = metric.display_format
 
   useEffect(() => {
-    if (editing && inputRef.current) {
-      inputRef.current.focus()
-      inputRef.current.select()
+    if (isHubSpotMetric && isLeadershipOrAdmin) {
+      setDealLoading(true)
+      getHubSpotDealsApi(metric.metric_name)
+        .then(r => setDealDetail(r.data))
+        .catch(() => setDealDetail(null))
+        .finally(() => setDealLoading(false))
     }
-  }, [editing])
+  }, [metric.metric_name, isHubSpotMetric, isLeadershipOrAdmin])
 
-  const commit = async () => {
-    setEditing(false)
-    const parsed = draft === '' ? null : parseFloat(draft)
-    const newVal = draft === '' ? null : (isNaN(parsed as number) ? value : parsed)
-    if (newVal !== value) {
-      await onSave(entryId, newVal)
+  // Build chart data — null actuals show as gaps
+  const chartData = weeks.map(w => {
+    const e = metric.data[w]
+    return {
+      week: shortDate(w),
+      actual: e?.actual ?? null,
+      goal: metric.goal,
+      on_track: e?.is_on_track ?? null,
+      isCurrent: w === currentWeek,
     }
+  })
+
+  const chartType = getChartType(metric)
+  const goalNum = metric.goal
+
+  const saveEdit = async () => {
+    if (!editId) return
+    setSaving(true)
+    try {
+      const parsed = editActual === '' ? null : parseFloat(editActual)
+      await updateScorecardEntryApi(editId, {
+        actual: isNaN(parsed as number) ? null : parsed,
+        notes: editNotes || null,
+      })
+      setEditId(null)
+      onEntryUpdated()
+    } catch { /* ignore */ }
+    setSaving(false)
   }
 
-  const handleKey = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') commit()
-    if (e.key === 'Escape') {
-      setDraft(value !== null ? String(value) : '')
-      setEditing(false)
-    }
+  const startEdit = (e: WeekEntry) => {
+    setEditId(e.id)
+    setEditActual(e.actual !== null ? String(e.actual) : '')
+    setEditNotes(e.notes || '')
   }
 
-  if (editing) {
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this entry?')) return
+    try {
+      await deleteScorecardEntryApi(id)
+      onEntryDeleted(id)
+    } catch { /* ignore */ }
+  }
+
+  // Custom tooltip
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload?.length) return null
     return (
-      <input
-        ref={inputRef}
-        type="number"
-        step="any"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={handleKey}
-        className="bg-slate-700 border border-blue-500 text-white text-sm rounded px-2 py-1 w-28 text-right focus:outline-none"
-      />
+      <div className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-xl">
+        <p className="text-slate-400 mb-1">{label}</p>
+        {payload.map((p: any) => (
+          p.dataKey === 'actual' && p.value !== null && (
+            <p key={p.dataKey} className="font-semibold text-white">
+              {formatValue(p.value, fmt)}
+            </p>
+          )
+        ))}
+        {goalNum !== null && (
+          <p className="text-blue-400">Goal: {formatValue(goalNum, fmt)}</p>
+        )}
+      </div>
     )
   }
 
   return (
-    <button
-      onClick={() => {
-        setDraft(value !== null ? String(value) : '')
-        setEditing(true)
-      }}
-      className="text-white font-medium hover:text-blue-300 transition-colors cursor-pointer group flex items-center gap-1 ml-auto"
-      title="Click to edit"
-    >
-      {formatValue(value, format)}
-      <svg
-        className="w-3 h-3 text-slate-600 group-hover:text-blue-400 transition-colors flex-shrink-0"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-        />
-      </svg>
-    </button>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm px-0 sm:px-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="bg-slate-800 border border-slate-700 rounded-t-2xl sm:rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 flex-shrink-0">
+          <div>
+            <h2 className="text-base font-semibold text-white">{metric.metric_name}</h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Goal: {metric.goal_text || formatValue(metric.goal, fmt)} · 13-week trend
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors p-1">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-5 space-y-5">
+
+          {/* ── Chart ── */}
+          <div className="bg-slate-900/60 rounded-xl p-4">
+            <ResponsiveContainer width="100%" height={220}>
+              {chartType === 'bar' ? (
+                <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="week" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis
+                    tickFormatter={v => formatValue(v, fmt)}
+                    tick={{ fill: '#64748b', fontSize: 11 }}
+                    axisLine={false} tickLine={false} width={60}
+                  />
+                  <Tooltip content={<CustomTooltip />} cursor={{ fill: '#1e293b' }} />
+                  {goalNum !== null && (
+                    <ReferenceLine y={goalNum} stroke="#3b82f6" strokeDasharray="4 4" strokeWidth={1.5} />
+                  )}
+                  <Bar dataKey="actual" radius={[3, 3, 0, 0]} maxBarSize={36}>
+                    {chartData.map((entry, idx) => (
+                      <Cell
+                        key={idx}
+                        fill={
+                          entry.actual === null ? '#1e293b'
+                          : entry.on_track === null ? '#475569'
+                          : entry.on_track ? '#22c55e'
+                          : '#ef4444'
+                        }
+                        opacity={entry.isCurrent ? 1 : 0.7}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              ) : (
+                <AreaChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id={`grad-${metric.metric_name}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#22d3ee" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="week" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis
+                    tickFormatter={v => formatValue(v, fmt)}
+                    tick={{ fill: '#64748b', fontSize: 11 }}
+                    axisLine={false} tickLine={false} width={60}
+                  />
+                  <Tooltip content={<CustomTooltip />} />
+                  {goalNum !== null && (
+                    <ReferenceLine y={goalNum} stroke="#3b82f6" strokeDasharray="4 4" strokeWidth={1.5} />
+                  )}
+                  <Area
+                    type="monotone"
+                    dataKey="actual"
+                    stroke="#22d3ee"
+                    strokeWidth={2}
+                    fill={`url(#grad-${metric.metric_name})`}
+                    dot={(props: any) => {
+                      const { cx, cy, payload } = props
+                      if (payload.actual === null) return <g key={props.key} />
+                      const color = payload.on_track === null ? '#64748b'
+                        : payload.on_track ? '#22c55e' : '#ef4444'
+                      return <circle key={props.key} cx={cx} cy={cy} r={4} fill={color} stroke="#0f172a" strokeWidth={1.5} />
+                    }}
+                    connectNulls={false}
+                  />
+                </AreaChart>
+              )}
+            </ResponsiveContainer>
+          </div>
+
+          {/* ── HubSpot deal breakdown ── */}
+          {isHubSpotMetric && isLeadershipOrAdmin && (
+            <div>
+              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
+                {dealDetail?.label || 'Current Data Breakdown'}
+              </h3>
+              {dealLoading ? (
+                <div className="flex items-center gap-2 text-slate-400 text-sm py-4">
+                  <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-500" />
+                  Loading deals…
+                </div>
+              ) : dealDetail?.summary ? (
+                /* Closing rate summary view */
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-slate-900/60 rounded-lg p-3 text-center">
+                    <p className="text-2xl font-bold text-white">{dealDetail.summary.appointments_ytd}</p>
+                    <p className="text-xs text-slate-400 mt-1">Appointments YTD</p>
+                  </div>
+                  <div className="bg-slate-900/60 rounded-lg p-3 text-center">
+                    <p className="text-2xl font-bold text-white">{dealDetail.summary.contracts_ytd}</p>
+                    <p className="text-xs text-slate-400 mt-1">Contracts YTD</p>
+                  </div>
+                  <div className="bg-slate-900/60 rounded-lg p-3 text-center">
+                    <p className="text-2xl font-bold text-blue-400">
+                      {(dealDetail.summary.closing_rate * 100).toFixed(1)}%
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">Closing Rate</p>
+                  </div>
+                </div>
+              ) : dealDetail?.deals.length ? (
+                /* Deal table */
+                <div className="bg-slate-900/60 rounded-xl overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-700">
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-400 uppercase tracking-wide">Deal</th>
+                        <th className="text-right px-4 py-2.5 text-xs font-medium text-slate-400 uppercase tracking-wide">Amount</th>
+                        <th className="text-right px-4 py-2.5 text-xs font-medium text-slate-400 uppercase tracking-wide">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-700/40">
+                      {dealDetail.deals.map(deal => (
+                        <tr key={deal.id} className="hover:bg-slate-700/20 transition-colors">
+                          <td className="px-4 py-2.5 text-white">{deal.name}</td>
+                          <td className="px-4 py-2.5 text-right text-green-400 font-medium">
+                            {formatCurrency(deal.amount)}
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-slate-400 text-xs">
+                            {fullDate(deal.project_sold_date || deal.createdate)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t border-slate-700">
+                        <td className="px-4 py-2.5 text-xs text-slate-400 font-medium">Total ({dealDetail.deals.length} deals)</td>
+                        <td className="px-4 py-2.5 text-right text-white font-bold">
+                          {formatCurrency(dealDetail.deals.reduce((s, d) => s + (d.amount ?? 0), 0))}
+                        </td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              ) : dealDetail ? (
+                <p className="text-slate-500 text-sm py-4">No deals found for this period.</p>
+              ) : null}
+            </div>
+          )}
+
+          {/* ── Week-by-week data with edit controls ── */}
+          {canEdit && (
+            <div>
+              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Weekly Entries</h3>
+              <div className="space-y-1.5">
+                {[...weeks].reverse().map(w => {
+                  const e = metric.data[w]
+                  if (!e) return (
+                    <div key={w} className="flex items-center justify-between px-3 py-2 rounded-lg text-sm">
+                      <span className="text-slate-500 text-xs">{fullDate(w)}</span>
+                      <span className="text-slate-600 text-xs">No data</span>
+                    </div>
+                  )
+                  if (editId === e.id) {
+                    return (
+                      <div key={w} className="bg-slate-700/50 rounded-lg px-3 py-2 space-y-2">
+                        <p className="text-xs text-slate-400">{fullDate(w)}</p>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number" step="any" autoFocus
+                            value={editActual}
+                            onChange={e => setEditActual(e.target.value)}
+                            placeholder="Actual"
+                            className="bg-slate-700 border border-blue-500 text-white text-sm rounded px-2 py-1 w-36 focus:outline-none"
+                          />
+                          <input
+                            value={editNotes}
+                            onChange={e => setEditNotes(e.target.value)}
+                            placeholder="Notes (optional)"
+                            className="bg-slate-700 border border-slate-600 text-white text-sm rounded px-2 py-1 flex-1 focus:outline-none focus:border-blue-500"
+                          />
+                          <button onClick={saveEdit} disabled={saving}
+                            className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded transition-colors disabled:opacity-60">
+                            {saving ? '…' : 'Save'}
+                          </button>
+                          <button onClick={() => setEditId(null)}
+                            className="text-slate-400 hover:text-white transition-colors text-xs px-2 py-1.5">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  }
+                  const dotColor = e.is_on_track === null ? 'bg-slate-500'
+                    : e.is_on_track ? 'bg-green-400' : 'bg-red-400'
+                  return (
+                    <div key={w}
+                      className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-slate-700/30 transition-colors group">
+                      <div className="flex items-center gap-2.5">
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
+                        <span className="text-xs text-slate-400">{fullDate(w)}</span>
+                        {e.notes && <span className="text-xs text-slate-500 italic truncate max-w-[120px]">{e.notes}</span>}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-semibold text-white">{formatValue(e.actual, fmt)}</span>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => startEdit(e)}
+                            className="text-slate-500 hover:text-blue-400 transition-colors p-0.5">
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </button>
+                          <button onClick={() => handleDelete(e.id)}
+                            className="text-slate-500 hover:text-red-400 transition-colors p-0.5">
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
-// ── New Week Modal ────────────────────────────────────────────────────────────
+// ── New Week Modal ─────────────────────────────────────────────────────────────
 
 interface NewWeekModalProps {
   defaultTeam: string
@@ -214,12 +478,10 @@ function NewWeekModal({ defaultTeam, onClose, onCreated }: NewWeekModalProps) {
   const [error, setError] = useState<string | null>(null)
 
   const submit = async () => {
-    setLoading(true)
-    setError(null)
+    setLoading(true); setError(null)
     try {
       await createWeekFromTemplateApi(selectedTeam, selectedWeek)
-      onCreated()
-      onClose()
+      onCreated(); onClose()
     } catch (e: any) {
       setError(e.response?.data?.error || e.message)
     } finally {
@@ -231,21 +493,12 @@ function NewWeekModal({ defaultTeam, onClose, onCreated }: NewWeekModalProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl p-6 w-full max-w-sm mx-4">
         <h2 className="text-white font-semibold text-base mb-4">Create New Week from Template</h2>
-
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded px-3 py-2 text-red-400 text-sm mb-4">
-            {error}
-          </div>
-        )}
-
+        {error && <div className="bg-red-500/10 border border-red-500/30 rounded px-3 py-2 text-red-400 text-sm mb-4">{error}</div>}
         <div className="space-y-4">
           <div>
             <label className="block text-xs text-slate-400 mb-1">Team</label>
-            <select
-              value={selectedTeam}
-              onChange={(e) => setSelectedTeam(e.target.value)}
-              className="bg-slate-700 border border-slate-600 text-white text-sm rounded px-3 py-2 w-full focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
+            <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)}
+              className="bg-slate-700 border border-slate-600 text-white text-sm rounded px-3 py-2 w-full focus:outline-none focus:ring-1 focus:ring-blue-500">
               <option value="leadership">Leadership</option>
               <option value="sales">Sales</option>
               <option value="production">Production</option>
@@ -253,29 +506,14 @@ function NewWeekModal({ defaultTeam, onClose, onCreated }: NewWeekModalProps) {
           </div>
           <div>
             <label className="block text-xs text-slate-400 mb-1">Week of (Monday)</label>
-            <input
-              type="date"
-              value={selectedWeek}
-              onChange={(e) => setSelectedWeek(e.target.value)}
-              className="bg-slate-700 border border-slate-600 text-white text-sm rounded px-3 py-2 w-full focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
+            <input type="date" value={selectedWeek} onChange={e => setSelectedWeek(e.target.value)}
+              className="bg-slate-700 border border-slate-600 text-white text-sm rounded px-3 py-2 w-full focus:outline-none focus:ring-1 focus:ring-blue-500" />
           </div>
         </div>
-
         <div className="flex justify-end gap-2 mt-6">
-          <button
-            type="button"
-            onClick={onClose}
-            className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={loading}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-60"
-          >
+          <button onClick={onClose} className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded-lg transition-colors">Cancel</button>
+          <button onClick={submit} disabled={loading}
+            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-60">
             {loading ? 'Creating…' : 'Create Week'}
           </button>
         </div>
@@ -284,159 +522,163 @@ function NewWeekModal({ defaultTeam, onClose, onCreated }: NewWeekModalProps) {
   )
 }
 
-// ── Empty form ────────────────────────────────────────────────────────────────
+// ── Add Entry Modal ────────────────────────────────────────────────────────────
 
-const emptyForm = (): Partial<ScorecardEntry> => ({
-  metric_name: '',
-  goal: null,
-  actual: null,
-  data_source: '',
-  notes: '',
-})
+interface AddEntryModalProps {
+  defaultTeam: string
+  onClose: () => void
+  onCreated: () => void
+  userId: string | undefined
+}
 
-// ── Main component ────────────────────────────────────────────────────────────
+function AddEntryModal({ defaultTeam, onClose, onCreated, userId }: AddEntryModalProps) {
+  const currentMonday = toISO(getMondayOf(new Date()))
+  const [form, setForm] = useState({
+    team: defaultTeam === 'all' ? 'leadership' : defaultTeam,
+    week_of: currentMonday,
+    metric_name: '',
+    goal: '',
+    actual: '',
+    data_source: 'manual',
+    notes: '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const inputCls = 'bg-slate-700 border border-slate-600 text-white text-sm rounded px-3 py-2 w-full focus:outline-none focus:ring-1 focus:ring-blue-500'
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); setSaving(true); setError('')
+    try {
+      await createScorecardEntryApi({
+        team: form.team, week_of: form.week_of, metric_name: form.metric_name,
+        goal: form.goal ? parseFloat(form.goal) : null,
+        actual: form.actual ? parseFloat(form.actual) : null,
+        data_source: form.data_source || 'manual',
+        notes: form.notes || null,
+      })
+      onCreated(); onClose()
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+      <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl p-6 w-full max-w-lg">
+        <h2 className="text-white font-semibold text-base mb-4">Add Scorecard Entry</h2>
+        {error && <div className="bg-red-500/10 border border-red-500/30 rounded px-3 py-2 text-red-400 text-sm mb-4">{error}</div>}
+        <form onSubmit={submit} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Team</label>
+              <select value={form.team} onChange={e => setForm({ ...form, team: e.target.value })} className={inputCls}>
+                <option value="leadership">Leadership</option>
+                <option value="sales">Sales</option>
+                <option value="production">Production</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Week of (Monday)</label>
+              <input type="date" value={form.week_of} onChange={e => setForm({ ...form, week_of: e.target.value })} className={inputCls} />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">Metric Name *</label>
+            <input required value={form.metric_name} onChange={e => setForm({ ...form, metric_name: e.target.value })} className={inputCls} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Goal</label>
+              <input type="number" step="any" value={form.goal} onChange={e => setForm({ ...form, goal: e.target.value })} className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Actual</label>
+              <input type="number" step="any" value={form.actual} onChange={e => setForm({ ...form, actual: e.target.value })} className={inputCls} />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">Notes</label>
+            <input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className={inputCls} />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose} className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded-lg transition-colors">Cancel</button>
+            <button type="submit" disabled={saving} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-60">
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ── Main Scorecard Component ───────────────────────────────────────────────────
 
 const Scorecard: React.FC = () => {
   const { user } = useAuthStore()
   const [team, setTeam] = useState<TeamType | 'all'>(
     user?.role === 'manager' ? (user.team as TeamType) : 'all'
   )
-  const [weekDate, setWeekDate] = useState<Date>(getMondayOf(new Date()))
-  const [entries, setEntries] = useState<ScorecardEntry[]>([])
+  const [history, setHistory] = useState<ScorecardHistory | null>(null)
   const [loading, setLoading] = useState(true)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState<Partial<ScorecardEntry>>({})
-  const [showAddForm, setShowAddForm] = useState(false)
-  const [addForm, setAddForm] = useState<Partial<ScorecardEntry>>(emptyForm())
-  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [selectedMetric, setSelectedMetric] = useState<MetricHistory | null>(null)
   const [showNewWeekModal, setShowNewWeekModal] = useState(false)
+  const [showAddModal, setShowAddModal] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
 
   const isLeadershipOrAdmin = user?.role === 'admin' || user?.role === 'leadership'
+  const canEdit = user?.role === 'admin' || user?.role === 'leadership' || user?.role === 'manager'
+
+  const currentWeek = toISO(getMondayOf(new Date()))
+
+  const loadHistory = useCallback(async () => {
+    setLoading(true); setError(null)
+    try {
+      const res = await getScorecardHistoryApi(team === 'all' ? undefined : team, 13)
+      setHistory(res.data)
+    } catch (e: any) {
+      setError(e.message || 'Failed to load scorecard data')
+    } finally {
+      setLoading(false)
+    }
+  }, [team])
+
+  useEffect(() => { loadHistory() }, [loadHistory])
+
+  // Keep the open modal's metric in sync after refresh
+  useEffect(() => {
+    if (selectedMetric && history) {
+      const refreshed = history.metrics.find(m => m.metric_name === selectedMetric.metric_name && m.team === selectedMetric.team)
+      if (refreshed) setSelectedMetric(refreshed)
+    }
+  }, [history])
 
   const handleHubSpotSync = async () => {
-    setSyncing(true)
-    setSyncMsg(null)
+    setSyncing(true); setSyncMsg(null)
     try {
       await syncHubSpotApi()
-      setSyncMsg('HubSpot synced ✓')
-      await loadEntries()
+      setSyncMsg('Synced ✓')
+      await loadHistory()
       setTimeout(() => setSyncMsg(null), 3000)
     } catch (e: any) {
-      setSyncMsg(e.response?.data?.error || 'Sync failed')
+      setSyncMsg('Sync failed')
       setTimeout(() => setSyncMsg(null), 4000)
     } finally {
       setSyncing(false)
     }
   }
 
-  const loadEntries = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await getScorecardApi(
-        team === 'all' ? undefined : team,
-        toISO(weekDate)
-      )
-      // Sort by sort_order if available, otherwise keep server order
-      const sorted = [...res.data].sort((a: ScorecardEntry, b: ScorecardEntry) => {
-        const ao = a.sort_order ?? 9999
-        const bo = b.sort_order ?? 9999
-        return ao - bo
-      })
-      setEntries(sorted)
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
-  }, [team, weekDate])
-
-  useEffect(() => {
-    loadEntries()
-  }, [loadEntries])
-
-  const prevWeek = () => {
-    const d = new Date(weekDate)
-    d.setDate(d.getDate() - 7)
-    setWeekDate(d)
+  // Cell color classes
+  const cellColor = (entry: WeekEntry | undefined, isCurrent: boolean) => {
+    if (!entry || entry.actual === null) return `text-slate-600 ${isCurrent ? 'bg-slate-700/30' : ''}`
+    if (entry.is_on_track === null) return `text-slate-400 ${isCurrent ? 'bg-slate-700/40 font-medium' : ''}`
+    if (entry.is_on_track) return `text-green-400 font-medium ${isCurrent ? 'bg-green-500/10' : ''}`
+    return `text-red-400 font-medium ${isCurrent ? 'bg-red-500/10' : ''}`
   }
-  const nextWeek = () => {
-    const d = new Date(weekDate)
-    d.setDate(d.getDate() + 7)
-    setWeekDate(d)
-  }
-
-  const startEdit = (entry: ScorecardEntry) => {
-    setEditingId(entry.id)
-    setEditForm({ ...entry })
-  }
-
-  const cancelEdit = () => {
-    setEditingId(null)
-    setEditForm({})
-  }
-
-  const saveEdit = async () => {
-    if (!editingId) return
-    setSaving(true)
-    try {
-      await updateScorecardEntryApi(editingId, editForm)
-      await loadEntries()
-      setEditingId(null)
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // Inline actual-only save (from InlineActualCell)
-  const saveActual = async (id: string, actual: number | null) => {
-    try {
-      await updateScorecardEntryApi(id, { actual })
-      await loadEntries()
-    } catch (e: any) {
-      setError(e.message)
-    }
-  }
-
-  const deleteEntry = async (id: string) => {
-    if (!confirm('Delete this entry?')) return
-    try {
-      await deleteScorecardEntryApi(id)
-      await loadEntries()
-    } catch (e: any) {
-      setError(e.message)
-    }
-  }
-
-  const submitAdd = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSaving(true)
-    try {
-      await createScorecardEntryApi({
-        ...addForm,
-        team: team === 'all' ? user?.team : team,
-        week_of: toISO(weekDate),
-      })
-      setShowAddForm(false)
-      setAddForm(emptyForm())
-      await loadEntries()
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const canEdit =
-    user?.role === 'admin' || user?.role === 'leadership' || user?.role === 'manager'
-
-  const inputCls =
-    'bg-slate-700 border border-slate-600 text-white text-sm rounded px-2 py-1 w-full focus:outline-none focus:ring-1 focus:ring-blue-500'
 
   return (
     <>
@@ -444,14 +686,11 @@ const Scorecard: React.FC = () => {
         title="Scorecard"
         actions={
           <div className="flex items-center gap-2">
-            {/* HubSpot sync button — leadership team only */}
             {isLeadershipOrAdmin && (team === 'all' || team === 'leadership') && (
               <button
-                onClick={handleHubSpotSync}
-                disabled={syncing}
+                onClick={handleHubSpotSync} disabled={syncing}
                 className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors flex items-center gap-2"
-                title="Pull latest data from HubSpot into this week's scorecard"
-              >
+                title="Pull latest HubSpot data into current week">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -460,33 +699,20 @@ const Scorecard: React.FC = () => {
               </button>
             )}
             {isLeadershipOrAdmin && (
-              <button
-                onClick={() => setShowNewWeekModal(true)}
-                className="bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors flex items-center gap-2"
-              >
+              <button onClick={() => setShowNewWeekModal(true)}
+                className="bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors flex items-center gap-2">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
                 New Week
               </button>
             )}
             {canEdit && (
-              <button
-                onClick={() => setShowAddForm(!showAddForm)}
-                className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
-              >
+              <button onClick={() => setShowAddModal(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 4v16m8-8H4"
-                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
                 Add Entry
               </button>
@@ -496,432 +722,127 @@ const Scorecard: React.FC = () => {
       />
 
       {showNewWeekModal && (
-        <NewWeekModal
-          defaultTeam={team}
-          onClose={() => setShowNewWeekModal(false)}
-          onCreated={loadEntries}
+        <NewWeekModal defaultTeam={team} onClose={() => setShowNewWeekModal(false)} onCreated={loadHistory} />
+      )}
+      {showAddModal && (
+        <AddEntryModal
+          defaultTeam={team} userId={user?.id}
+          onClose={() => setShowAddModal(false)} onCreated={loadHistory}
+        />
+      )}
+      {selectedMetric && history && (
+        <MetricDetailModal
+          metric={selectedMetric}
+          weeks={history.weeks}
+          currentWeek={currentWeek}
+          isLeadershipOrAdmin={isLeadershipOrAdmin}
+          canEdit={canEdit}
+          onClose={() => setSelectedMetric(null)}
+          onEntryUpdated={loadHistory}
+          onEntryDeleted={() => { loadHistory(); setSelectedMetric(null) }}
         />
       )}
 
       <div className="p-4 md:p-6 space-y-4">
         {error && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">
-            {error}
-          </div>
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">{error}</div>
         )}
 
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-4">
-          <TeamFilter value={team} onChange={(t) => setTeam(t)} />
-          <div className="flex items-center gap-2">
-            <button
-              onClick={prevWeek}
-              className="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <span className="text-sm text-white font-medium px-2">{formatWeek(weekDate)}</span>
-            <button
-              onClick={nextWeek}
-              className="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
+        {/* Team filter + legend */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <TeamFilter value={team} onChange={t => setTeam(t)} />
+          <div className="flex items-center gap-4 text-xs text-slate-500">
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-400" />On Track</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-400" />Off Track</span>
+            <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-600" />No Data</span>
+            <span className="text-slate-600 hidden sm:inline">Click any row to see trend & details</span>
           </div>
         </div>
 
-        {/* Add form */}
-        {showAddForm && (
-          <form
-            onSubmit={submitAdd}
-            className="bg-slate-800 border border-slate-700 rounded-xl p-5"
-          >
-            <h3 className="text-sm font-semibold text-white mb-4">New Scorecard Entry</h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-              <div className="lg:col-span-2">
-                <label className="block text-xs text-slate-400 mb-1">Metric Name *</label>
-                <input
-                  required
-                  className={inputCls}
-                  value={addForm.metric_name || ''}
-                  onChange={(e) => setAddForm({ ...addForm, metric_name: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Goal</label>
-                <input
-                  type="number"
-                  className={inputCls}
-                  value={addForm.goal ?? ''}
-                  onChange={(e) =>
-                    setAddForm({ ...addForm, goal: e.target.value ? +e.target.value : null })
-                  }
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Actual</label>
-                <input
-                  type="number"
-                  className={inputCls}
-                  value={addForm.actual ?? ''}
-                  onChange={(e) =>
-                    setAddForm({ ...addForm, actual: e.target.value ? +e.target.value : null })
-                  }
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Source</label>
-                <input
-                  className={inputCls}
-                  value={addForm.data_source || ''}
-                  onChange={(e) => setAddForm({ ...addForm, data_source: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Notes</label>
-                <input
-                  className={inputCls}
-                  value={addForm.notes || ''}
-                  onChange={(e) => setAddForm({ ...addForm, notes: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <button
-                type="button"
-                onClick={() => setShowAddForm(false)}
-                className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={saving}
-                className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-60"
-              >
-                {saving ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* ── Mobile card list (< md) ──────────────────────────────────────── */}
-        <div className="md:hidden space-y-2">
-          {loading ? (
-            <div className="flex items-center justify-center h-32">
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500" />
-            </div>
-          ) : entries.length === 0 ? (
-            <div className="text-center py-12 text-slate-500 text-sm">
-              No entries for this week.
-              {isLeadershipOrAdmin && (
-                <span> <button onClick={() => setShowNewWeekModal(true)} className="text-blue-400 underline">Create from template</button></span>
-              )}
-            </div>
-          ) : (
-            entries.map((entry) => {
-              const status = getStatus(entry)
-              const dotColor = status === 'on_track' ? 'bg-green-400' : status === 'at_risk' ? 'bg-yellow-400' : 'bg-red-400'
-              return (
-                <div key={entry.id} className="bg-slate-800 border border-slate-700 rounded-xl p-4">
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 mt-0.5 ${dotColor}`} />
-                      <span className="text-white font-semibold text-sm leading-tight">{entry.metric_name}</span>
-                    </div>
-                    <StatusBadge entry={entry} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 mb-2">
-                    <div className="bg-slate-700/50 rounded-lg px-3 py-2">
-                      <p className="text-xs text-slate-400 mb-0.5">Goal</p>
-                      <p className="text-sm font-semibold text-slate-200">
-                        {entry.goal_text || formatValue(entry.goal, entry.display_format || 'number')}
-                      </p>
-                    </div>
-                    <div className="bg-slate-700/50 rounded-lg px-3 py-2">
-                      <p className="text-xs text-slate-400 mb-0.5">Actual</p>
-                      <div className="text-sm font-bold">
-                        {canEdit ? (
-                          <InlineActualCell
-                            value={entry.actual}
-                            format={entry.display_format || 'number'}
-                            entryId={entry.id}
-                            onSave={saveActual}
-                          />
-                        ) : (
-                          <span className={status === 'on_track' ? 'text-green-400' : status === 'at_risk' ? 'text-yellow-400' : 'text-red-400'}>
-                            {formatValue(entry.actual, entry.display_format || 'number')}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  {entry.notes && (
-                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">{entry.notes}</p>
-                  )}
-                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-700/50">
-                    <SourceBadge source={entry.data_source} />
-                    {canEdit && (
-                      <button
-                        onClick={() => startEdit(entry)}
-                        className="text-slate-500 hover:text-blue-400 transition-colors p-1"
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75}
-                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )
-            })
-          )}
-        </div>
-
-        {/* ── Desktop table (md+) ──────────────────────────────────────────── */}
-        <div className="hidden md:block bg-slate-800 rounded-xl border border-slate-700 overflow-x-auto">
-          {loading ? (
-            <div className="flex items-center justify-center h-32">
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500" />
-            </div>
-          ) : entries.length === 0 ? (
-            <div className="text-center py-12 text-slate-500 text-sm">
-              No entries for this week.
-              {isLeadershipOrAdmin && (
-                <span>
-                  {' '}
-                  <button
-                    onClick={() => setShowNewWeekModal(true)}
-                    className="text-blue-400 hover:text-blue-300 underline"
-                  >
-                    Create from template
-                  </button>
-                </span>
-              )}
-            </div>
-          ) : (
-            <table className="w-full text-sm">
+        {loading ? (
+          <div className="flex items-center justify-center h-48">
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500" />
+          </div>
+        ) : !history || history.metrics.length === 0 ? (
+          <div className="text-center py-16 text-slate-500 text-sm bg-slate-800 rounded-xl border border-slate-700">
+            No scorecard data for this period.
+            {isLeadershipOrAdmin && (
+              <span> <button onClick={() => setShowNewWeekModal(true)} className="text-blue-400 hover:text-blue-300 underline">Create from template</button></span>
+            )}
+          </div>
+        ) : (
+          <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="border-b border-slate-700">
-                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide">
+                  {/* Sticky metric name column */}
+                  <th className="sticky left-0 z-10 bg-slate-800 text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide whitespace-nowrap min-w-[160px]">
                     Metric
                   </th>
-                  {user?.role !== 'manager' && (
-                    <th className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide">
-                      Team
-                    </th>
-                  )}
-                  <th className="text-right px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide">
+                  <th className="text-right px-3 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide whitespace-nowrap min-w-[80px]">
                     Goal
                   </th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide">
-                    Actual
-                  </th>
-                  <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide">
-                    Status
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide">
-                    Source
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide">
-                    Notes
-                  </th>
-                  {canEdit && (
-                    <th className="px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide">
-                      Actions
-                    </th>
-                  )}
+                  {/* Week columns */}
+                  {history.weeks.map((w, i) => {
+                    const isCurrent = w === currentWeek
+                    return (
+                      <th key={w}
+                        className={`text-center px-2 py-3 text-xs font-medium uppercase tracking-wide whitespace-nowrap min-w-[60px]
+                          ${isCurrent ? 'text-blue-400 border-l border-r border-blue-500/30 bg-blue-500/5' : 'text-slate-500'}
+                          ${i === history.weeks.length - 2 ? 'border-l border-slate-700/50' : ''}`}>
+                        {isCurrent ? (
+                          <span className="flex flex-col items-center gap-0.5">
+                            <span className="text-blue-400">{shortDate(w)}</span>
+                            <span className="text-[9px] text-blue-500/70 normal-case font-normal">this wk</span>
+                          </span>
+                        ) : shortDate(w)}
+                      </th>
+                    )
+                  })}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-700/50">
-                {entries.map((entry) =>
-                  editingId === entry.id ? (
-                    // ── Full edit row ──────────────────────────────────────────
-                    <tr key={entry.id} className="bg-slate-700/20">
-                      <td className="px-4 py-2">
-                        <input
-                          className={inputCls}
-                          value={editForm.metric_name || ''}
-                          onChange={(e) =>
-                            setEditForm({ ...editForm, metric_name: e.target.value })
-                          }
-                        />
-                      </td>
-                      {user?.role !== 'manager' && (
-                        <td className="px-4 py-2 text-slate-400 capitalize">{entry.team}</td>
-                      )}
-                      <td className="px-4 py-2">
-                        <input
-                          type="number"
-                          className={inputCls + ' text-right'}
-                          value={editForm.goal ?? ''}
-                          onChange={(e) =>
-                            setEditForm({
-                              ...editForm,
-                              goal: e.target.value ? +e.target.value : null,
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="px-4 py-2">
-                        <input
-                          type="number"
-                          className={inputCls + ' text-right'}
-                          value={editForm.actual ?? ''}
-                          onChange={(e) =>
-                            setEditForm({
-                              ...editForm,
-                              actual: e.target.value ? +e.target.value : null,
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="px-4 py-2 text-center">
-                        <select
-                          className={inputCls}
-                          value={String(editForm.is_on_track)}
-                          onChange={(e) =>
-                            setEditForm({
-                              ...editForm,
-                              is_on_track:
-                                e.target.value === 'true'
-                                  ? true
-                                  : e.target.value === 'false'
-                                  ? false
-                                  : null,
-                            })
-                          }
-                        >
-                          <option value="null">—</option>
-                          <option value="true">On Track</option>
-                          <option value="false">Off Track</option>
-                        </select>
-                      </td>
-                      <td className="px-4 py-2">
-                        <input
-                          className={inputCls}
-                          value={editForm.data_source || ''}
-                          onChange={(e) =>
-                            setEditForm({ ...editForm, data_source: e.target.value })
-                          }
-                        />
-                      </td>
-                      <td className="px-4 py-2">
-                        <input
-                          className={inputCls}
-                          value={editForm.notes || ''}
-                          onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
-                        />
-                      </td>
-                      <td className="px-4 py-2">
-                        <div className="flex gap-1">
-                          <button
-                            onClick={saveEdit}
-                            disabled={saving}
-                            className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1 rounded transition-colors"
-                          >
-                            Save
-                          </button>
-                          <button
-                            onClick={cancelEdit}
-                            className="bg-slate-700 hover:bg-slate-600 text-white text-xs px-2 py-1 rounded transition-colors"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    // ── Read row ───────────────────────────────────────────────
-                    <tr key={entry.id} className="hover:bg-slate-700/20 transition-colors">
-                      <td className="px-4 py-3 text-white font-medium">{entry.metric_name}</td>
-                      {user?.role !== 'manager' && (
-                        <td className="px-4 py-3 text-slate-400 capitalize">{entry.team}</td>
-                      )}
-                      <td className="px-4 py-3 text-right text-slate-300">
-                        {entry.goal_text
-                          ? entry.goal_text
-                          : formatValue(entry.goal, entry.display_format || 'number')}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {canEdit ? (
-                          <InlineActualCell
-                            value={entry.actual}
-                            format={entry.display_format || 'number'}
-                            entryId={entry.id}
-                            onSave={saveActual}
-                          />
-                        ) : (
-                          <span className="text-white font-medium">
-                            {formatValue(entry.actual, entry.display_format || 'number')}
-                          </span>
+              <tbody className="divide-y divide-slate-700/40">
+                {history.metrics.map(metric => (
+                  <tr key={`${metric.team}||${metric.metric_name}`}
+                    onClick={() => setSelectedMetric(metric)}
+                    className="hover:bg-slate-700/25 transition-colors cursor-pointer group">
+                    {/* Metric name — sticky */}
+                    <td className="sticky left-0 z-10 bg-slate-800 group-hover:bg-slate-700/25 px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <svg className="w-3.5 h-3.5 text-slate-600 group-hover:text-blue-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        <span className="text-white font-medium text-xs">{metric.metric_name}</span>
+                        {(team === 'all' || team === undefined) && user?.role !== 'manager' && (
+                          <span className="text-slate-600 text-[10px] capitalize">{metric.team}</span>
                         )}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <StatusBadge entry={entry} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <SourceBadge source={entry.data_source} />
-                      </td>
-                      <td className="px-4 py-3 text-slate-400 max-w-xs truncate">
-                        {entry.notes || '—'}
-                      </td>
-                      {canEdit && (
-                        <td className="px-4 py-3">
-                          <div className="flex gap-1">
-                            <button
-                              onClick={() => startEdit(entry)}
-                              className="text-slate-400 hover:text-blue-400 transition-colors p-1 rounded"
-                              title="Edit row"
-                            >
-                              <svg
-                                className="w-4 h-4"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={1.75}
-                                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                                />
-                              </svg>
-                            </button>
-                            <button
-                              onClick={() => deleteEntry(entry.id)}
-                              className="text-slate-400 hover:text-red-400 transition-colors p-1 rounded"
-                              title="Delete row"
-                            >
-                              <svg
-                                className="w-4 h-4"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={1.75}
-                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                />
-                              </svg>
-                            </button>
-                          </div>
+                      </div>
+                    </td>
+                    {/* Goal */}
+                    <td className="text-right px-3 py-3 text-slate-400 text-xs whitespace-nowrap">
+                      {metric.goal_text || formatValue(metric.goal, metric.display_format)}
+                    </td>
+                    {/* Data cells */}
+                    {history.weeks.map(w => {
+                      const entry = metric.data[w]
+                      const isCurrent = w === currentWeek
+                      return (
+                        <td key={w}
+                          className={`text-center px-2 py-3 text-xs whitespace-nowrap
+                            ${isCurrent ? 'border-l border-r border-blue-500/20 bg-blue-500/5' : ''}
+                            ${cellColor(entry, isCurrent)}`}>
+                          {entry?.actual !== null && entry?.actual !== undefined
+                            ? formatValue(entry.actual, metric.display_format)
+                            : <span className="text-slate-700">—</span>}
                         </td>
-                      )}
-                    </tr>
-                  )
-                )}
+                      )
+                    })}
+                  </tr>
+                ))}
               </tbody>
             </table>
-          )}
-        </div>{/* end hidden md:block desktop table */}
+          </div>
+        )}
       </div>
     </>
   )

@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { authenticate, requireAdmin, requireLeadershipOrAdmin } from '../middleware/auth';
 import { AuthRequest } from '../middleware/auth';
-import { getHubSpotSummary, syncHubSpotToScorecard } from '../services/hubspotService';
+import { getHubSpotSummary, syncHubSpotToScorecard, getHubSpotMetricDetail } from '../services/hubspotService';
 import { getQBOSummary } from '../services/qboService';
 import { connect, callback, disconnect, reconnect, status, refreshQBOToken } from '../controllers/qboOAuthController';
 
@@ -56,6 +56,22 @@ router.post('/hubspot/sync', authenticate, requireLeadershipOrAdmin, async (req:
     if (error.message.includes('HubSpot API error')) {
       res.status(502).json({ error: error.message });
       return;
+    }
+    next(err);
+  }
+});
+
+// HubSpot metric detail — underlying deals for drill-down
+router.get('/hubspot/deals', authenticate, requireLeadershipOrAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const metric = req.query.metric as string;
+    if (!metric) { res.status(400).json({ error: 'metric query param required' }); return; }
+    const detail = await getHubSpotMetricDetail(metric);
+    res.json(detail);
+  } catch (err) {
+    const error = err as Error;
+    if (error.message.includes('HUBSPOT_API_KEY')) {
+      res.status(503).json({ error: 'HubSpot not configured' }); return;
     }
     next(err);
   }
