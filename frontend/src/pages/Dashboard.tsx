@@ -177,18 +177,22 @@ const Dashboard: React.FC = () => {
                   </div>
                   <h3 className="text-sm font-semibold text-white">HubSpot CRM</h3>
                 </div>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <p className="text-xs text-slate-400">Pipeline Value</p>
-                    <p className="text-lg font-bold text-orange-400">{fmt.format(hubspot.pipeline_value)}</p>
+                    <p className="text-xs text-slate-400">Appts This Week</p>
+                    <p className="text-lg font-bold text-orange-400">{hubspot.appointments_this_week}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">Deals Won</p>
-                    <p className="text-lg font-bold text-green-400">{hubspot.deals_won}</p>
+                    <p className="text-xs text-slate-400">Weekly Sales</p>
+                    <p className="text-lg font-bold text-green-400">{fmt.format(hubspot.weekly_sales_amount)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">This Month</p>
-                    <p className="text-lg font-bold text-white">{fmt.format(hubspot.revenue_this_month)}</p>
+                    <p className="text-xs text-slate-400">YTD Sales</p>
+                    <p className="text-lg font-bold text-white">{fmt.format(hubspot.ytd_sales_amount)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Closing Rate</p>
+                    <p className="text-lg font-bold text-blue-400">{(hubspot.closing_rate_ytd * 100).toFixed(1)}%</p>
                   </div>
                 </div>
               </div>

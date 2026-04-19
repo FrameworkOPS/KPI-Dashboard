@@ -120,12 +120,12 @@ export interface Meeting {
 }
 
 export interface HubSpotSummary {
-  total_deals: number;
-  deals_won: number;
-  deals_lost: number;
-  pipeline_value: number;
-  deals_this_month: number;
-  revenue_this_month: number;
+  appointments_this_week: number;
+  weekly_sales_amount:    number;
+  ytd_sales_amount:       number;
+  closing_rate_ytd:       number;
+  appt_ytd_count:         number;
+  contract_ytd_count:     number;
 }
 
 export interface QBOSummary {

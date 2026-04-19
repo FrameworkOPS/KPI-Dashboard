@@ -167,9 +167,9 @@ export async function syncHubSpotToScorecard(): Promise<void> {
   const summary = await getHubSpotSummary();
 
   // Current week Monday
-  const now   = new Date();
-  const diff  = now.getDay() === 0 ? -6 : 1 - now.getDay();
-  const mon   = new Date(now);
+  const now  = new Date();
+  const diff = now.getDay() === 0 ? -6 : 1 - now.getDay();
+  const mon  = new Date(now);
   mon.setDate(now.getDate() + diff);
   mon.setHours(0, 0, 0, 0);
   const weekOf = mon.toISOString().split('T')[0];
@@ -182,11 +182,36 @@ export async function syncHubSpotToScorecard(): Promise<void> {
   ];
 
   for (const { metric, actual } of updates) {
-    await query(
+    // Try update first; if no row exists for this week, upsert from template
+    const upd = await query(
       `UPDATE scorecard_entries
-          SET actual = $1, updated_at = NOW()
+          SET actual = $1, data_source = 'hubspot', updated_at = NOW()
         WHERE team = 'leadership' AND week_of = $2 AND metric_name = $3`,
       [actual, weekOf, metric],
     );
+
+    if ((upd.rowCount ?? 0) === 0) {
+      // No row for this week yet — insert using template as base
+      await query(
+        `INSERT INTO scorecard_entries
+           (team, week_of, metric_name, goal, goal_text, actual,
+            is_on_track, display_format, lower_is_better, data_source)
+         SELECT
+           'leadership', $2, t.metric_name, t.goal, t.goal_text, $3,
+           CASE
+             WHEN t.lower_is_better THEN ($3 <= t.goal)
+             ELSE ($3 >= t.goal)
+           END,
+           t.display_format, t.lower_is_better, 'hubspot'
+         FROM scorecard_templates t
+         WHERE t.team = 'leadership' AND t.metric_name = $1
+         ON CONFLICT (team, week_of, metric_name) DO UPDATE
+           SET actual      = EXCLUDED.actual,
+               is_on_track = EXCLUDED.is_on_track,
+               data_source = 'hubspot',
+               updated_at  = NOW()`,
+        [metric, weekOf, actual],
+      );
+    }
   }
 }
