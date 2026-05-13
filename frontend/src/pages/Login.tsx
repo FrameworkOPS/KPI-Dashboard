@@ -27,7 +27,7 @@ const Login: React.FC = () => {
         {/* Logo / header */}
         <div className="text-center mb-8">
           <img
-            src="/skyright-logo.png"
+            src="/skyright-web_logotype-color.jpg"
             alt="Skyright Roofing &amp; Gutters"
             className="mx-auto h-20 sm:h-24 w-auto object-contain mb-4"
           />
