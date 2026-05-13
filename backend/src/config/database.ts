@@ -195,7 +195,7 @@ export async function initializeDatabase(): Promise<void> {
     const seedUsers = [
       { email: 'chance@skyright.com', password: process.env.SEED_CHANCE_PW || 'Redroad7318',  first: 'Chance', last: 'Peare',     role: 'admin',      team: 'all'        },
       { email: 'jorn@skyright.com',   password: process.env.SEED_JORN_PW   || 'Bielefeld1',   first: 'Jorn',   last: 'Bielefeld', role: 'leadership', team: 'leadership' },
-      { email: 'pete@skyright.com',   password: process.env.SEED_PETE_PW   || 'TempPass1234!', first: 'Pete',   last: '',          role: 'admin',      team: 'all'        },
+      { email: 'pete@skyright.com',   password: process.env.SEED_PETE_PW   || 'Password',     first: 'Pete',   last: 'Hicks',     role: 'leadership', team: 'leadership' },
       // Fallback generic admin in case of fresh install
       { email: 'admin@company.com',   password: 'Admin1234!',                                  first: 'Admin',  last: 'User',      role: 'admin',      team: 'all'        },
     ];
@@ -211,6 +211,24 @@ export async function initializeDatabase(): Promise<void> {
         );
         console.log(`Seeded user: ${u.email} (${u.role})`);
       }
+    }
+
+    // One-time correction: Pete Hicks should be a leadership user with password "Password"
+    // (he was previously seeded as admin with no last name). Idempotent — only updates if needed.
+    {
+      const peteHash = await bcrypt.hash('Password', 12);
+      await client.query(
+        `UPDATE users
+            SET first_name = 'Pete',
+                last_name  = 'Hicks',
+                role       = 'leadership',
+                team       = 'leadership',
+                password_hash = $1,
+                active     = true,
+                updated_at = NOW()
+          WHERE LOWER(email) = 'pete@skyright.com'`,
+        [peteHash]
+      );
     }
 
     // oauth_tokens table
@@ -303,6 +321,11 @@ export async function initializeDatabase(): Promise<void> {
       ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS sort_order INT
     `);
 
+    // 5. Migrate any legacy hubspot-sourced rows to manual (HubSpot integration removed)
+    await client.query(`
+      UPDATE scorecard_entries SET data_source = 'manual' WHERE data_source = 'hubspot'
+    `);
+
     // Seed leadership scorecard templates
     await client.query(`
       INSERT INTO scorecard_templates (team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order)
@@ -328,10 +351,10 @@ export async function initializeDatabase(): Promise<void> {
     await client.query(`
       INSERT INTO scorecard_entries (team, week_of, metric_name, goal, goal_text, actual, is_on_track, display_format, lower_is_better, data_source, notes)
       SELECT * FROM (VALUES
-        ('leadership','2026-04-05'::DATE,'Weekly Sales',         120000::DECIMAL,   '$120,000',      15564::DECIMAL,       false, 'currency', false, 'hubspot',  'Weighted by the week'),
-        ('leadership','2026-04-05'::DATE,'Total Sales (YTD)',    10000000::DECIMAL, '$10,000,000',   812648.45::DECIMAL,   true,  'currency', false, 'hubspot',  ''),
-        ('leadership','2026-04-05'::DATE,'Closing Rate',         0.40::DECIMAL,     '40%',           0.18::DECIMAL,        false, 'percent',  false, 'hubspot',  ''),
-        ('leadership','2026-04-05'::DATE,'Appointments',         12::DECIMAL,       '12',            21::DECIMAL,          true,  'number',   false, 'hubspot',  ''),
+        ('leadership','2026-04-05'::DATE,'Weekly Sales',         120000::DECIMAL,   '$120,000',      15564::DECIMAL,       false, 'currency', false, 'manual',   'Weighted by the week'),
+        ('leadership','2026-04-05'::DATE,'Total Sales (YTD)',    10000000::DECIMAL, '$10,000,000',   812648.45::DECIMAL,   true,  'currency', false, 'manual',   ''),
+        ('leadership','2026-04-05'::DATE,'Closing Rate',         0.40::DECIMAL,     '40%',           0.18::DECIMAL,        false, 'percent',  false, 'manual',   ''),
+        ('leadership','2026-04-05'::DATE,'Appointments',         12::DECIMAL,       '12',            21::DECIMAL,          true,  'number',   false, 'manual',   ''),
         ('leadership','2026-04-05'::DATE,'Weekly Invoiced',      120000::DECIMAL,   '$120K / $230K', 17646::DECIMAL,       false, 'currency', false, 'qbo',      ''),
         ('leadership','2026-04-05'::DATE,'Total Invoiced (YTD)', 9000000::DECIMAL,  '$9,000,000',    898129.49::DECIMAL,   true,  'currency', false, 'qbo',      ''),
         ('leadership','2026-04-05'::DATE,'Backlog (Weeks)',       4::DECIMAL,       '4 weeks',       8::DECIMAL,           false, 'number',   true,  'manual',   ''),

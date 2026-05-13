@@ -119,15 +119,6 @@ export interface Meeting {
   created_by: string;
 }
 
-export interface HubSpotSummary {
-  appointments_this_week: number;
-  weekly_sales_amount:    number;
-  ytd_sales_amount:       number;
-  closing_rate_ytd:       number;
-  appt_ytd_count:         number;
-  contract_ytd_count:     number;
-}
-
 export interface QBOSummary {
   total_revenue: number;
   total_expenses: number;

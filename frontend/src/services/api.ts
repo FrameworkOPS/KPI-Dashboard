@@ -70,9 +70,6 @@ export const createWeekFromTemplateApi = (team: string, week_of: string) =>
 export const getScorecardHistoryApi = (team?: string, weeks = 13) =>
   api.get('/scorecard/history', { params: { team, weeks } })
 
-export const getHubSpotDealsApi = (metric: string) =>
-  api.get('/integrations/hubspot/deals', { params: { metric } })
-
 // ── Rocks ─────────────────────────────────────────────────────────────────────
 export const getRocksApi = (team?: string, quarter?: number, year?: number) =>
   api.get('/rocks', { params: { team, quarter, year } })
@@ -149,12 +146,6 @@ export const sendMeetingReminderApi = (id: string, emails?: string[]) =>
   api.post(`/meetings/${id}/reminder`, emails ? { emails } : {})
 
 // ── Integrations ──────────────────────────────────────────────────────────────
-export const getHubSpotSummaryApi = () =>
-  api.get('/integrations/hubspot')
-
-export const syncHubSpotApi = () =>
-  api.post('/integrations/hubspot/sync')
-
 export const getQBOSummaryApi = () =>
   api.get('/integrations/qbo')
 

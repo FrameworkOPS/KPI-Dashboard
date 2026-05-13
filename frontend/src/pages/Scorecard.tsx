@@ -11,8 +11,6 @@ import {
   deleteScorecardEntryApi,
   createScorecardEntryApi,
   createWeekFromTemplateApi,
-  syncHubSpotApi,
-  getHubSpotDealsApi,
 } from '../services/api'
 import { TeamType } from '../types'
 import { useAuthStore } from '../store/authStore'
@@ -43,23 +41,6 @@ interface ScorecardHistory {
   metrics: MetricHistory[]
 }
 
-interface HubSpotDeal {
-  id: string
-  name: string
-  amount: number | null
-  project_sold_date: string | null
-  createdate: string | null
-}
-
-interface HubSpotDetail {
-  label: string
-  deals: HubSpotDeal[]
-  summary?: {
-    contracts_sent_ytd: number; contracts_signed_ytd: number;
-    total_sent: number; closing_rate: number
-  }
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const toISO = (d: Date) => d.toISOString().split('T')[0]
@@ -78,8 +59,7 @@ const shortDate = (iso: string) => {
   return `${parseInt(m)}/${parseInt(d)}`
 }
 
-const fullDate = (iso: string | null | undefined) => {
-  if (!iso) return '—'
+const fullDate = (iso: string) => {
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
   })
@@ -103,13 +83,6 @@ function formatValue(value: number | null | undefined, format: string): string {
   }
 }
 
-function formatCurrency(n: number | null) {
-  if (n === null) return '—'
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency', currency: 'USD', maximumFractionDigits: 0,
-  }).format(n)
-}
-
 // Determine chart type: area for cumulative/percent/rate, bar for everything else
 function getChartType(m: MetricHistory): 'bar' | 'area' {
   const n = m.metric_name.toLowerCase()
@@ -124,7 +97,6 @@ interface MetricDetailModalProps {
   metric: MetricHistory
   weeks: string[]
   currentWeek: string
-  isLeadershipOrAdmin: boolean
   canEdit: boolean
   onClose: () => void
   onEntryUpdated: () => void
@@ -132,29 +104,15 @@ interface MetricDetailModalProps {
 }
 
 function MetricDetailModal({
-  metric, weeks, currentWeek, isLeadershipOrAdmin, canEdit,
+  metric, weeks, currentWeek, canEdit,
   onClose, onEntryUpdated, onEntryDeleted,
 }: MetricDetailModalProps) {
-  const [dealDetail, setDealDetail] = useState<HubSpotDetail | null>(null)
-  const [dealLoading, setDealLoading] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [editActual, setEditActual] = useState('')
   const [editNotes, setEditNotes] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const currentEntry = metric.data[currentWeek]
-  const isHubSpotMetric = currentEntry?.data_source === 'hubspot'
   const fmt = metric.display_format
-
-  useEffect(() => {
-    if (isHubSpotMetric && isLeadershipOrAdmin) {
-      setDealLoading(true)
-      getHubSpotDealsApi(metric.metric_name)
-        .then(r => setDealDetail(r.data))
-        .catch(() => setDealDetail(null))
-        .finally(() => setDealLoading(false))
-    }
-  }, [metric.metric_name, isHubSpotMetric, isLeadershipOrAdmin])
 
   // Build chart data — null actuals show as gaps
   const chartData = weeks.map(w => {
@@ -311,78 +269,6 @@ function MetricDetailModal({
               )}
             </ResponsiveContainer>
           </div>
-
-          {/* ── HubSpot deal breakdown ── */}
-          {isHubSpotMetric && isLeadershipOrAdmin && (
-            <div>
-              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
-                {dealDetail?.label || 'Current Data Breakdown'}
-              </h3>
-              {dealLoading ? (
-                <div className="flex items-center gap-2 text-slate-400 text-sm py-4">
-                  <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-500" />
-                  Loading deals…
-                </div>
-              ) : dealDetail?.summary ? (
-                /* Closing rate summary view */
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="bg-slate-900/60 rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-white">{dealDetail.summary.contracts_sent_ytd}</p>
-                    <p className="text-xs text-slate-400 mt-1">Contracts Sent (pending)</p>
-                  </div>
-                  <div className="bg-slate-900/60 rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-green-400">{dealDetail.summary.contracts_signed_ytd}</p>
-                    <p className="text-xs text-slate-400 mt-1">Contracts Signed</p>
-                  </div>
-                  <div className="bg-slate-900/60 rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-blue-400">
-                      {(dealDetail.summary.closing_rate * 100).toFixed(1)}%
-                    </p>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Rate ({dealDetail.summary.contracts_signed_ytd}/{dealDetail.summary.total_sent})
-                    </p>
-                  </div>
-                </div>
-              ) : dealDetail?.deals.length ? (
-                /* Deal table */
-                <div className="bg-slate-900/60 rounded-xl overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-700">
-                        <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-400 uppercase tracking-wide">Deal</th>
-                        <th className="text-right px-4 py-2.5 text-xs font-medium text-slate-400 uppercase tracking-wide">Amount</th>
-                        <th className="text-right px-4 py-2.5 text-xs font-medium text-slate-400 uppercase tracking-wide">Date</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-700/40">
-                      {dealDetail.deals.map(deal => (
-                        <tr key={deal.id} className="hover:bg-slate-700/20 transition-colors">
-                          <td className="px-4 py-2.5 text-white">{deal.name}</td>
-                          <td className="px-4 py-2.5 text-right text-green-400 font-medium">
-                            {formatCurrency(deal.amount)}
-                          </td>
-                          <td className="px-4 py-2.5 text-right text-slate-400 text-xs">
-                            {fullDate(deal.project_sold_date || deal.createdate)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t border-slate-700">
-                        <td className="px-4 py-2.5 text-xs text-slate-400 font-medium">Total ({dealDetail.deals.length} deals)</td>
-                        <td className="px-4 py-2.5 text-right text-white font-bold">
-                          {formatCurrency(dealDetail.deals.reduce((s, d) => s + (d.amount ?? 0), 0))}
-                        </td>
-                        <td />
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              ) : dealDetail ? (
-                <p className="text-slate-500 text-sm py-4">No deals found for this period.</p>
-              ) : null}
-            </div>
-          )}
 
           {/* ── Week-by-week data with edit controls ── */}
           {canEdit && (
@@ -632,8 +518,6 @@ const Scorecard: React.FC = () => {
   const [selectedMetric, setSelectedMetric] = useState<MetricHistory | null>(null)
   const [showNewWeekModal, setShowNewWeekModal] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
-  const [syncing, setSyncing] = useState(false)
-  const [syncMsg, setSyncMsg] = useState<string | null>(null)
 
   const isLeadershipOrAdmin = user?.role === 'admin' || user?.role === 'leadership'
   const canEdit = user?.role === 'admin' || user?.role === 'leadership' || user?.role === 'manager'
@@ -662,21 +546,6 @@ const Scorecard: React.FC = () => {
     }
   }, [history])
 
-  const handleHubSpotSync = async () => {
-    setSyncing(true); setSyncMsg(null)
-    try {
-      await syncHubSpotApi()
-      setSyncMsg('Synced ✓')
-      await loadHistory()
-      setTimeout(() => setSyncMsg(null), 3000)
-    } catch (e: any) {
-      setSyncMsg('Sync failed')
-      setTimeout(() => setSyncMsg(null), 4000)
-    } finally {
-      setSyncing(false)
-    }
-  }
-
   // Cell color classes
   const cellColor = (entry: WeekEntry | undefined, isCurrent: boolean) => {
     if (!entry || entry.actual === null) return `text-slate-600 ${isCurrent ? 'bg-slate-700/30' : ''}`
@@ -690,22 +559,10 @@ const Scorecard: React.FC = () => {
       <Header
         title="Scorecard"
         actions={
-          <div className="flex items-center gap-2">
-            {isLeadershipOrAdmin && (team === 'all' || team === 'leadership') && (
-              <button
-                onClick={handleHubSpotSync} disabled={syncing}
-                className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors flex items-center gap-2"
-                title="Pull latest HubSpot data into current week">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                {syncing ? 'Syncing…' : syncMsg ?? 'HubSpot'}
-              </button>
-            )}
+          <div className="flex items-center gap-2 w-full md:w-auto">
             {isLeadershipOrAdmin && (
               <button onClick={() => setShowNewWeekModal(true)}
-                className="bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors flex items-center gap-2">
+                className="flex-1 md:flex-none bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium px-3 py-2 min-h-[40px] rounded-lg transition-colors flex items-center justify-center gap-2">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -715,7 +572,7 @@ const Scorecard: React.FC = () => {
             )}
             {canEdit && (
               <button onClick={() => setShowAddModal(true)}
-                className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+                className="flex-1 md:flex-none bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 min-h-[40px] rounded-lg transition-colors flex items-center justify-center gap-2">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
@@ -740,7 +597,6 @@ const Scorecard: React.FC = () => {
           metric={selectedMetric}
           weeks={history.weeks}
           currentWeek={currentWeek}
-          isLeadershipOrAdmin={isLeadershipOrAdmin}
           canEdit={canEdit}
           onClose={() => setSelectedMetric(null)}
           onEntryUpdated={loadHistory}
@@ -756,13 +612,14 @@ const Scorecard: React.FC = () => {
         {/* Team filter + legend */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <TeamFilter value={team} onChange={t => setTeam(t)} />
-          <div className="flex items-center gap-4 text-xs text-slate-500">
+          <div className="flex items-center gap-3 sm:gap-4 text-xs text-slate-500 flex-wrap">
             <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-400" />On Track</span>
             <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-400" />Off Track</span>
             <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-600" />No Data</span>
-            <span className="text-slate-600 hidden sm:inline">Click any row to see trend & details</span>
+            <span className="text-slate-600 hidden sm:inline">Tap any row for trend & details</span>
           </div>
         </div>
+        <p className="md:hidden text-[11px] text-slate-500 -mt-2">Swipe table horizontally · tap any row for details</p>
 
         {loading ? (
           <div className="flex items-center justify-center h-48">
