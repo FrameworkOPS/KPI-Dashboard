@@ -285,30 +285,35 @@ function MetricDetailModal({
                   )
                   if (editId === e.id) {
                     return (
-                      <div key={w} className="bg-slate-700/50 rounded-lg px-3 py-2 space-y-2">
+                      <div key={w} className="bg-slate-700/50 rounded-lg px-3 py-3 space-y-2">
                         <p className="text-xs text-slate-400">{fullDate(w)}</p>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                           <input
-                            type="number" step="any" autoFocus
+                            type="text"
+                            inputMode="decimal"
+                            pattern="-?[0-9.]*"
+                            autoFocus
                             value={editActual}
                             onChange={e => setEditActual(e.target.value)}
                             placeholder="Actual"
-                            className="bg-slate-700 border border-blue-500 text-white text-sm rounded px-2 py-1 w-36 focus:outline-none"
+                            className="bg-slate-700 border border-blue-500 text-white text-base rounded px-3 py-2 min-h-[40px] w-full sm:w-36 focus:outline-none"
                           />
                           <input
                             value={editNotes}
                             onChange={e => setEditNotes(e.target.value)}
                             placeholder="Notes (optional)"
-                            className="bg-slate-700 border border-slate-600 text-white text-sm rounded px-2 py-1 flex-1 focus:outline-none focus:border-blue-500"
+                            className="bg-slate-700 border border-slate-600 text-white text-base sm:text-sm rounded px-3 py-2 min-h-[40px] w-full sm:flex-1 focus:outline-none focus:border-blue-500"
                           />
-                          <button onClick={saveEdit} disabled={saving}
-                            className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded transition-colors disabled:opacity-60">
-                            {saving ? '…' : 'Save'}
-                          </button>
-                          <button onClick={() => setEditId(null)}
-                            className="text-slate-400 hover:text-white transition-colors text-xs px-2 py-1.5">
-                            Cancel
-                          </button>
+                          <div className="flex items-center gap-2 justify-end">
+                            <button onClick={saveEdit} disabled={saving}
+                              className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 min-h-[40px] rounded transition-colors disabled:opacity-60">
+                              {saving ? '…' : 'Save'}
+                            </button>
+                            <button onClick={() => setEditId(null)}
+                              className="text-slate-400 hover:text-white transition-colors text-sm px-3 py-2 min-h-[40px]">
+                              Cancel
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )
@@ -317,7 +322,8 @@ function MetricDetailModal({
                     : e.is_on_track ? 'bg-green-400' : 'bg-red-400'
                   return (
                     <div key={w}
-                      className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-slate-700/30 transition-colors group">
+                      onClick={() => startEdit(e)}
+                      className="flex items-center justify-between px-3 py-2.5 min-h-[44px] rounded-lg hover:bg-slate-700/30 active:bg-slate-700/40 transition-colors group cursor-pointer">
                       <div className="flex items-center gap-2.5">
                         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
                         <span className="text-xs text-slate-400">{fullDate(w)}</span>
@@ -325,17 +331,17 @@ function MetricDetailModal({
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="text-sm font-semibold text-white">{formatValue(e.actual, fmt)}</span>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => startEdit(e)}
-                            className="text-slate-500 hover:text-blue-400 transition-colors p-0.5">
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <div className="flex items-center gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                          <button onClick={(ev) => { ev.stopPropagation(); startEdit(e) }}
+                            className="text-slate-500 hover:text-blue-400 transition-colors p-1.5">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                                 d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                             </svg>
                           </button>
-                          <button onClick={() => handleDelete(e.id)}
-                            className="text-slate-500 hover:text-red-400 transition-colors p-0.5">
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <button onClick={(ev) => { ev.stopPropagation(); handleDelete(e.id) }}
+                            className="text-slate-500 hover:text-red-400 transition-colors p-1.5">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                                 d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                             </svg>
@@ -482,11 +488,11 @@ function AddEntryModal({ defaultTeam, onClose, onCreated, userId }: AddEntryModa
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-slate-400 mb-1">Goal</label>
-              <input type="number" step="any" value={form.goal} onChange={e => setForm({ ...form, goal: e.target.value })} className={inputCls} />
+              <input type="text" inputMode="decimal" pattern="-?[0-9.]*" value={form.goal} onChange={e => setForm({ ...form, goal: e.target.value })} className={inputCls} />
             </div>
             <div>
               <label className="block text-xs text-slate-400 mb-1">Actual</label>
-              <input type="number" step="any" value={form.actual} onChange={e => setForm({ ...form, actual: e.target.value })} className={inputCls} />
+              <input type="text" inputMode="decimal" pattern="-?[0-9.]*" value={form.actual} onChange={e => setForm({ ...form, actual: e.target.value })} className={inputCls} />
             </div>
           </div>
           <div>

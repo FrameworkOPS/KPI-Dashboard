@@ -130,22 +130,18 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     <aside className="w-72 md:w-64 bg-slate-900 border-r border-slate-700/50 flex flex-col flex-shrink-0 h-full">
 
       {/* Logo + close button */}
-      <div className="h-16 flex items-center justify-between px-5 border-b border-slate-700/50 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
-            <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-          </div>
-          <span className="text-white font-bold text-base">KPI Dashboard</span>
-        </div>
+      <div className="h-20 flex items-center justify-between px-4 border-b border-slate-700/50 flex-shrink-0 gap-2">
+        <img
+          src="/skyright-logo.png"
+          alt="Skyright Roofing &amp; Gutters"
+          className="h-12 w-auto object-contain"
+        />
 
         {/* Close button — mobile drawer only */}
         {onClose && (
           <button
             onClick={onClose}
-            className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors flex-shrink-0"
             aria-label="Close menu"
           >
             <IconClose />
