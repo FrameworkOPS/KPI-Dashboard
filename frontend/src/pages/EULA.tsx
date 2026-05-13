@@ -161,8 +161,7 @@ const EULA: React.FC = () => {
                 <span className="text-blue-400 mr-2">6.</span>Third-Party Integrations
               </h3>
               <p className="text-slate-300 leading-relaxed mb-3">
-                The KPI Dashboard may integrate with third-party services, including but not limited to
-                <span className="text-white font-medium"> HubSpot</span> and{' '}
+                The KPI Dashboard may integrate with third-party services, including but not limited to{' '}
                 <span className="text-white font-medium">QuickBooks Online</span> ("Third-Party Services").
                 Your use of these Third-Party Services through the KPI Dashboard is subject to the respective
                 terms of service, privacy policies, and end user license agreements of those third parties.

@@ -277,7 +277,7 @@ const Accountability: React.FC = () => {
           )
         }
       />
-      <div className="p-6">
+      <div className="p-4 md:p-6">
         {error && <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm mb-4">{error}</div>}
         {loading ? (
           <div className="flex items-center justify-center h-48">

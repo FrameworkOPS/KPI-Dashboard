@@ -69,7 +69,7 @@ const Integrations: React.FC = () => {
 
   if (!isAdmin) {
     return (
-      <div className="p-6">
+      <div className="p-4 md:p-6">
         <p className="text-slate-400">You do not have permission to view this page.</p>
       </div>
     )
@@ -86,33 +86,6 @@ const Integrations: React.FC = () => {
           {msg.text}
         </div>
       )}
-
-      {/* HubSpot */}
-      <div className="bg-slate-800 rounded-xl border border-slate-700 p-5 mb-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-orange-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
-              <svg className="w-5 h-5 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75}
-                  d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-white font-medium">HubSpot CRM</p>
-              <p className="text-slate-400 text-sm">Sync deal data to Scorecard</p>
-            </div>
-          </div>
-          <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">
-            Connected via API Key
-          </span>
-        </div>
-        <div className="mt-3 pt-3 border-t border-slate-700">
-          <p className="text-slate-500 text-xs">
-            Connected using a private app access token. Tracks Appointments (stage 87743795) and
-            Contract Signed (stage 60609660) deals. Use the HubSpot sync button on the Scorecard page.
-          </p>
-        </div>
-      </div>
 
       {/* QuickBooks Online */}
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">

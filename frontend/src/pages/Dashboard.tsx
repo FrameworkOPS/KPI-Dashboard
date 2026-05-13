@@ -7,10 +7,9 @@ import {
   getIssuesApi,
   getTodosApi,
   getMeetingsApi,
-  getHubSpotSummaryApi,
   getQBOSummaryApi,
 } from '../services/api'
-import { Rock, Issue, Todo, Meeting, HubSpotSummary, QBOSummary } from '../types'
+import { Rock, Issue, Todo, Meeting, QBOSummary } from '../types'
 import { useAuthStore } from '../store/authStore'
 
 const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
@@ -23,7 +22,6 @@ const Dashboard: React.FC = () => {
   const [issues, setIssues] = useState<Issue[]>([])
   const [todos, setTodos] = useState<Todo[]>([])
   const [meetings, setMeetings] = useState<Meeting[]>([])
-  const [hubspot, setHubspot] = useState<HubSpotSummary | null>(null)
   const [qbo, setQbo] = useState<QBOSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -49,11 +47,7 @@ const Dashboard: React.FC = () => {
         setMeetings(meetingsRes.data)
 
         if (user?.role === 'admin' || user?.role === 'leadership') {
-          const [hsRes, qboRes] = await Promise.allSettled([
-            getHubSpotSummaryApi(),
-            getQBOSummaryApi(),
-          ])
-          if (hsRes.status === 'fulfilled') setHubspot(hsRes.value.data)
+          const [qboRes] = await Promise.allSettled([getQBOSummaryApi()])
           if (qboRes.status === 'fulfilled') setQbo(qboRes.value.data)
         }
       } catch (e: any) {
@@ -100,7 +94,7 @@ const Dashboard: React.FC = () => {
     return (
       <>
         <Header title="Dashboard" />
-        <div className="p-6">
+        <div className="p-4 md:p-6">
           <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">{error}</div>
         </div>
       </>
@@ -164,68 +158,34 @@ const Dashboard: React.FC = () => {
           />
         </div>
 
-        {/* Integration tiles — admin/leadership only */}
-        {(user?.role === 'admin' || user?.role === 'leadership') && (hubspot || qbo) && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {hubspot && (
-              <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="w-7 h-7 bg-orange-500/20 rounded-lg flex items-center justify-center">
-                    <svg className="w-4 h-4 text-orange-400" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M18.164 7.93V5.084a2.4 2.4 0 10-2.4 0V7.93a6.838 6.838 0 00-3.248 2.018L9.9 8.6a2.4 2.4 0 10-.878 1.484l2.454 1.25A6.838 6.838 0 0011.1 14.1a6.9 6.9 0 106.9-6.9c-.28 0-.557.016-.836.046zM18 19.5a3.4 3.4 0 110-6.8 3.4 3.4 0 010 6.8z" />
-                    </svg>
-                  </div>
-                  <h3 className="text-sm font-semibold text-white">HubSpot CRM</h3>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-xs text-slate-400">Appts This Week</p>
-                    <p className="text-lg font-bold text-orange-400">{hubspot.appointments_this_week}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400">Weekly Sales</p>
-                    <p className="text-lg font-bold text-green-400">{fmt.format(hubspot.weekly_sales_amount)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400">YTD Sales</p>
-                    <p className="text-lg font-bold text-white">{fmt.format(hubspot.ytd_sales_amount)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400">Closing Rate</p>
-                    <p className="text-lg font-bold text-blue-400">{(hubspot.closing_rate_ytd * 100).toFixed(1)}%</p>
-                  </div>
-                </div>
+        {/* Integration tile — QuickBooks, admin/leadership only */}
+        {(user?.role === 'admin' || user?.role === 'leadership') && qbo && (
+          <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 md:p-5">
+            <div className="flex items-center gap-2 mb-3 md:mb-4">
+              <div className="w-7 h-7 bg-green-500/20 rounded-lg flex items-center justify-center">
+                <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
               </div>
-            )}
-            {qbo && (
-              <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="w-7 h-7 bg-green-500/20 rounded-lg flex items-center justify-center">
-                    <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <h3 className="text-sm font-semibold text-white">QuickBooks</h3>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <p className="text-xs text-slate-400">Revenue</p>
-                    <p className="text-lg font-bold text-green-400">{fmt.format(qbo.total_revenue)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400">Net Income</p>
-                    <p className={`text-lg font-bold ${qbo.net_income >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {fmt.format(qbo.net_income)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400">AR</p>
-                    <p className="text-lg font-bold text-white">{fmt.format(qbo.accounts_receivable)}</p>
-                  </div>
-                </div>
+              <h3 className="text-sm font-semibold text-white">QuickBooks</h3>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <p className="text-[11px] md:text-xs text-slate-400">Revenue</p>
+                <p className="text-base md:text-lg font-bold text-green-400 truncate">{fmt.format(qbo.total_revenue)}</p>
               </div>
-            )}
+              <div>
+                <p className="text-[11px] md:text-xs text-slate-400">Net Income</p>
+                <p className={`text-base md:text-lg font-bold truncate ${qbo.net_income >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {fmt.format(qbo.net_income)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] md:text-xs text-slate-400">AR</p>
+                <p className="text-base md:text-lg font-bold text-white truncate">{fmt.format(qbo.accounts_receivable)}</p>
+              </div>
+            </div>
           </div>
         )}
 

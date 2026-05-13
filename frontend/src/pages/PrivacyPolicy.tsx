@@ -102,10 +102,8 @@ const PrivacyPolicy: React.FC = () => {
                   <p className="text-slate-300 leading-relaxed">
                     When you authorize connections to third-party services, we access data from those services
                     on your behalf. This includes financial data from <span className="text-white font-medium">QuickBooks Online</span> (such as
-                    profit and loss reports, income, and expense data) and CRM data from{' '}
-                    <span className="text-white font-medium">HubSpot</span> (such as contact records, pipeline
-                    data, and activity summaries). We only access the data categories you authorize and that are
-                    necessary to display your KPIs.
+                    profit and loss reports, income, and expense data). We only access the data categories you
+                    authorize and that are necessary to display your KPIs.
                   </p>
                 </div>
               </div>
@@ -130,7 +128,7 @@ const PrivacyPolicy: React.FC = () => {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-blue-400 mt-1 shrink-0">•</span>
-                  <span><span className="text-white font-medium">Sync data from connected services:</span> To retrieve and display data from QuickBooks Online and HubSpot as authorized by you, keeping your KPI data current.</span>
+                  <span><span className="text-white font-medium">Sync data from connected services:</span> To retrieve and display data from QuickBooks Online as authorized by you, keeping your KPI data current.</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-blue-400 mt-1 shrink-0">•</span>
@@ -174,13 +172,6 @@ const PrivacyPolicy: React.FC = () => {
                   <p className="text-slate-300 leading-relaxed">
                     We access your QuickBooks Online accounting data only as specifically authorized by you. We
                     do not share your QuickBooks data with any third party other than as described in this policy.
-                  </p>
-                </div>
-                <div>
-                  <h4 className="text-white font-medium mb-2">HubSpot</h4>
-                  <p className="text-slate-300 leading-relaxed">
-                    We access your HubSpot CRM data only as specifically authorized by you. We do not share your
-                    HubSpot data with any third party other than as described in this policy.
                   </p>
                 </div>
                 <div>

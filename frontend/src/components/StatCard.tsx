@@ -48,14 +48,14 @@ const StatCard: React.FC<StatCardProps> = ({
     'text-slate-400'
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 p-5 flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-slate-400">{title}</p>
-        {icon && <div className={`${valueColor} opacity-70`}>{icon}</div>}
+    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 md:p-5 flex flex-col gap-1.5 md:gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs md:text-sm font-medium text-slate-400 truncate">{title}</p>
+        {icon && <div className={`${valueColor} opacity-70 flex-shrink-0`}>{icon}</div>}
       </div>
-      <p className={`text-3xl font-bold ${valueColor}`}>{value}</p>
+      <p className={`text-2xl md:text-3xl font-bold ${valueColor} truncate`}>{value}</p>
       <div className="flex items-center gap-2">
-        {subtitle && <p className="text-xs text-slate-500">{subtitle}</p>}
+        {subtitle && <p className="text-[11px] md:text-xs text-slate-500 truncate">{subtitle}</p>}
         {trend && trendValue && (
           <span className={`flex items-center gap-0.5 text-xs font-medium ${trendColor}`}>
             {trend === 'up' ? trendIconUp : trend === 'down' ? trendIconDown : null}

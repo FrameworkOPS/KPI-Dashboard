@@ -42,7 +42,7 @@ const TeamFilter: React.FC<TeamFilterProps> = ({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as TeamType | 'all')}
-        className="bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        className="bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 min-h-[40px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
       >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>
