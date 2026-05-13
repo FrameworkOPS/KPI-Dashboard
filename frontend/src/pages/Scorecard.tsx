@@ -108,11 +108,13 @@ function MetricDetailModal({
   onClose, onEntryUpdated, onEntryDeleted,
 }: MetricDetailModalProps) {
   const [editId, setEditId] = useState<string | null>(null)
+  const [editWeek, setEditWeek] = useState<string | null>(null)
   const [editActual, setEditActual] = useState('')
   const [editNotes, setEditNotes] = useState('')
   const [saving, setSaving] = useState(false)
 
   const fmt = metric.display_format
+  const isCreating = editId === '__new__'
 
   // Build chart data — null actuals show as gaps
   const chartData = weeks.map(w => {
@@ -129,25 +131,53 @@ function MetricDetailModal({
   const chartType = getChartType(metric)
   const goalNum = metric.goal
 
+  const cancelEdit = () => {
+    setEditId(null)
+    setEditWeek(null)
+    setEditActual('')
+    setEditNotes('')
+  }
+
   const saveEdit = async () => {
     if (!editId) return
     setSaving(true)
     try {
       const parsed = editActual === '' ? null : parseFloat(editActual)
-      await updateScorecardEntryApi(editId, {
-        actual: isNaN(parsed as number) ? null : parsed,
-        notes: editNotes || null,
-      })
-      setEditId(null)
+      const actualValue = isNaN(parsed as number) ? null : parsed
+      if (isCreating && editWeek) {
+        await createScorecardEntryApi({
+          team: metric.team,
+          week_of: editWeek,
+          metric_name: metric.metric_name,
+          goal: metric.goal,
+          actual: actualValue,
+          data_source: 'manual',
+          notes: editNotes || null,
+        })
+      } else {
+        await updateScorecardEntryApi(editId, {
+          actual: actualValue,
+          notes: editNotes || null,
+        })
+      }
+      cancelEdit()
       onEntryUpdated()
     } catch { /* ignore */ }
     setSaving(false)
   }
 
-  const startEdit = (e: WeekEntry) => {
+  const startEdit = (e: WeekEntry, w: string) => {
     setEditId(e.id)
+    setEditWeek(w)
     setEditActual(e.actual !== null ? String(e.actual) : '')
     setEditNotes(e.notes || '')
+  }
+
+  const startCreate = (w: string) => {
+    setEditId('__new__')
+    setEditWeek(w)
+    setEditActual('')
+    setEditNotes('')
   }
 
   const handleDelete = async (id: string) => {
@@ -277,16 +307,12 @@ function MetricDetailModal({
               <div className="space-y-1.5">
                 {[...weeks].reverse().map(w => {
                   const e = metric.data[w]
-                  if (!e) return (
-                    <div key={w} className="flex items-center justify-between px-3 py-2 rounded-lg text-sm">
-                      <span className="text-slate-500 text-xs">{fullDate(w)}</span>
-                      <span className="text-slate-600 text-xs">No data</span>
-                    </div>
-                  )
-                  if (editId === e.id) {
+                  const isEditingThisRow = (e && editId === e.id) || (isCreating && editWeek === w)
+
+                  if (isEditingThisRow) {
                     return (
                       <div key={w} className="bg-slate-700/50 rounded-lg px-3 py-3 space-y-2">
-                        <p className="text-xs text-slate-400">{fullDate(w)}</p>
+                        <p className="text-xs text-slate-400">{fullDate(w)}{isCreating ? ' · new entry' : ''}</p>
                         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                           <input
                             type="text"
@@ -309,7 +335,7 @@ function MetricDetailModal({
                               className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 min-h-[40px] rounded transition-colors disabled:opacity-60">
                               {saving ? '…' : 'Save'}
                             </button>
-                            <button onClick={() => setEditId(null)}
+                            <button onClick={cancelEdit}
                               className="text-slate-400 hover:text-white transition-colors text-sm px-3 py-2 min-h-[40px]">
                               Cancel
                             </button>
@@ -318,11 +344,23 @@ function MetricDetailModal({
                       </div>
                     )
                   }
+
+                  if (!e) {
+                    return (
+                      <div key={w}
+                        onClick={() => startCreate(w)}
+                        className="flex items-center justify-between px-3 py-2.5 min-h-[44px] rounded-lg hover:bg-slate-700/30 active:bg-slate-700/40 transition-colors cursor-pointer">
+                        <span className="text-xs text-slate-500">{fullDate(w)}</span>
+                        <span className="text-xs font-medium text-blue-400">+ Add value</span>
+                      </div>
+                    )
+                  }
+
                   const dotColor = e.is_on_track === null ? 'bg-slate-500'
                     : e.is_on_track ? 'bg-green-400' : 'bg-red-400'
                   return (
                     <div key={w}
-                      onClick={() => startEdit(e)}
+                      onClick={() => startEdit(e, w)}
                       className="flex items-center justify-between px-3 py-2.5 min-h-[44px] rounded-lg hover:bg-slate-700/30 active:bg-slate-700/40 transition-colors group cursor-pointer">
                       <div className="flex items-center gap-2.5">
                         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
@@ -332,7 +370,7 @@ function MetricDetailModal({
                       <div className="flex items-center gap-3">
                         <span className="text-sm font-semibold text-white">{formatValue(e.actual, fmt)}</span>
                         <div className="flex items-center gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                          <button onClick={(ev) => { ev.stopPropagation(); startEdit(e) }}
+                          <button onClick={(ev) => { ev.stopPropagation(); startEdit(e, w) }}
                             className="text-slate-500 hover:text-blue-400 transition-colors p-1.5">
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}

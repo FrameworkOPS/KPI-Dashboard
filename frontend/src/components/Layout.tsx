@@ -67,7 +67,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </button>
 
           <div className="flex items-center gap-2 min-w-0">
-            <img src="/skyright-logo.png" alt="Skyright" className="h-7 w-auto object-contain flex-shrink-0" />
+            <img src="/skyright-web_logotype-color.jpg" alt="Skyright" className="h-7 w-auto object-contain flex-shrink-0" />
             <span className="text-white font-semibold text-sm truncate">{pageTitle}</span>
           </div>
 
