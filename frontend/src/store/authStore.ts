@@ -32,7 +32,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ token, user, isAuthenticated: true, loading: false })
     } catch (err: any) {
       const message =
-        err.response?.data?.message || 'Invalid email or password'
+        err.response?.data?.error || 'Invalid email or password'
       set({ loading: false, error: message, isAuthenticated: false })
       throw new Error(message)
     }
