@@ -168,3 +168,179 @@ export async function getJobNimbusSummary(): Promise<{
     last_received:  row.last_received ? new Date(row.last_received).toISOString() : null,
   };
 }
+
+// ── Analytics (for live dashboard page) ───────────────────────────────────────
+
+export interface JobNimbusAnalytics {
+  totals: { all: number; open: number; won: number; lost: number };
+  closing_rate: number | null;
+  win_rate: number | null;
+  by_status: { status: string; count: number; status_type: number | null }[];
+  by_sales_rep: { name: string; open: number; won: number; lost: number; close_rate: number | null }[];
+  by_source: { source: string; count: number }[];
+  by_record_type: { type: string; count: number }[];
+  trend: { week: string; created: number; won: number }[];
+  recent: { jnid: string; name: string | null; status: string | null; status_type: number | null; date_updated: string | null }[];
+  filter: { from: string; to: string };
+}
+
+export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnalytics> {
+  const now = new Date();
+  const to = now;
+  const from = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+  // Jobs in window — based on date_created (when the lead came in)
+  // We include jobs where date_created is null too (count under "no date")
+  const inWindow = `(date_created IS NULL OR date_created >= $1)`;
+
+  // ── Totals ────────────────────────────────────────────────────────────────
+  const totalsResult = await query(`
+    SELECT
+      COUNT(*)                                                              AS all_count,
+      COUNT(*) FILTER (WHERE status_type NOT IN (4,5) OR status_type IS NULL) AS open_count,
+      COUNT(*) FILTER (WHERE status_type = 4)                               AS won_count,
+      COUNT(*) FILTER (WHERE status_type = 5)                               AS lost_count
+    FROM jobnimbus_jobs WHERE ${inWindow}
+  `, [from]);
+  const t = totalsResult.rows[0];
+  const all = Number(t.all_count);
+  const won = Number(t.won_count);
+  const lost = Number(t.lost_count);
+  const open = Number(t.open_count);
+  const closingRate = (won + lost) > 0 ? won / (won + lost) : null;
+  const winRate = all > 0 ? won / all : null;
+
+  // ── By status ────────────────────────────────────────────────────────────
+  const byStatusResult = await query(`
+    SELECT status, status_type, COUNT(*) AS count
+    FROM jobnimbus_jobs
+    WHERE ${inWindow} AND status IS NOT NULL
+    GROUP BY status, status_type
+    ORDER BY count DESC
+  `, [from]);
+
+  // ── By sales rep (from raw JSON) ─────────────────────────────────────────
+  // Tries multiple common field names since they vary by Zapier mapping
+  const byRepResult = await query(`
+    SELECT
+      COALESCE(
+        raw->>'sales_rep_name',
+        raw->>'Sales Rep Name',
+        raw->>'sales_rep'
+      ) AS rep,
+      COUNT(*) FILTER (WHERE status_type NOT IN (4,5) OR status_type IS NULL) AS open,
+      COUNT(*) FILTER (WHERE status_type = 4)                                 AS won,
+      COUNT(*) FILTER (WHERE status_type = 5)                                 AS lost
+    FROM jobnimbus_jobs
+    WHERE ${inWindow}
+      AND COALESCE(raw->>'sales_rep_name', raw->>'Sales Rep Name', raw->>'sales_rep') IS NOT NULL
+    GROUP BY rep
+    ORDER BY (COUNT(*) FILTER (WHERE status_type = 4)) DESC, COUNT(*) DESC
+    LIMIT 20
+  `, [from]);
+
+  const byRep = byRepResult.rows.map((r) => {
+    const repWon = Number(r.won);
+    const repLost = Number(r.lost);
+    return {
+      name: r.rep,
+      open: Number(r.open),
+      won: repWon,
+      lost: repLost,
+      close_rate: (repWon + repLost) > 0 ? repWon / (repWon + repLost) : null,
+    };
+  });
+
+  // ── By source ─────────────────────────────────────────────────────────────
+  const bySourceResult = await query(`
+    SELECT
+      COALESCE(raw->>'source', raw->>'Source Name', raw->>'source_name') AS source,
+      COUNT(*) AS count
+    FROM jobnimbus_jobs
+    WHERE ${inWindow}
+      AND COALESCE(raw->>'source', raw->>'Source Name', raw->>'source_name') IS NOT NULL
+      AND COALESCE(raw->>'source', raw->>'Source Name', raw->>'source_name') <> ''
+    GROUP BY source
+    ORDER BY count DESC
+    LIMIT 15
+  `, [from]);
+
+  // ── By record type ───────────────────────────────────────────────────────
+  const byTypeResult = await query(`
+    SELECT
+      COALESCE(raw->>'record_type', raw->>'Record Type Name', raw->>'record_type_name') AS type,
+      COUNT(*) AS count
+    FROM jobnimbus_jobs
+    WHERE ${inWindow}
+      AND COALESCE(raw->>'record_type', raw->>'Record Type Name', raw->>'record_type_name') IS NOT NULL
+      AND COALESCE(raw->>'record_type', raw->>'Record Type Name', raw->>'record_type_name') <> ''
+    GROUP BY type
+    ORDER BY count DESC
+    LIMIT 15
+  `, [from]);
+
+  // ── Trend by week ────────────────────────────────────────────────────────
+  // Build buckets in JS for last 12 weeks (Mondays)
+  const weeks: { week: string; created: number; won: number }[] = [];
+  const today = new Date(); today.setHours(0,0,0,0);
+  const dow = today.getDay(); const offset = dow === 0 ? -6 : 1 - dow;
+  const thisMonday = new Date(today); thisMonday.setDate(today.getDate() + offset);
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(thisMonday); d.setDate(d.getDate() - i * 7);
+    weeks.push({ week: d.toISOString().split('T')[0], created: 0, won: 0 });
+  }
+  const trendStart = new Date(thisMonday); trendStart.setDate(trendStart.getDate() - 11 * 7);
+
+  const trendResult = await query(`
+    SELECT
+      DATE_TRUNC('week', date_created) AS wk_created,
+      DATE_TRUNC('week', date_updated) AS wk_updated,
+      status_type
+    FROM jobnimbus_jobs
+    WHERE (date_created >= $1 OR date_updated >= $1)
+  `, [trendStart]);
+
+  for (const row of trendResult.rows) {
+    if (row.wk_created) {
+      const k = new Date(row.wk_created).toISOString().split('T')[0];
+      const bucket = weeks.find((w) => w.week === k);
+      if (bucket) bucket.created++;
+    }
+    if (row.wk_updated && Number(row.status_type) === 4) {
+      const k = new Date(row.wk_updated).toISOString().split('T')[0];
+      const bucket = weeks.find((w) => w.week === k);
+      if (bucket) bucket.won++;
+    }
+  }
+
+  // ── Recent activity ──────────────────────────────────────────────────────
+  const recentResult = await query(`
+    SELECT jnid, name, status, status_type, date_updated
+    FROM jobnimbus_jobs
+    ORDER BY COALESCE(date_updated, updated_at) DESC
+    LIMIT 15
+  `);
+
+  return {
+    totals:        { all, open, won, lost },
+    closing_rate:  closingRate,
+    win_rate:      winRate,
+    by_status:     byStatusResult.rows.map((r) => ({
+      status: r.status,
+      status_type: r.status_type !== null ? Number(r.status_type) : null,
+      count: Number(r.count),
+    })),
+    by_sales_rep:  byRep,
+    by_source:     bySourceResult.rows.map((r) => ({ source: r.source, count: Number(r.count) })),
+    by_record_type: byTypeResult.rows.map((r) => ({ type: r.type, count: Number(r.count) })),
+    trend:         weeks,
+    recent:        recentResult.rows.map((r) => ({
+      jnid: r.jnid,
+      name: r.name,
+      status: r.status,
+      status_type: r.status_type !== null ? Number(r.status_type) : null,
+      date_updated: r.date_updated ? new Date(r.date_updated).toISOString() : null,
+    })),
+    filter: { from: from.toISOString(), to: to.toISOString() },
+  };
+}

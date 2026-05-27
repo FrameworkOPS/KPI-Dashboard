@@ -11,6 +11,7 @@ import {
   getWebhookToken,
   upsertJobFromWebhook,
   getJobNimbusSummary,
+  getJobNimbusAnalytics,
 } from '../services/jobNimbusService';
 
 const router = Router();
@@ -52,6 +53,22 @@ router.get('/jobnimbus/status', authenticate, requireLeadershipOrAdmin, async (r
     const appUrl = process.env.APP_URL || '';
     const webhookUrl = token ? `${appUrl}/api/integrations/jobnimbus/webhook?token=${token}` : null;
     res.json({ connected: configured, webhook_url: webhookUrl });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Analytics endpoint for live JobNimbus dashboard
+router.get('/jobnimbus/analytics', authenticate, requireLeadershipOrAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const configured = await isJobNimbusConfigured();
+    if (!configured) {
+      res.status(503).json({ error: 'JobNimbus webhook not configured' });
+      return;
+    }
+    const days = Math.min(Math.max(parseInt(String(req.query.days || '90')) || 90, 1), 365 * 5);
+    const analytics = await getJobNimbusAnalytics(days);
+    res.json(analytics);
   } catch (err) {
     next(err);
   }
