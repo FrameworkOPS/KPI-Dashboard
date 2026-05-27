@@ -8,8 +8,9 @@ import {
   getTodosApi,
   getMeetingsApi,
   getQBOSummaryApi,
+  getJobNimbusSummaryApi,
 } from '../services/api'
-import { Rock, Issue, Todo, Meeting, QBOSummary } from '../types'
+import { Rock, Issue, Todo, Meeting, QBOSummary, JobNimbusSummary } from '../types'
 import { useAuthStore } from '../store/authStore'
 
 const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
@@ -23,6 +24,7 @@ const Dashboard: React.FC = () => {
   const [todos, setTodos] = useState<Todo[]>([])
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [qbo, setQbo] = useState<QBOSummary | null>(null)
+  const [jn, setJn] = useState<JobNimbusSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -36,7 +38,7 @@ const Dashboard: React.FC = () => {
       try {
         const now = new Date()
         const [rocksRes, issuesRes, todosRes, meetingsRes] = await Promise.all([
-          getRocksApi(undefined, Math.ceil(now.getMonth() / 3), now.getFullYear()),
+          getRocksApi(undefined, Math.ceil((now.getMonth() + 1) / 3), now.getFullYear()),
           getIssuesApi(undefined, 'open'),
           getTodosApi(),
           getMeetingsApi(),
@@ -47,8 +49,9 @@ const Dashboard: React.FC = () => {
         setMeetings(meetingsRes.data)
 
         if (user?.role === 'admin' || user?.role === 'leadership') {
-          const [qboRes] = await Promise.allSettled([getQBOSummaryApi()])
+          const [qboRes, jnRes] = await Promise.allSettled([getQBOSummaryApi(), getJobNimbusSummaryApi()])
           if (qboRes.status === 'fulfilled') setQbo(qboRes.value.data)
+          if (jnRes.status === 'fulfilled') setJn(jnRes.value.data)
         }
       } catch (e: any) {
         setError(e.message || 'Failed to load dashboard data')
@@ -184,6 +187,35 @@ const Dashboard: React.FC = () => {
               <div>
                 <p className="text-[11px] md:text-xs text-slate-400">AR</p>
                 <p className="text-base md:text-lg font-bold text-white truncate">{fmt.format(qbo.accounts_receivable)}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* JobNimbus tile — admin/leadership only */}
+        {(user?.role === 'admin' || user?.role === 'leadership') && jn && (
+          <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 md:p-5">
+            <div className="flex items-center gap-2 mb-3 md:mb-4">
+              <div className="w-7 h-7 bg-blue-500/20 rounded-lg flex items-center justify-center">
+                <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <h3 className="text-sm font-semibold text-white">JobNimbus</h3>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <p className="text-[11px] md:text-xs text-slate-400">Open Jobs</p>
+                <p className="text-base md:text-lg font-bold text-blue-400">{jn.open_jobs}</p>
+              </div>
+              <div>
+                <p className="text-[11px] md:text-xs text-slate-400">Won This Month</p>
+                <p className="text-base md:text-lg font-bold text-green-400">{jn.won_this_month}</p>
+              </div>
+              <div>
+                <p className="text-[11px] md:text-xs text-slate-400">Pipeline</p>
+                <p className="text-base md:text-lg font-bold text-white truncate">{fmt.format(jn.pipeline_value)}</p>
               </div>
             </div>
           </div>

@@ -142,6 +142,8 @@ const Issues: React.FC = () => {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [sortField, setSortField] = useState<'priority' | 'created_at'>('created_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [search, setSearch] = useState('')
+  const [mineOnly, setMineOnly] = useState(false)
 
   const loadIssues = useCallback(async () => {
     setLoading(true)
@@ -182,7 +184,13 @@ const Issues: React.FC = () => {
   }
 
   const priorityOrder = { high: 0, medium: 1, low: 2 }
-  const sorted = [...issues].sort((a, b) => {
+  const q = search.trim().toLowerCase()
+  const filtered = issues.filter((i) => {
+    if (mineOnly && i.owner_id !== user?.id) return false
+    if (q && !i.title.toLowerCase().includes(q) && !(i.description || '').toLowerCase().includes(q)) return false
+    return true
+  })
+  const sorted = [...filtered].sort((a, b) => {
     if (sortField === 'priority') {
       const diff = priorityOrder[a.priority] - priorityOrder[b.priority]
       return sortDir === 'asc' ? diff : -diff
@@ -223,7 +231,7 @@ const Issues: React.FC = () => {
       <div className="p-4 md:p-6 space-y-4">
         {error && <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">{error}</div>}
 
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3">
           <TeamFilter value={team} onChange={setTeam} />
           <div className="flex gap-1 bg-slate-800 border border-slate-700 rounded-lg p-1">
             {statusTabs.map((tab) => (
@@ -240,6 +248,23 @@ const Issues: React.FC = () => {
               </button>
             ))}
           </div>
+          <input
+            type="text"
+            placeholder="Search issues…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="bg-slate-800 border border-slate-700 text-white text-sm rounded-lg px-3 py-1.5 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-48"
+          />
+          <button
+            onClick={() => setMineOnly((v) => !v)}
+            className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+              mineOnly
+                ? 'bg-blue-600 border-blue-600 text-white'
+                : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+            }`}
+          >
+            Mine only
+          </button>
         </div>
 
         <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-x-auto">
