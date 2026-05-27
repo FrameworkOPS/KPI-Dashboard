@@ -63,14 +63,42 @@ interface ZapierJobPayload {
   [key: string]: unknown;
 }
 
+function toNumOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const stripped = typeof v === 'string' ? v.replace(/[$,\s]/g, '') : v;
+  const n = Number(stripped);
+  return Number.isFinite(n) ? n : null;
+}
+
+function toIntOrNull(v: unknown): number | null {
+  const n = toNumOrNull(v);
+  return n === null ? null : Math.trunc(n);
+}
+
+function toDateOrNull(v: unknown): Date | null {
+  if (v === null || v === undefined || v === '') return null;
+  // numeric → unix timestamp in seconds; string → try ISO/date parsing first
+  if (typeof v === 'number' || (typeof v === 'string' && /^\d+$/.test(v.trim()))) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    const d = new Date(n * 1000);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof v === 'string') {
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
 export async function upsertJobFromWebhook(payload: ZapierJobPayload): Promise<void> {
   const jnid = String(payload.id || payload.jnid || '').trim();
   if (!jnid) throw new Error('Job payload missing id field');
 
-  const statusType = payload.status_type != null ? Number(payload.status_type) : null;
-  const value = payload.value != null ? Number(payload.value) : null;
-  const dateCreated = payload.date_created ? new Date(Number(payload.date_created) * 1000) : null;
-  const dateUpdated = payload.date_updated ? new Date(Number(payload.date_updated) * 1000) : null;
+  const statusType = toIntOrNull(payload.status_type);
+  const value = toNumOrNull(payload.value);
+  const dateCreated = toDateOrNull(payload.date_created);
+  const dateUpdated = toDateOrNull(payload.date_updated);
 
   await query(
     `INSERT INTO jobnimbus_jobs (jnid, name, status, status_type, value, date_created, date_updated, raw)
@@ -86,8 +114,8 @@ export async function upsertJobFromWebhook(payload: ZapierJobPayload): Promise<v
        updated_at   = NOW()`,
     [
       jnid,
-      payload.name || null,
-      payload.status || null,
+      payload.name ? String(payload.name) : null,
+      payload.status ? String(payload.status) : null,
       statusType,
       value,
       dateCreated,
