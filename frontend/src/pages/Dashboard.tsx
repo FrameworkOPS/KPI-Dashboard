@@ -214,8 +214,8 @@ const Dashboard: React.FC = () => {
                 <p className="text-base md:text-lg font-bold text-green-400">{jn.won_this_month}</p>
               </div>
               <div>
-                <p className="text-[11px] md:text-xs text-slate-400">Pipeline</p>
-                <p className="text-base md:text-lg font-bold text-white truncate">{fmt.format(jn.pipeline_value)}</p>
+                <p className="text-[11px] md:text-xs text-slate-400">Total Jobs</p>
+                <p className="text-base md:text-lg font-bold text-white">{jn.total_jobs}</p>
               </div>
             </div>
           </div>

@@ -91,11 +91,23 @@ function toDateOrNull(v: unknown): Date | null {
   return null;
 }
 
+// Derive a JobNimbus-style status_type from the human-readable status name.
+// 4 = Won/Complete, 5 = Lost/Cancelled, 2 = Open (everything else with a status)
+function deriveStatusType(status: string | null | undefined): number | null {
+  if (!status) return null;
+  const s = status.toLowerCase();
+  if (/(lost|dead|cancel|reject|declin|abandon)/.test(s)) return 5;
+  if (/(complet|won|sold|installed|finished|paid in full|job done|closed.?won)/.test(s)) return 4;
+  return 2;
+}
+
 export async function upsertJobFromWebhook(payload: ZapierJobPayload): Promise<void> {
   const jnid = String(payload.id || payload.jnid || '').trim();
   if (!jnid) throw new Error('Job payload missing id field');
 
-  const statusType = toIntOrNull(payload.status_type);
+  const statusName = payload.status ? String(payload.status) : null;
+  let statusType = toIntOrNull(payload.status_type);
+  if (statusType === null) statusType = deriveStatusType(statusName);
   const value = toNumOrNull(payload.value);
   const dateCreated = toDateOrNull(payload.date_created);
   const dateUpdated = toDateOrNull(payload.date_updated);
