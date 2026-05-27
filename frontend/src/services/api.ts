@@ -149,7 +149,7 @@ export const deleteMeetingApi = (id: string) =>
 export const sendMeetingReminderApi = (id: string, emails?: string[]) =>
   api.post(`/meetings/${id}/reminder`, emails ? { emails } : {})
 
-// ── Integrations ──────────────────────────────────────────────────────────────
+// ── Integrations — QuickBooks ─────────────────────────────────────────────────
 export const getQBOSummaryApi = () =>
   api.get('/integrations/qbo')
 
@@ -158,5 +158,22 @@ export const getQBOStatusApi = () =>
 
 export const disconnectQBOApi = () =>
   api.post('/integrations/qbo/disconnect')
+
+// ── Integrations — JobNimbus ──────────────────────────────────────────────────
+export const getJobNimbusStatusApi = () =>
+  api.get('/integrations/jobnimbus/status')
+
+export const getJobNimbusSummaryApi = () =>
+  api.get('/integrations/jobnimbus')
+
+export const configureJobNimbusApi = (api_key: string) =>
+  api.post('/integrations/jobnimbus/configure', { api_key })
+
+export const disconnectJobNimbusApi = () =>
+  api.post('/integrations/jobnimbus/disconnect')
+
+// ── Meetings — ICS export ─────────────────────────────────────────────────────
+export const downloadMeetingIcsApi = (id: string) =>
+  api.get(`/meetings/${id}/ics`, { responseType: 'blob' })
 
 export default api

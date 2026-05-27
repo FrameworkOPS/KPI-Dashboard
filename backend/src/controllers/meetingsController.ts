@@ -201,6 +201,58 @@ export async function deleteMeeting(req: AuthRequest, res: Response, next: NextF
   }
 }
 
+export async function exportIcs(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const result = await pool.query('SELECT * FROM meetings WHERE id = $1', [id]);
+    const meeting = result.rows[0];
+    if (!meeting) {
+      res.status(404).json({ error: 'Meeting not found' });
+      return;
+    }
+
+    const dateStr = meeting.meeting_date.toISOString
+      ? meeting.meeting_date.toISOString().split('T')[0].replace(/-/g, '')
+      : String(meeting.meeting_date).split('T')[0].replace(/-/g, '');
+
+    const timeRaw = (meeting.meeting_time || '09:00').replace(':', '');
+    const timeStr = timeRaw.length === 4 ? timeRaw + '00' : timeRaw;
+    const endHour = (parseInt(timeStr.slice(0, 2)) + 1).toString().padStart(2, '0');
+    const endStr = endHour + timeStr.slice(2);
+
+    const teamLabel = meeting.team.charAt(0).toUpperCase() + meeting.team.slice(1);
+    const summary = `${teamLabel} Team — Level 10 Meeting`;
+    const description = meeting.meeting_link ? `Join: ${meeting.meeting_link}` : 'FrameworkOPS Level 10 Meeting';
+    const location = meeting.meeting_link || '';
+    const uid = `${meeting.id}@kpi-dashboard`;
+    const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//FrameworkOPS KPI Dashboard//Meeting//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      'BEGIN:VEVENT',
+      `UID:${uid}`,
+      `DTSTAMP:${now}`,
+      `DTSTART:${dateStr}T${timeStr}`,
+      `DTEND:${dateStr}T${endStr}`,
+      `SUMMARY:${summary}`,
+      `DESCRIPTION:${description}`,
+      `LOCATION:${location}`,
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n');
+
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="meeting-${dateStr}.ics"`);
+    res.send(ics);
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function sendReminder(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;

@@ -163,6 +163,8 @@ const Rocks: React.FC = () => {
   const [error, setError] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [editRock, setEditRock] = useState<Rock | null>(null)
+  const [search, setSearch] = useState('')
+  const [mineOnly, setMineOnly] = useState(false)
 
   const loadRocks = useCallback(async () => {
     setLoading(true)
@@ -218,6 +220,23 @@ const Rocks: React.FC = () => {
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-4">
           <TeamFilter value={team} onChange={setTeam} />
+          <input
+            type="text"
+            placeholder="Search rocks…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="bg-slate-800 border border-slate-700 text-white text-sm rounded-lg px-3 py-1.5 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-44"
+          />
+          <button
+            onClick={() => setMineOnly((v) => !v)}
+            className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+              mineOnly
+                ? 'bg-blue-600 border-blue-600 text-white'
+                : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+            }`}
+          >
+            Mine only
+          </button>
           <div className="flex items-center gap-2">
             <label className="text-sm text-slate-400">Quarter:</label>
             <select value={quarter} onChange={(e) => setQuarter(+e.target.value)} className="bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -241,7 +260,13 @@ const Rocks: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             {statusColumns.map(({ key, label }) => {
-              const col = rocks.filter((r) => r.status === key)
+              const sq = search.trim().toLowerCase()
+              const col = rocks.filter((r) => {
+                if (r.status !== key) return false
+                if (mineOnly && r.owner_id !== user?.id) return false
+                if (sq && !r.title.toLowerCase().includes(sq) && !(r.description || '').toLowerCase().includes(sq)) return false
+                return true
+              })
               return (
                 <div key={key} className="space-y-3">
                   <div className="flex items-center justify-between">

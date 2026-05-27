@@ -8,6 +8,7 @@ import {
   updateMeetingApi,
   deleteMeetingApi,
   sendMeetingReminderApi,
+  downloadMeetingIcsApi,
 } from '../services/api'
 import { Meeting, TeamType } from '../types'
 import { useAuthStore } from '../store/authStore'
@@ -475,6 +476,27 @@ const Meetings: React.FC = () => {
 
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {/* Quick action buttons — stop propagation so they don't open modal */}
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          try {
+                            const res = await downloadMeetingIcsApi(meeting.id)
+                            const url = URL.createObjectURL(new Blob([res.data], { type: 'text/calendar' }))
+                            const a = document.createElement('a')
+                            a.href = url
+                            a.download = `meeting-${meeting.meeting_date}.ics`
+                            a.click()
+                            URL.revokeObjectURL(url)
+                          } catch { /* ignore */ }
+                        }}
+                        title="Download .ics"
+                        className="hidden md:flex items-center gap-1 px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-slate-400 hover:text-white border border-slate-600 rounded-lg text-xs font-medium transition-colors"
+                      >
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        .ics
+                      </button>
                       {meeting.meeting_link && (
                         <a
                           href={meeting.meeting_link}

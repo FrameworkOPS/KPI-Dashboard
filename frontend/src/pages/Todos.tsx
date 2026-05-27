@@ -138,6 +138,8 @@ const Todos: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showAddPending, setShowAddPending] = useState(false)
+  const [search, setSearch] = useState('')
+  const [mineOnly, setMineOnly] = useState(false)
 
   const loadTodos = useCallback(async () => {
     setLoading(true)
@@ -174,8 +176,14 @@ const Todos: React.FC = () => {
     }
   }
 
-  const pending = todos.filter((t) => t.status === 'pending')
-  const complete = todos.filter((t) => t.status === 'complete')
+  const q = search.trim().toLowerCase()
+  const visibleTodos = todos.filter((t) => {
+    if (mineOnly && t.owner_id !== user?.id) return false
+    if (q && !t.title.toLowerCase().includes(q) && !(t.description || '').toLowerCase().includes(q)) return false
+    return true
+  })
+  const pending = visibleTodos.filter((t) => t.status === 'pending')
+  const complete = visibleTodos.filter((t) => t.status === 'complete')
 
   return (
     <>
@@ -183,7 +191,26 @@ const Todos: React.FC = () => {
       <div className="p-4 md:p-6 space-y-4">
         {error && <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">{error}</div>}
 
-        <TeamFilter value={team} onChange={setTeam} />
+        <div className="flex flex-wrap items-center gap-3">
+          <TeamFilter value={team} onChange={setTeam} />
+          <input
+            type="text"
+            placeholder="Search to-dos…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="bg-slate-800 border border-slate-700 text-white text-sm rounded-lg px-3 py-1.5 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-48"
+          />
+          <button
+            onClick={() => setMineOnly((v) => !v)}
+            className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+              mineOnly
+                ? 'bg-blue-600 border-blue-600 text-white'
+                : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+            }`}
+          >
+            Mine only
+          </button>
+        </div>
 
         {loading ? (
           <div className="flex items-center justify-center h-48">

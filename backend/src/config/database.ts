@@ -249,6 +249,15 @@ export async function initializeDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_oauth_tokens_provider ON oauth_tokens(provider)
     `);
 
+    // app_settings table — generic key/value for integration credentials etc.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key VARCHAR(100) PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // scorecard_templates table
     await client.query(`
       CREATE TABLE IF NOT EXISTS scorecard_templates (
