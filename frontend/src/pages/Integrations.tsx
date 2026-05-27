@@ -1,6 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import { useAuthStore } from '../store/authStore'
-import api, { configureJobNimbusApi, disconnectJobNimbusApi, getJobNimbusStatusApi } from '../services/api'
+import api, {
+  configureJobNimbusApi,
+  regenerateJobNimbusTokenApi,
+  disconnectJobNimbusApi,
+  getJobNimbusStatusApi,
+} from '../services/api'
 
 interface QBOStatus {
   connected: boolean
@@ -10,6 +15,7 @@ interface QBOStatus {
 
 interface JNStatus {
   connected: boolean
+  webhook_url: string | null
 }
 
 const Integrations: React.FC = () => {
@@ -24,16 +30,15 @@ const Integrations: React.FC = () => {
   // JobNimbus
   const [jnStatus, setJnStatus] = useState<JNStatus | null>(null)
   const [jnLoading, setJnLoading] = useState(true)
-  const [jnApiKey, setJnApiKey] = useState('')
-  const [jnSaving, setJnSaving] = useState(false)
+  const [jnWorking, setJnWorking] = useState(false)
   const [jnDisconnecting, setJnDisconnecting] = useState(false)
-  const [showJnKeyInput, setShowJnKeyInput] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   const [msg, setMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
 
   const flash = (text: string, type: 'success' | 'error') => {
     setMsg({ text, type })
-    setTimeout(() => setMsg(null), 4000)
+    setTimeout(() => setMsg(null), 5000)
   }
 
   // Check for ?qbo=connected redirect from OAuth callback
@@ -63,7 +68,7 @@ const Integrations: React.FC = () => {
       const res = await getJobNimbusStatusApi()
       setJnStatus(res.data)
     } catch {
-      setJnStatus({ connected: false })
+      setJnStatus({ connected: false, webhook_url: null })
     } finally {
       setJnLoading(false)
     }
@@ -91,35 +96,52 @@ const Integrations: React.FC = () => {
     }
   }
 
-  const handleJNSave = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!jnApiKey.trim()) return
-    setJnSaving(true)
+  const handleJNSetup = async () => {
+    setJnWorking(true)
     try {
-      await configureJobNimbusApi(jnApiKey.trim())
-      flash('JobNimbus connected successfully!', 'success')
-      setJnApiKey('')
-      setShowJnKeyInput(false)
-      await fetchJNStatus()
+      const res = await configureJobNimbusApi()
+      setJnStatus({ connected: true, webhook_url: res.data.webhook_url })
     } catch (e: any) {
-      flash(e.response?.data?.error || 'Failed to save API key', 'error')
+      flash(e.response?.data?.error || 'Failed to generate webhook URL', 'error')
     } finally {
-      setJnSaving(false)
+      setJnWorking(false)
+    }
+  }
+
+  const handleJNRegenerate = async () => {
+    if (!confirm('Regenerate the webhook URL? You will need to update the URL in Zapier.')) return
+    setJnWorking(true)
+    try {
+      const res = await regenerateJobNimbusTokenApi()
+      setJnStatus({ connected: true, webhook_url: res.data.webhook_url })
+      flash('New webhook URL generated. Update it in Zapier.', 'success')
+    } catch (e: any) {
+      flash(e.response?.data?.error || 'Failed to regenerate token', 'error')
+    } finally {
+      setJnWorking(false)
     }
   }
 
   const handleJNDisconnect = async () => {
-    if (!confirm('Remove JobNimbus API key?')) return
+    if (!confirm('Disconnect JobNimbus? This will remove the webhook token and all stored job data.')) return
     setJnDisconnecting(true)
     try {
       await disconnectJobNimbusApi()
       flash('JobNimbus disconnected.', 'success')
-      setJnStatus({ connected: false })
+      setJnStatus({ connected: false, webhook_url: null })
     } catch (e: any) {
       flash(e.response?.data?.error || 'Disconnect failed', 'error')
     } finally {
       setJnDisconnecting(false)
     }
+  }
+
+  const handleCopy = () => {
+    if (!jnStatus?.webhook_url) return
+    navigator.clipboard.writeText(jnStatus.webhook_url).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
   }
 
   if (!isAdmin) {
@@ -129,8 +151,6 @@ const Integrations: React.FC = () => {
       </div>
     )
   }
-
-  const inputCls = 'w-full bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent'
 
   return (
     <div className="p-4 md:p-6 max-w-3xl space-y-5">
@@ -220,7 +240,7 @@ const Integrations: React.FC = () => {
         )}
       </div>
 
-      {/* JobNimbus */}
+      {/* JobNimbus via Zapier */}
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -231,7 +251,7 @@ const Integrations: React.FC = () => {
               </svg>
             </div>
             <div>
-              <p className="text-white font-medium">JobNimbus</p>
+              <p className="text-white font-medium">JobNimbus <span className="text-slate-500 font-normal text-xs ml-1">via Zapier</span></p>
               <p className="text-slate-400 text-sm">Job pipeline, open jobs, and won revenue</p>
             </div>
           </div>
@@ -243,64 +263,75 @@ const Integrations: React.FC = () => {
                 ? 'bg-green-500/20 text-green-400 border border-green-500/30'
                 : 'bg-slate-700 text-slate-400'
             }`}>
-              {jnStatus?.connected ? 'Connected' : 'Not connected'}
+              {jnStatus?.connected ? 'Webhook active' : 'Not configured'}
             </span>
           )}
         </div>
 
-        {!jnStatus?.connected && !showJnKeyInput && (
-          <button
-            onClick={() => setShowJnKeyInput(true)}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
-          >
-            Connect JobNimbus
-          </button>
-        )}
-
-        {showJnKeyInput && (
-          <form onSubmit={handleJNSave} className="space-y-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">API Key</label>
-              <input
-                required
-                type="password"
-                placeholder="Paste your JobNimbus API key…"
-                className={inputCls}
-                value={jnApiKey}
-                onChange={(e) => setJnApiKey(e.target.value)}
-                autoFocus
-              />
-              <p className="mt-1 text-slate-500 text-xs">
-                Found in JobNimbus → Settings → Integrations → API Key.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button type="submit" disabled={jnSaving} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
-                {jnSaving ? 'Saving…' : 'Save'}
-              </button>
-              <button type="button" onClick={() => { setShowJnKeyInput(false); setJnApiKey('') }} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600 rounded-lg text-sm font-medium transition-colors">
-                Cancel
+        {/* Webhook URL display */}
+        {jnStatus?.connected && jnStatus.webhook_url && (
+          <div className="mb-4 space-y-2">
+            <p className="text-xs text-slate-400">Paste this URL into your Zapier action as the webhook endpoint:</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300 font-mono truncate">
+                {jnStatus.webhook_url}
+              </code>
+              <button
+                onClick={handleCopy}
+                className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors flex-shrink-0 ${
+                  copied
+                    ? 'bg-green-600 border-green-600 text-white'
+                    : 'bg-slate-700 border-slate-600 text-slate-300 hover:text-white hover:bg-slate-600'
+                }`}
+              >
+                {copied ? 'Copied!' : 'Copy'}
               </button>
             </div>
-          </form>
-        )}
-
-        {jnStatus?.connected && (
-          <div className="flex gap-3 flex-wrap">
-            <button
-              onClick={() => { setShowJnKeyInput(true) }}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              Update API Key
-            </button>
-            <button
-              onClick={handleJNDisconnect}
-              disabled={jnDisconnecting}
-              className="px-4 py-2 bg-slate-700 hover:bg-red-600/40 text-slate-300 hover:text-red-400 border border-slate-600 hover:border-red-500/50 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-            >
-              {jnDisconnecting ? 'Disconnecting…' : 'Disconnect'}
-            </button>
+            <div className="bg-slate-700/40 border border-slate-600/50 rounded-lg p-3 text-xs text-slate-400 space-y-1">
+              <p className="font-medium text-slate-300">Zapier setup steps:</p>
+              <ol className="list-decimal list-inside space-y-0.5 ml-1">
+                <li>In Zapier, create a Zap triggered by <strong className="text-slate-300">JobNimbus → New or Updated Job</strong></li>
+                <li>Add an action: <strong className="text-slate-300">Webhooks by Zapier → POST</strong></li>
+                <li>Paste the URL above as the webhook URL</li>
+                <li>Set Payload Type to <strong className="text-slate-300">JSON</strong> and map the JobNimbus job fields</li>
+              </ol>
+            </div>
           </div>
+        )}
+
+        <div className="flex gap-3 flex-wrap">
+          {!jnStatus?.connected ? (
+            <button
+              onClick={handleJNSetup}
+              disabled={jnWorking}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {jnWorking ? 'Generating…' : 'Generate Webhook URL'}
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={handleJNRegenerate}
+                disabled={jnWorking}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                {jnWorking ? 'Regenerating…' : 'Regenerate URL'}
+              </button>
+              <button
+                onClick={handleJNDisconnect}
+                disabled={jnDisconnecting}
+                className="px-4 py-2 bg-slate-700 hover:bg-red-600/40 text-slate-300 hover:text-red-400 border border-slate-600 hover:border-red-500/50 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                {jnDisconnecting ? 'Disconnecting…' : 'Disconnect'}
+              </button>
+            </>
+          )}
+        </div>
+
+        {!jnStatus?.connected && (
+          <p className="mt-3 text-slate-500 text-xs">
+            Generates a secure webhook URL. Paste it into a Zapier Webhook action connected to your JobNimbus account — Zapier will push job data to this dashboard automatically.
+          </p>
         )}
       </div>
     </div>

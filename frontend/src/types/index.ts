@@ -133,6 +133,7 @@ export interface JobNimbusSummary {
   won_this_month: number;
   pipeline_value: number;
   total_jobs: number;
+  last_received: string | null;
 }
 
 export type TeamType = 'sales' | 'production' | 'leadership' | 'all';
