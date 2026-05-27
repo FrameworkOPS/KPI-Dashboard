@@ -19,6 +19,7 @@ import Accountability from './pages/Accountability'
 import Meetings from './pages/Meetings'
 import UserManagement from './pages/UserManagement'
 import Integrations from './pages/Integrations'
+import JobNimbusDashboard from './pages/JobNimbusDashboard'
 
 const App: React.FC = () => {
   const { loadUser } = useAuthStore()
@@ -121,6 +122,17 @@ const App: React.FC = () => {
             <ProtectedRoute roles={['admin']}>
               <Layout>
                 <UserManagement />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/jobnimbus"
+          element={
+            <ProtectedRoute roles={['admin', 'leadership']}>
+              <Layout>
+                <JobNimbusDashboard />
               </Layout>
             </ProtectedRoute>
           }

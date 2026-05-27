@@ -166,6 +166,9 @@ export const getJobNimbusStatusApi = () =>
 export const getJobNimbusSummaryApi = () =>
   api.get('/integrations/jobnimbus')
 
+export const getJobNimbusAnalyticsApi = (days = 90) =>
+  api.get('/integrations/jobnimbus/analytics', { params: { days } })
+
 export const configureJobNimbusApi = () =>
   api.post('/integrations/jobnimbus/configure')
 
