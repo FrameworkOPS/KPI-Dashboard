@@ -258,6 +258,24 @@ export async function initializeDatabase(): Promise<void> {
       )
     `);
 
+    // jobnimbus_jobs table — populated by Zapier webhook pushes
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS jobnimbus_jobs (
+        id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        jnid        VARCHAR(100) UNIQUE NOT NULL,
+        name        TEXT,
+        status      VARCHAR(100),
+        status_type INT,
+        value       DECIMAL(14,2),
+        date_created TIMESTAMP,
+        date_updated TIMESTAMP,
+        raw         JSONB,
+        created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_jn_jobs_status_type ON jobnimbus_jobs(status_type)`);
+
     // scorecard_templates table
     await client.query(`
       CREATE TABLE IF NOT EXISTS scorecard_templates (

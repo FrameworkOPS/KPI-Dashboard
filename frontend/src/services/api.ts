@@ -166,8 +166,11 @@ export const getJobNimbusStatusApi = () =>
 export const getJobNimbusSummaryApi = () =>
   api.get('/integrations/jobnimbus')
 
-export const configureJobNimbusApi = (api_key: string) =>
-  api.post('/integrations/jobnimbus/configure', { api_key })
+export const configureJobNimbusApi = () =>
+  api.post('/integrations/jobnimbus/configure')
+
+export const regenerateJobNimbusTokenApi = () =>
+  api.post('/integrations/jobnimbus/regenerate')
 
 export const disconnectJobNimbusApi = () =>
   api.post('/integrations/jobnimbus/disconnect')

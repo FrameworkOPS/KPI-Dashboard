@@ -1,12 +1,15 @@
-import { Router, Response, NextFunction } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { authenticate, requireAdmin, requireLeadershipOrAdmin } from '../middleware/auth';
 import { AuthRequest } from '../middleware/auth';
 import { getQBOSummary } from '../services/qboService';
 import { connect, callback, disconnect, reconnect, status, refreshQBOToken } from '../controllers/qboOAuthController';
 import {
   isJobNimbusConfigured,
-  setJobNimbusApiKey,
-  removeJobNimbusApiKey,
+  getOrCreateWebhookToken,
+  regenerateWebhookToken,
+  removeWebhookToken,
+  getWebhookToken,
+  upsertJobFromWebhook,
   getJobNimbusSummary,
 } from '../services/jobNimbusService';
 
@@ -39,53 +42,98 @@ router.post('/qbo/disconnect', authenticate, requireAdmin, disconnect);
 router.get('/qbo/reconnect', authenticate, requireAdmin, reconnect);
 router.get('/qbo/status', authenticate, requireLeadershipOrAdmin, status);
 
-// ── JobNimbus ─────────────────────────────────────────────────────────────────
+// ── JobNimbus (Zapier webhook model) ──────────────────────────────────────────
 
+// Status + webhook URL — admin/leadership can view
 router.get('/jobnimbus/status', authenticate, requireLeadershipOrAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const configured = await isJobNimbusConfigured();
-    res.json({ connected: configured });
+    const token = await getWebhookToken();
+    const configured = !!token;
+    const appUrl = process.env.APP_URL || '';
+    const webhookUrl = token ? `${appUrl}/api/integrations/jobnimbus/webhook?token=${token}` : null;
+    res.json({ connected: configured, webhook_url: webhookUrl });
   } catch (err) {
     next(err);
   }
 });
 
+// Summary from DB (data pushed by Zapier)
 router.get('/jobnimbus', authenticate, requireLeadershipOrAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const configured = await isJobNimbusConfigured();
+    if (!configured) {
+      res.status(503).json({ error: 'JobNimbus webhook not configured' });
+      return;
+    }
     const summary = await getJobNimbusSummary();
     res.json(summary);
   } catch (err) {
-    const error = err as Error;
-    if (error.message.includes('not configured')) {
-      res.status(503).json({ error: 'JobNimbus API key not configured' });
-      return;
-    }
-    if (error.message.includes('401') || error.message.includes('403')) {
-      res.status(503).json({ error: 'JobNimbus API key is invalid' });
-      return;
-    }
     next(err);
   }
 });
 
+// Generate / return webhook URL — admin only
 router.post('/jobnimbus/configure', authenticate, requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { api_key } = req.body;
-    if (!api_key || typeof api_key !== 'string' || !api_key.trim()) {
-      res.status(400).json({ error: 'api_key is required' });
-      return;
-    }
-    await setJobNimbusApiKey(api_key.trim());
+    const token = await getOrCreateWebhookToken();
+    const appUrl = process.env.APP_URL || '';
+    const webhookUrl = `${appUrl}/api/integrations/jobnimbus/webhook?token=${token}`;
+    res.json({ webhook_url: webhookUrl });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Regenerate token (invalidates the old Zapier webhook URL)
+router.post('/jobnimbus/regenerate', authenticate, requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const token = await regenerateWebhookToken();
+    const appUrl = process.env.APP_URL || '';
+    const webhookUrl = `${appUrl}/api/integrations/jobnimbus/webhook?token=${token}`;
+    res.json({ webhook_url: webhookUrl });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Disconnect — removes token + clears job data
+router.post('/jobnimbus/disconnect', authenticate, requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    await removeWebhookToken();
     res.json({ success: true });
   } catch (err) {
     next(err);
   }
 });
 
-router.post('/jobnimbus/disconnect', authenticate, requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+// Public webhook endpoint — called by Zapier (no auth, validated by token query param)
+router.post('/jobnimbus/webhook', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    await removeJobNimbusApiKey();
-    res.json({ success: true });
+    const { token } = req.query as { token?: string };
+    if (!token) {
+      res.status(401).json({ error: 'Missing token' });
+      return;
+    }
+
+    const storedToken = await getWebhookToken();
+    if (!storedToken || token !== storedToken) {
+      res.status(401).json({ error: 'Invalid token' });
+      return;
+    }
+
+    const body = req.body;
+    // Zapier can send a single object or an array
+    const jobs = Array.isArray(body) ? body : [body];
+
+    let saved = 0;
+    for (const job of jobs) {
+      if (job && (job.id || job.jnid)) {
+        await upsertJobFromWebhook(job);
+        saved++;
+      }
+    }
+
+    res.json({ received: true, saved });
   } catch (err) {
     next(err);
   }
