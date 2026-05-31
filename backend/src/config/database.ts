@@ -201,8 +201,6 @@ export async function initializeDatabase(): Promise<void> {
       { email: 'chance@skyright.com', password: process.env.SEED_CHANCE_PW || 'Redroad7318',  first: 'Chance', last: 'Peare',     role: 'admin',      team: 'all'        },
       { email: 'jorn@skyright.com',   password: process.env.SEED_JORN_PW   || 'Bielefeld1',   first: 'Jorn',   last: 'Bielefeld', role: 'leadership', team: 'leadership' },
       { email: 'pete@skyright.com',   password: process.env.SEED_PETE_PW   || 'Password',     first: 'Pete',   last: 'Hicks',     role: 'leadership', team: 'leadership' },
-      // Fallback generic admin in case of fresh install
-      { email: 'admin@company.com',   password: 'Admin1234!',                                  first: 'Admin',  last: 'User',      role: 'admin',      team: 'all'        },
     ];
 
     for (const u of seedUsers) {
