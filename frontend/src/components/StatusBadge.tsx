@@ -42,6 +42,8 @@ const variantMap: Record<string, string> = {
   admin: 'bg-purple-500/20 text-purple-400 border border-purple-500/30',
   leadership: 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
   manager: 'bg-green-500/20 text-green-400 border border-green-500/30',
+  team_member: 'bg-teal-500/20 text-teal-400 border border-teal-500/30',
+  invited: 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
 }
 
 const labelMap: Record<string, string> = {
@@ -61,6 +63,8 @@ const labelMap: Record<string, string> = {
   admin: 'Admin',
   leadership: 'Leadership',
   manager: 'Manager',
+  team_member: 'Team Member',
+  invited: 'Invited',
 }
 
 const StatusBadge: React.FC<StatusBadgeProps> = ({ status, label, size = 'sm' }) => {

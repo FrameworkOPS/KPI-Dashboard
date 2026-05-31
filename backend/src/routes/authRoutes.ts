@@ -6,6 +6,8 @@ import {
   createUser,
   updateUser,
   deleteUser,
+  getInvite,
+  acceptInvite,
 } from '../controllers/authController';
 import { authenticate, requireAdmin } from '../middleware/auth';
 
@@ -13,6 +15,8 @@ const router = Router();
 
 // Public
 router.post('/login', login);
+router.get('/invite/:token', getInvite);
+router.post('/accept-invite', acceptInvite);
 
 // Authenticated
 router.get('/me', authenticate, getMe);

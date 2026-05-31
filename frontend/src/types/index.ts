@@ -3,9 +3,10 @@ export interface User {
   email: string;
   first_name: string;
   last_name: string;
-  role: 'admin' | 'leadership' | 'manager';
+  role: 'admin' | 'leadership' | 'manager' | 'team_member';
   team: 'sales' | 'production' | 'leadership' | 'all';
   active: boolean;
+  invited?: boolean;
 }
 
 export interface ScorecardEntry {
@@ -137,4 +138,4 @@ export interface JobNimbusSummary {
 }
 
 export type TeamType = 'sales' | 'production' | 'leadership' | 'all';
-export type RoleType = 'admin' | 'leadership' | 'manager';
+export type RoleType = 'admin' | 'leadership' | 'manager' | 'team_member';

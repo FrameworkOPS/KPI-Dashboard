@@ -89,7 +89,7 @@ export async function createUser(req: AuthRequest, res: Response, next: NextFunc
       return;
     }
 
-    const validRoles = ['admin', 'leadership', 'manager'];
+    const validRoles = ['admin', 'leadership', 'manager', 'team_member'];
     const validTeams = ['sales', 'production', 'leadership', 'all'];
 
     if (role && !validRoles.includes(role)) {
@@ -214,6 +214,73 @@ export async function deleteUser(req: AuthRequest, res: Response, next: NextFunc
     }
 
     res.json({ message: 'User deactivated', user: result.rows[0] });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Invitation acceptance (public) ─────────────────────────────────────────────
+
+// Validate an invite token and return who it's for (so the set-password page can greet them).
+export async function getInvite(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { token } = req.params;
+    const u = (await pool.query(
+      'SELECT email, first_name, last_name, team, invite_expires FROM users WHERE invite_token = $1',
+      [token],
+    )).rows[0];
+    if (!u) {
+      res.status(404).json({ error: 'Invalid or already-used invitation' });
+      return;
+    }
+    if (u.invite_expires && new Date(u.invite_expires) < new Date()) {
+      res.status(410).json({ error: 'This invitation has expired. Ask an admin to resend it.' });
+      return;
+    }
+    res.json({ email: u.email, first_name: u.first_name, last_name: u.last_name, team: u.team });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Set the password for an invited user, activate them, and log them in.
+export async function acceptInvite(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) {
+      res.status(400).json({ error: 'token and password are required' });
+      return;
+    }
+    if (String(password).length < 6) {
+      res.status(400).json({ error: 'Password must be at least 6 characters' });
+      return;
+    }
+
+    const u = (await pool.query('SELECT * FROM users WHERE invite_token = $1', [token])).rows[0];
+    if (!u) {
+      res.status(400).json({ error: 'Invalid or already-used invitation' });
+      return;
+    }
+    if (u.invite_expires && new Date(u.invite_expires) < new Date()) {
+      res.status(410).json({ error: 'This invitation has expired. Ask an admin to resend it.' });
+      return;
+    }
+
+    const hash = await bcrypt.hash(password, 12);
+    await pool.query(
+      `UPDATE users SET password_hash = $1, active = true, invite_token = NULL, invite_expires = NULL, updated_at = NOW()
+       WHERE id = $2`,
+      [hash, u.id],
+    );
+
+    const token2 = signToken({ id: u.id, email: u.email, role: u.role, team: u.team });
+    res.json({
+      token: token2,
+      user: {
+        id: u.id, email: u.email, first_name: u.first_name, last_name: u.last_name,
+        role: u.role, team: u.team, active: true,
+      },
+    });
   } catch (err) {
     next(err);
   }

@@ -39,6 +39,16 @@ export const loginApi = (email: string, password: string) =>
 export const getMeApi = () =>
   api.get('/auth/me')
 
+// ── Invitations ───────────────────────────────────────────────────────────────
+export const getInviteApi = (token: string) =>
+  api.get(`/auth/invite/${token}`)
+
+export const acceptInviteApi = (token: string, password: string) =>
+  api.post('/auth/accept-invite', { token, password })
+
+export const resendInviteApi = (id: string) =>
+  api.post(`/users/${id}/resend-invite`)
+
 // ── Users ─────────────────────────────────────────────────────────────────────
 export const getUsersApi = () =>
   api.get('/users')

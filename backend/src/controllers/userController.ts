@@ -1,12 +1,42 @@
 import { Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import { pool } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
+import { sendInvitationEmail, isEmailConfigured } from '../services/emailService';
+
+const VALID_ROLES = ['admin', 'leadership', 'manager', 'team_member'];
+const VALID_TEAMS = ['sales', 'production', 'leadership', 'all'];
+
+function appUrl(): string {
+  return process.env.APP_URL || 'https://web-production-c3567.up.railway.app';
+}
+
+function makeInviteToken(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+// Best meeting link for a team: prefer an upcoming meeting, else the most recent.
+async function teamMeetingLink(team: string): Promise<string | null> {
+  try {
+    const r = await pool.query(
+      `SELECT meeting_link FROM meetings
+       WHERE team = $1 AND meeting_link IS NOT NULL AND meeting_link <> ''
+       ORDER BY (meeting_date >= CURRENT_DATE) DESC, meeting_date ASC
+       LIMIT 1`,
+      [team],
+    );
+    return r.rows[0]?.meeting_link || null;
+  } catch {
+    return null;
+  }
+}
 
 export async function getUsers(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const result = await pool.query(
-      `SELECT id, email, first_name, last_name, role, team, active, created_at
+      `SELECT id, email, first_name, last_name, role, team, active, created_at,
+              (invite_token IS NOT NULL) AS invited
        FROM users
        ORDER BY first_name, last_name`
     );
@@ -18,54 +48,131 @@ export async function getUsers(req: AuthRequest, res: Response, next: NextFuncti
 
 export async function createUser(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { email, password, first_name, last_name, role, team, active } = req.body;
+    const { email, password, first_name, last_name, role, team, active, invite } = req.body;
+    const wantsInvite = invite === true || invite === 'true';
 
-    if (!email || !password) {
-      res.status(400).json({ error: 'email and password are required' });
+    if (!email) {
+      res.status(400).json({ error: 'email is required' });
+      return;
+    }
+    if (role && !VALID_ROLES.includes(role)) {
+      res.status(400).json({ error: `role must be one of: ${VALID_ROLES.join(', ')}` });
+      return;
+    }
+    if (team && !VALID_TEAMS.includes(team)) {
+      res.status(400).json({ error: `team must be one of: ${VALID_TEAMS.join(', ')}` });
       return;
     }
 
-    const validRoles = ['admin', 'leadership', 'manager'];
-    if (role && !validRoles.includes(role)) {
-      res.status(400).json({ error: `role must be one of: ${validRoles.join(', ')}` });
-      return;
-    }
-
-    const validTeams = ['sales', 'production', 'leadership', 'all'];
-    if (team && !validTeams.includes(team)) {
-      res.status(400).json({ error: `team must be one of: ${validTeams.join(', ')}` });
-      return;
-    }
-
-    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase().trim()]);
     if (existing.rows.length > 0) {
       res.status(409).json({ error: 'A user with that email already exists' });
       return;
     }
 
-    if (password.length < 6) {
-      res.status(400).json({ error: 'Password must be at least 6 characters' });
-      return;
+    let password_hash: string;
+    let inviteToken: string | null = null;
+    let inviteExpires: Date | null = null;
+    let isActive: boolean;
+
+    if (wantsInvite) {
+      // Invited users get an unusable random password + are inactive until they accept.
+      password_hash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 12);
+      inviteToken = makeInviteToken();
+      inviteExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      isActive = false;
+    } else {
+      if (!password) {
+        res.status(400).json({ error: 'password is required (or set invite: true to send an invitation)' });
+        return;
+      }
+      if (password.length < 6) {
+        res.status(400).json({ error: 'Password must be at least 6 characters' });
+        return;
+      }
+      password_hash = await bcrypt.hash(password, 12);
+      isActive = active !== false;
     }
 
-    const password_hash = await bcrypt.hash(password, 12);
-
     const result = await pool.query(
-      `INSERT INTO users (email, password_hash, first_name, last_name, role, team, active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, email, first_name, last_name, role, team, active, created_at`,
+      `INSERT INTO users (email, password_hash, first_name, last_name, role, team, active, invite_token, invite_expires)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, email, first_name, last_name, role, team, active, created_at, (invite_token IS NOT NULL) AS invited`,
       [
         email.toLowerCase().trim(),
         password_hash,
         first_name || '',
         last_name || '',
-        role || 'manager',
+        role || 'team_member',
         team || 'all',
-        active !== false,
+        isActive,
+        inviteToken,
+        inviteExpires,
       ]
     );
+    const user = result.rows[0];
 
-    res.status(201).json(result.rows[0]);
+    let email_warning: string | undefined;
+    if (wantsInvite) {
+      if (!isEmailConfigured()) {
+        email_warning = 'User created, but email is not configured (set SMTP_USER / SMTP_PASS on the server). Use "Resend Invite" once email works.';
+      } else {
+        try {
+          const inviteUrl = `${appUrl()}/set-password?token=${inviteToken}`;
+          const meetingLink = await teamMeetingLink(user.team);
+          await sendInvitationEmail({
+            to: user.email,
+            firstName: user.first_name,
+            inviteUrl,
+            teamName: user.team,
+            meetingLink,
+            appUrl: appUrl(),
+          });
+        } catch (e) {
+          email_warning = `User created, but the invitation email failed to send: ${(e as Error).message}`;
+        }
+      }
+    }
+
+    res.status(201).json({ ...user, email_warning });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Re-send (or send) an invitation email with a fresh token — admin only.
+export async function resendInvite(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const u = (await pool.query('SELECT * FROM users WHERE id = $1', [id])).rows[0];
+    if (!u) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+    if (!isEmailConfigured()) {
+      res.status(400).json({ error: 'Email is not configured (set SMTP_USER / SMTP_PASS on the server).' });
+      return;
+    }
+
+    const inviteToken = makeInviteToken();
+    const inviteExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await pool.query(
+      'UPDATE users SET invite_token = $1, invite_expires = $2, updated_at = NOW() WHERE id = $3',
+      [inviteToken, inviteExpires, id],
+    );
+
+    const inviteUrl = `${appUrl()}/set-password?token=${inviteToken}`;
+    const meetingLink = await teamMeetingLink(u.team);
+    await sendInvitationEmail({
+      to: u.email,
+      firstName: u.first_name,
+      inviteUrl,
+      teamName: u.team,
+      meetingLink,
+      appUrl: appUrl(),
+    });
+
+    res.json({ message: 'Invitation re-sent' });
   } catch (err) {
     next(err);
   }

@@ -5,6 +5,7 @@ import {
   getUsersApi,
   createUserApi,
   updateUserApi,
+  resendInviteApi,
 } from '../services/api'
 import { User } from '../types'
 
@@ -20,29 +21,46 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
     last_name: user?.last_name || '',
     email: user?.email || '',
     password: '',
-    role: user?.role || 'manager' as User['role'],
-    team: user?.team || 'sales' as User['team'],
+    role: (user?.role || 'team_member') as User['role'],
+    team: (user?.team || 'sales') as User['team'],
     active: user?.active ?? true,
   })
+  const [invite, setInvite] = useState(!user) // new users default to email invitation
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [warning, setWarning] = useState('')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
     setError('')
+    setWarning('')
     try {
-      const payload: any = { ...form }
-      if (!payload.password) delete payload.password
       if (user) {
+        const payload: any = { ...form }
+        if (!payload.password) delete payload.password
         await updateUserApi(user.id, payload)
+        onSave()
+        onClose()
+      } else if (invite) {
+        const res = await createUserApi({
+          first_name: form.first_name,
+          last_name: form.last_name,
+          email: form.email,
+          role: form.role,
+          team: form.team,
+          invite: true,
+        })
+        onSave()
+        if (res.data?.email_warning) setWarning(res.data.email_warning)
+        else onClose()
       } else {
-        await createUserApi(payload)
+        await createUserApi({ ...form })
+        onSave()
+        onClose()
       }
-      onSave()
-      onClose()
     } catch (e: any) {
-      setError(e.response?.data?.message || e.message)
+      setError(e.response?.data?.error || e.response?.data?.message || e.message)
     } finally {
       setSaving(false)
     }
@@ -63,6 +81,12 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-red-400 text-sm">{error}</div>}
+          {warning && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-amber-400 text-sm">
+              {warning}
+              <button type="button" onClick={onClose} className="ml-2 underline">Close</button>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">First Name *</label>
@@ -77,19 +101,37 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
             <label className="block text-xs font-medium text-slate-400 mb-1">Email *</label>
             <input required type="email" className={inputCls} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1">
-              Password {user ? '(leave blank to keep current)' : '*'}
+          {!user && (
+            <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={invite}
+                onChange={(e) => setInvite(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500"
+              />
+              Send email invitation (user sets their own password)
             </label>
-            <input
-              type="password"
-              required={!user}
-              className={inputCls}
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              placeholder={user ? '••••••••' : 'Minimum 8 characters'}
-            />
-          </div>
+          )}
+          {!(invite && !user) && (
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">
+                Password {user ? '(leave blank to keep current)' : '*'}
+              </label>
+              <input
+                type="password"
+                required={!user}
+                className={inputCls}
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                placeholder={user ? '••••••••' : 'Minimum 6 characters'}
+              />
+            </div>
+          )}
+          {invite && !user && (
+            <p className="text-xs text-slate-500">
+              An invitation email with a link to set a password (and the team's meeting link) will be sent to this address.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">Role</label>
@@ -97,6 +139,7 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
                 <option value="admin">Admin</option>
                 <option value="leadership">Leadership</option>
                 <option value="manager">Manager</option>
+                <option value="team_member">Team Member</option>
               </select>
             </div>
             <div>
@@ -137,6 +180,7 @@ const UserManagement: React.FC = () => {
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [editUser, setEditUser] = useState<User | null>(null)
   const [search, setSearch] = useState('')
@@ -168,6 +212,19 @@ const UserManagement: React.FC = () => {
     }
   }
 
+  const handleResend = async (user: User) => {
+    setError(null)
+    setNotice(null)
+    try {
+      await resendInviteApi(user.id)
+      setNotice(`Invitation re-sent to ${user.email}.`)
+      setTimeout(() => setNotice(null), 5000)
+      await loadUsers()
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message)
+    }
+  }
+
   const filtered = users.filter((u) => {
     if (!search) return true
     const q = search.toLowerCase()
@@ -196,6 +253,7 @@ const UserManagement: React.FC = () => {
       />
       <div className="p-4 md:p-6 space-y-4">
         {error && <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">{error}</div>}
+        {notice && <div className="bg-green-500/10 border border-green-500/30 rounded-lg px-4 py-3 text-green-400 text-sm">{notice}</div>}
 
         <div className="flex items-center gap-3">
           <div className="relative flex-1 max-w-xs">
@@ -247,7 +305,10 @@ const UserManagement: React.FC = () => {
                       </td>
                       <td className="px-4 py-3 text-slate-400">{u.email}</td>
                       <td className="px-4 py-3">
-                        <StatusBadge status={u.role} />
+                        <div className="flex items-center gap-1.5">
+                          <StatusBadge status={u.role} />
+                          {u.invited && <StatusBadge status="invited" />}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-slate-400 capitalize">{u.team}</td>
                       <td className="px-4 py-3 text-center">
@@ -259,14 +320,26 @@ const UserManagement: React.FC = () => {
                         </button>
                       </td>
                       <td className="px-4 py-3">
-                        <button
-                          onClick={() => { setEditUser(u); setShowModal(true) }}
-                          className="text-slate-400 hover:text-blue-400 transition-colors p-1 rounded"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                          </svg>
-                        </button>
+                        <div className="flex items-center gap-1">
+                          {u.invited && (
+                            <button
+                              onClick={() => handleResend(u)}
+                              title="Resend invitation"
+                              className="text-slate-400 hover:text-amber-400 transition-colors p-1 rounded text-xs font-medium"
+                            >
+                              Resend
+                            </button>
+                          )}
+                          <button
+                            onClick={() => { setEditUser(u); setShowModal(true) }}
+                            title="Edit user"
+                            className="text-slate-400 hover:text-blue-400 transition-colors p-1 rounded"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )

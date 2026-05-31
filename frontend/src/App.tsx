@@ -7,6 +7,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import ErrorBoundary from './components/ErrorBoundary'
 
 import Login from './pages/Login'
+import SetPassword from './pages/SetPassword'
 import EULA from './pages/EULA'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import Dashboard from './pages/Dashboard'
@@ -34,6 +35,7 @@ const App: React.FC = () => {
       <Routes>
         {/* Public */}
         <Route path="/login" element={<Login />} />
+        <Route path="/set-password" element={<SetPassword />} />
 
         {/* Protected — wrapped in Layout */}
         <Route

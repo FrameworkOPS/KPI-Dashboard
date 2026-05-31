@@ -48,6 +48,11 @@ export async function initializeDatabase(): Promise<void> {
       )
     `);
 
+    // Invitation flow: invited users get a token + are inactive until they set a password.
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_token VARCHAR(255)`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_expires TIMESTAMP`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_users_invite_token ON users(invite_token)`);
+
     // scorecard_entries table
     await client.query(`
       CREATE TABLE IF NOT EXISTS scorecard_entries (
