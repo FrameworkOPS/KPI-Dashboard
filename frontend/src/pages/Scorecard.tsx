@@ -437,6 +437,7 @@ function NewWeekModal({ defaultTeam, onClose, onCreated }: NewWeekModalProps) {
               <option value="leadership">Leadership</option>
               <option value="sales">Sales</option>
               <option value="production">Production</option>
+              <option value="office">Office</option>
             </select>
           </div>
           <div>
@@ -512,6 +513,7 @@ function AddEntryModal({ defaultTeam, onClose, onCreated, userId }: AddEntryModa
                 <option value="leadership">Leadership</option>
                 <option value="sales">Sales</option>
                 <option value="production">Production</option>
+              <option value="office">Office</option>
               </select>
             </div>
             <div>

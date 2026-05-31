@@ -102,6 +102,7 @@ const IssueModal: React.FC<IssueModalProps> = ({ issue, users, onClose, onSave }
               <select className={inputCls} value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })} disabled={user?.role === 'manager'}>
                 <option value="sales">Sales</option>
                 <option value="production">Production</option>
+                <option value="office">Office</option>
                 <option value="leadership">Leadership</option>
               </select>
             </div>

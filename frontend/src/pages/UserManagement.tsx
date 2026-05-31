@@ -147,6 +147,7 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
               <select className={inputCls} value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value as User['team'] })}>
                 <option value="sales">Sales</option>
                 <option value="production">Production</option>
+                <option value="office">Office</option>
                 <option value="leadership">Leadership</option>
                 <option value="all">All</option>
               </select>

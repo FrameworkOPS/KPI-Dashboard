@@ -12,6 +12,7 @@ const teams: { value: TeamType | 'all'; label: string }[] = [
   { value: 'all', label: 'All Teams' },
   { value: 'sales', label: 'Sales' },
   { value: 'production', label: 'Production' },
+  { value: 'office', label: 'Office' },
   { value: 'leadership', label: 'Leadership' },
 ]
 
@@ -23,7 +24,7 @@ const TeamFilter: React.FC<TeamFilterProps> = ({
   const { user } = useAuthStore()
 
   // Managers are locked to their own team
-  if (user?.role === 'manager') {
+  if (user?.role === 'manager' || user?.role === 'team_member') {
     return (
       <div className="flex items-center gap-2">
         <span className="text-sm text-slate-400">Team:</span>

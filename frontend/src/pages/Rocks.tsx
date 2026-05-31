@@ -343,7 +343,7 @@ const Rocks: React.FC = () => {
         <RockModal
           rock={editRock}
           users={users}
-          teams={['sales', 'production', 'leadership']}
+          teams={['sales', 'production', 'office', 'leadership']}
           onClose={() => setShowModal(false)}
           onSave={loadRocks}
         />

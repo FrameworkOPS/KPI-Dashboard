@@ -379,12 +379,13 @@ const Meetings: React.FC = () => {
                 <select
                   className={inputCls}
                   value={createForm.team}
-                  onChange={(e) => setCreateForm({ ...createForm, team: e.target.value as 'leadership' | 'sales' | 'production' })}
+                  onChange={(e) => setCreateForm({ ...createForm, team: e.target.value as 'leadership' | 'sales' | 'production' | 'office' })}
                   disabled={user?.role === 'manager'}
                 >
                   <option value="leadership">Leadership</option>
                   <option value="sales">Sales</option>
                   <option value="production">Production</option>
+                  <option value="office">Office</option>
                 </select>
               </div>
               <div>

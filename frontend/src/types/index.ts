@@ -4,7 +4,7 @@ export interface User {
   first_name: string;
   last_name: string;
   role: 'admin' | 'leadership' | 'manager' | 'team_member';
-  team: 'sales' | 'production' | 'leadership' | 'all';
+  team: 'sales' | 'production' | 'office' | 'leadership' | 'all';
   active: boolean;
   invited?: boolean;
 }
@@ -137,5 +137,5 @@ export interface JobNimbusSummary {
   last_received: string | null;
 }
 
-export type TeamType = 'sales' | 'production' | 'leadership' | 'all';
+export type TeamType = 'sales' | 'production' | 'office' | 'leadership' | 'all';
 export type RoleType = 'admin' | 'leadership' | 'manager' | 'team_member';

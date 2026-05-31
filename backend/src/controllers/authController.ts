@@ -90,7 +90,7 @@ export async function createUser(req: AuthRequest, res: Response, next: NextFunc
     }
 
     const validRoles = ['admin', 'leadership', 'manager', 'team_member'];
-    const validTeams = ['sales', 'production', 'leadership', 'all'];
+    const validTeams = ['sales', 'production', 'office', 'leadership', 'all'];
 
     if (role && !validRoles.includes(role)) {
       res.status(400).json({ error: `Role must be one of: ${validRoles.join(', ')}` });
