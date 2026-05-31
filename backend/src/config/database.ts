@@ -286,9 +286,12 @@ export async function initializeDatabase(): Promise<void> {
     await client.query(`ALTER TABLE jobnimbus_jobs ADD COLUMN IF NOT EXISTS invoice_value DECIMAL(14,2)`);
     await client.query(`ALTER TABLE jobnimbus_jobs ADD COLUMN IF NOT EXISTS signed_date TIMESTAMP`);
     await client.query(`ALTER TABLE jobnimbus_jobs ADD COLUMN IF NOT EXISTS billed_date TIMESTAMP`);
+    await client.query(`ALTER TABLE jobnimbus_jobs ADD COLUMN IF NOT EXISTS contract_sent BOOLEAN NOT NULL DEFAULT false`);
+    await client.query(`ALTER TABLE jobnimbus_jobs ADD COLUMN IF NOT EXISTS contract_sent_date TIMESTAMP`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_jn_jobs_is_lead ON jobnimbus_jobs(is_lead)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_jn_jobs_signed_date ON jobnimbus_jobs(signed_date)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_jn_jobs_billed_date ON jobnimbus_jobs(billed_date)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_jn_jobs_contract_sent_date ON jobnimbus_jobs(contract_sent_date)`);
 
     // scorecard_templates table
     await client.query(`

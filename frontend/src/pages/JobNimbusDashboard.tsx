@@ -3,7 +3,7 @@ import Header from '../components/Header'
 import { getJobNimbusAnalyticsApi, getJobNimbusJobsApi } from '../services/api'
 
 interface Analytics {
-  totals: { all: number; open: number; won: number; lost: number; leads: number }
+  totals: { all: number; open: number; won: number; lost: number; leads: number; contracts_sent: number }
   values: { pipeline: number; sold: number; billed: number }
   closing_rate: number | null
   win_rate: number | null
@@ -294,8 +294,9 @@ const JobNimbusDashboard: React.FC = () => {
           <Tile
             label="Closing Rate"
             value={fmtPct(analytics.closing_rate)}
-            sub={`${analytics.totals.won} won / ${analytics.totals.won + analytics.totals.lost} closed`}
+            sub={`${analytics.totals.won} signed / ${analytics.totals.contracts_sent} contracts sent`}
             color="text-yellow-400"
+            onClick={() => setDrill({ dimension: 'contracts_sent', label: 'Contracts Sent' })}
           />
         </div>
 

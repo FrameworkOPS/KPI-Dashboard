@@ -234,6 +234,17 @@ export async function upsertJobFromApi(job: Record<string, any>): Promise<void> 
     : null;
   const billedDate = invValue !== null ? toEpochDateOrNull(job.last_invoice_date_invoice) : null;
 
+  // "Contract sent" = an estimate/contract/proposal exists for the job. Won jobs
+  // always count as a contract sent (numerator ⊆ denominator). Leads excluded.
+  const hasEstimate = (toNumOrNull(job.last_estimate) || 0) > 0
+    || (toNumOrNull(job.approved_estimate_total) || 0) > 0
+    || (toNumOrNull(job.last_estimate_date_estimate) || 0) > 0
+    || !!job.last_estimate_number;
+  const contractSent = statusType === 4 || (hasEstimate && statusType !== 1);
+  const contractSentDate = contractSent
+    ? (toEpochDateOrNull(job.last_estimate_date_estimate) ?? signedDate ?? dateCreated)
+    : null;
+
   const salesRep = job.sales_rep_name ? String(job.sales_rep_name) : null;
   const source = job.source_name ? String(job.source_name) : null;
   const recordType = job.record_type_name ? String(job.record_type_name) : null;
@@ -241,29 +252,33 @@ export async function upsertJobFromApi(job: Record<string, any>): Promise<void> 
   await query(
     `INSERT INTO jobnimbus_jobs
        (jnid, name, status, status_type, value, date_created, date_updated, raw,
-        is_lead, sales_rep_name, source_name, record_type_name, estimate_value, invoice_value, signed_date, billed_date)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+        is_lead, sales_rep_name, source_name, record_type_name, estimate_value, invoice_value, signed_date, billed_date,
+        contract_sent, contract_sent_date)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
      ON CONFLICT (jnid) DO UPDATE SET
-       name             = EXCLUDED.name,
-       status           = EXCLUDED.status,
-       status_type      = EXCLUDED.status_type,
-       value            = EXCLUDED.value,
-       date_created     = EXCLUDED.date_created,
-       date_updated     = EXCLUDED.date_updated,
-       raw              = EXCLUDED.raw,
-       is_lead          = EXCLUDED.is_lead,
-       sales_rep_name   = EXCLUDED.sales_rep_name,
-       source_name      = EXCLUDED.source_name,
-       record_type_name = EXCLUDED.record_type_name,
-       estimate_value   = EXCLUDED.estimate_value,
-       invoice_value    = EXCLUDED.invoice_value,
-       signed_date      = EXCLUDED.signed_date,
-       billed_date      = EXCLUDED.billed_date,
-       updated_at       = NOW()`,
+       name               = EXCLUDED.name,
+       status             = EXCLUDED.status,
+       status_type        = EXCLUDED.status_type,
+       value              = EXCLUDED.value,
+       date_created       = EXCLUDED.date_created,
+       date_updated       = EXCLUDED.date_updated,
+       raw                = EXCLUDED.raw,
+       is_lead            = EXCLUDED.is_lead,
+       sales_rep_name     = EXCLUDED.sales_rep_name,
+       source_name        = EXCLUDED.source_name,
+       record_type_name   = EXCLUDED.record_type_name,
+       estimate_value     = EXCLUDED.estimate_value,
+       invoice_value      = EXCLUDED.invoice_value,
+       signed_date        = EXCLUDED.signed_date,
+       billed_date        = EXCLUDED.billed_date,
+       contract_sent      = EXCLUDED.contract_sent,
+       contract_sent_date = EXCLUDED.contract_sent_date,
+       updated_at         = NOW()`,
     [
       jnid, name ? String(name) : null, statusName, statusType, estValue,
       dateCreated, dateUpdated, JSON.stringify(job),
       isLead, salesRep, source, recordType, estValue, invValue, signedDate, billedDate,
+      contractSent, contractSentDate,
     ],
   );
 }
@@ -402,7 +417,7 @@ export async function getJobNimbusSummary(): Promise<{
 // ── Analytics (for live dashboard page) ───────────────────────────────────────
 
 export interface JobNimbusAnalytics {
-  totals: { all: number; open: number; won: number; lost: number; leads: number };
+  totals: { all: number; open: number; won: number; lost: number; leads: number; contracts_sent: number };
   values: { pipeline: number; sold: number; billed: number };
   closing_rate: number | null;
   win_rate: number | null;
@@ -450,6 +465,7 @@ export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnal
       COUNT(*) FILTER (WHERE status_type = 4 AND signed_date >= $1)                        AS won_count,
       COUNT(*) FILTER (WHERE status_type = 5 AND date_updated >= $1)                       AS lost_count,
       COUNT(*) FILTER (WHERE status_type = 1 AND date_created >= $1)                        AS leads_count,
+      COUNT(*) FILTER (WHERE contract_sent AND contract_sent_date >= $1)                    AS contracts_sent,
       COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 2), 0)                       AS pipeline_value,
       COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1), 0) AS sold_value,
       COALESCE(SUM(invoice_value)  FILTER (WHERE billed_date >= $1), 0)                     AS billed_value
@@ -460,8 +476,10 @@ export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnal
   const won = Number(t.won_count);
   const lost = Number(t.lost_count);
   const leads = Number(t.leads_count);
+  const contractsSent = Number(t.contracts_sent);
   const all = open + won + lost;
-  const closingRate = (won + lost) > 0 ? won / (won + lost) : null;
+  // Closing rate = signed ÷ all contracts sent (not just won/lost).
+  const closingRate = contractsSent > 0 ? won / contractsSent : null;
   const winRate = all > 0 ? won / all : null;
 
   // By status — current non-lead snapshot.
@@ -477,9 +495,10 @@ export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnal
   const byRepResult = await query(`
     SELECT
       sales_rep_name AS rep,
-      COUNT(*) FILTER (WHERE status_type = 2)                        AS open,
-      COUNT(*) FILTER (WHERE status_type = 4 AND signed_date >= $1)  AS won,
-      COUNT(*) FILTER (WHERE status_type = 5 AND date_updated >= $1) AS lost,
+      COUNT(*) FILTER (WHERE status_type = 2)                            AS open,
+      COUNT(*) FILTER (WHERE status_type = 4 AND signed_date >= $1)      AS won,
+      COUNT(*) FILTER (WHERE status_type = 5 AND date_updated >= $1)     AS lost,
+      COUNT(*) FILTER (WHERE contract_sent AND contract_sent_date >= $1) AS contracts_sent,
       COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1), 0) AS sold_value
     FROM jobnimbus_jobs
     WHERE status_type <> 1 AND sales_rep_name IS NOT NULL AND sales_rep_name <> ''
@@ -488,10 +507,11 @@ export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnal
     LIMIT 20
   `, [from]);
   const byRep = byRepResult.rows.map((r) => {
-    const repWon = Number(r.won); const repLost = Number(r.lost);
+    const repWon = Number(r.won); const repLost = Number(r.lost); const repSent = Number(r.contracts_sent);
     return {
       name: r.rep, open: Number(r.open), won: repWon, lost: repLost,
-      close_rate: (repWon + repLost) > 0 ? repWon / (repWon + repLost) : null,
+      // Closing rate = signed ÷ contracts sent for this rep.
+      close_rate: repSent > 0 ? repWon / repSent : null,
       sold_value: Number(r.sold_value),
     };
   });
@@ -545,7 +565,7 @@ export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnal
   `);
 
   return {
-    totals: { all, open, won, lost, leads },
+    totals: { all, open, won, lost, leads, contracts_sent: contractsSent },
     values: { pipeline: Number(t.pipeline_value), sold: Number(t.sold_value), billed: Number(t.billed_value) },
     closing_rate: closingRate,
     win_rate: winRate,
@@ -597,6 +617,7 @@ export async function getJobNimbusJobs(params: {
     case 'leads':       where.push(`status_type = 1`, `date_created >= $${p++}`); vals.push(from); break;
     case 'open':        where.push(`status_type = 2`); break;
     case 'won':         where.push(`status_type = 4`, `signed_date >= $${p++}`); vals.push(from); break;
+    case 'contracts_sent': where.push(`contract_sent`, `contract_sent_date >= $${p++}`); vals.push(from); break;
     case 'lost':        where.push(`status_type = 5`, `date_updated >= $${p++}`); vals.push(from); break;
     case 'billed':      where.push(`billed_date >= $${p++}`); vals.push(from); break;
     case 'status':      where.push(`status_type <> 1`, `status = $${p++}`); vals.push(key); break;
@@ -665,18 +686,18 @@ async function fillScorecardWeek(weekMonday: string): Promise<void> {
   const r = (await query(`
     SELECT
       COUNT(*) FILTER (WHERE status_type = 1 AND date_created >= $1 AND date_created < $2)                  AS new_leads,
-      COUNT(*) FILTER (WHERE lower(status) = 'contract sent' AND date_updated >= $1 AND date_updated < $2)  AS contracts_sent,
+      COUNT(*) FILTER (WHERE contract_sent AND contract_sent_date >= $1 AND contract_sent_date < $2)        AS contracts_sent,
       COUNT(*) FILTER (WHERE status_type = 4 AND signed_date >= $1 AND signed_date < $2)                    AS jobs_signed,
       COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1 AND signed_date < $2), 0) AS sold_value,
       COUNT(*) FILTER (WHERE billed_date >= $1 AND billed_date < $2)                                        AS jobs_billed,
-      COALESCE(SUM(invoice_value) FILTER (WHERE billed_date >= $1 AND billed_date < $2), 0)                 AS billed_value,
-      COUNT(*) FILTER (WHERE status_type = 5 AND date_updated >= $1 AND date_updated < $2)                  AS lost
+      COALESCE(SUM(invoice_value) FILTER (WHERE billed_date >= $1 AND billed_date < $2), 0)                 AS billed_value
     FROM jobnimbus_jobs
   `, [start, end])).rows[0];
 
   const signed = Number(r.jobs_signed);
-  const lost = Number(r.lost);
-  const closing = (signed + lost) > 0 ? signed / (signed + lost) : null;
+  const contractsSent = Number(r.contracts_sent);
+  // Closing rate = signed ÷ all contracts sent that week.
+  const closing = contractsSent > 0 ? signed / contractsSent : null;
 
   const valueByName: Record<string, number | null> = {
     'New Leads (JobNimbus)':      Number(r.new_leads),
