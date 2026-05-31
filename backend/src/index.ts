@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import path from 'path';
 import { initializeDatabase, pool } from './config/database';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import { startJobNimbusAutoSync } from './services/jobNimbusService';
 
 import authRoutes from './routes/authRoutes';
 import userRoutes from './routes/userRoutes';
@@ -82,6 +83,8 @@ async function start(): Promise<void> {
   try {
     await initializeDatabase();
     console.log('✅ Database initialized');
+    // Begin pulling JobNimbus data directly from their API (replaces Zapier push).
+    startJobNimbusAutoSync();
   } catch (dbErr) {
     console.warn('⚠️  Database connection failed — server will start anyway.');
     console.warn('⚠️  Set DATABASE_URL env var and redeploy to enable database features.');

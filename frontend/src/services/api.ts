@@ -169,14 +169,8 @@ export const getJobNimbusSummaryApi = () =>
 export const getJobNimbusAnalyticsApi = (days = 90) =>
   api.get('/integrations/jobnimbus/analytics', { params: { days } })
 
-export const configureJobNimbusApi = () =>
-  api.post('/integrations/jobnimbus/configure')
-
-export const regenerateJobNimbusTokenApi = () =>
-  api.post('/integrations/jobnimbus/regenerate')
-
-export const disconnectJobNimbusApi = () =>
-  api.post('/integrations/jobnimbus/disconnect')
+export const syncJobNimbusApi = () =>
+  api.post('/integrations/jobnimbus/sync')
 
 // ── Meetings — ICS export ─────────────────────────────────────────────────────
 export const downloadMeetingIcsApi = (id: string) =>

@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import axios from 'axios';
 import { query } from '../config/database';
 
 // ── Webhook token management ──────────────────────────────────────────────────
@@ -43,9 +44,9 @@ export async function removeWebhookToken(): Promise<void> {
   await query('DELETE FROM jobnimbus_jobs');
 }
 
+// Configured when a JobNimbus API key is present (direct-API model).
 export async function isJobNimbusConfigured(): Promise<boolean> {
-  const token = await getWebhookToken();
-  return !!token;
+  return !!process.env.JOBNIMBUS_API_KEY;
 }
 
 // ── Incoming webhook data ─────────────────────────────────────────────────────
@@ -135,6 +136,161 @@ export async function upsertJobFromWebhook(payload: ZapierJobPayload): Promise<v
       JSON.stringify(payload),
     ],
   );
+}
+
+// ── Direct JobNimbus API ingestion (replaces the Zapier push) ──────────────────
+//
+// We pull Jobs straight from the JobNimbus REST API (api1) using an API key as a
+// Bearer token, and upsert them into the same `jobnimbus_jobs` table the
+// summary/analytics queries already read from. The full job object is stored in
+// `raw`, so the existing COALESCE(raw->>'sales_rep_name' / 'source_name' /
+// 'record_type_name') logic keeps working unchanged.
+//
+//   JOBNIMBUS_API_KEY            — required, API key from JobNimbus → Settings → API
+//   JOBNIMBUS_API_BASE           — optional, defaults to https://app.jobnimbus.com/api1
+//   JOBNIMBUS_SYNC_INTERVAL_MIN  — optional, auto-sync cadence in minutes (default 15)
+
+const JN_API_BASE = process.env.JOBNIMBUS_API_BASE || 'https://app.jobnimbus.com/api1';
+
+async function setSetting(key: string, value: string): Promise<void> {
+  await query(
+    `INSERT INTO app_settings (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+    [key, value],
+  );
+}
+
+async function getSetting(key: string): Promise<string | null> {
+  try {
+    const result = await query('SELECT value FROM app_settings WHERE key = $1', [key]);
+    return result.rows[0]?.value || null;
+  } catch {
+    return null;
+  }
+}
+
+// JobNimbus value lives under different keys depending on account config — try in order.
+function extractJobValue(job: Record<string, unknown>): number | null {
+  const candidates = [
+    job.value,
+    job.total,
+    job.approved_estimate_total,
+    job.approved_invoice_total,
+    job.estimate_total,
+  ];
+  for (const c of candidates) {
+    const n = toNumOrNull(c);
+    if (n !== null) return n;
+  }
+  return null;
+}
+
+/** Upsert a single job pulled from the JobNimbus API into jobnimbus_jobs. */
+export async function upsertJobFromApi(job: Record<string, any>): Promise<void> {
+  const jnid = String(job.jnid || job.id || '').trim();
+  if (!jnid) return;
+
+  const name = job.name || job.display_name || null;
+  const statusName = job.status_name ? String(job.status_name) : (job.status ? String(job.status) : null);
+  const statusType = deriveStatusType(statusName);
+  const value = extractJobValue(job);
+  const dateCreated = toDateOrNull(job.date_created);
+  const dateUpdated = toDateOrNull(job.date_updated ?? job.date_status_change ?? job.date_created);
+
+  await query(
+    `INSERT INTO jobnimbus_jobs (jnid, name, status, status_type, value, date_created, date_updated, raw)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (jnid) DO UPDATE SET
+       name         = EXCLUDED.name,
+       status       = EXCLUDED.status,
+       status_type  = EXCLUDED.status_type,
+       value        = EXCLUDED.value,
+       date_created = EXCLUDED.date_created,
+       date_updated = EXCLUDED.date_updated,
+       raw          = EXCLUDED.raw,
+       updated_at   = NOW()`,
+    [jnid, name ? String(name) : null, statusName, statusType, value, dateCreated, dateUpdated, JSON.stringify(job)],
+  );
+}
+
+/**
+ * Fetch all Jobs from JobNimbus, paginating until exhausted. JobNimbus returns
+ * { count, results } and accepts `from` / `size` query params.
+ */
+export async function fetchAllJobsFromApi(): Promise<Record<string, any>[]> {
+  const apiKey = process.env.JOBNIMBUS_API_KEY;
+  if (!apiKey) throw new Error('JOBNIMBUS_API_KEY is not set');
+
+  const client = axios.create({
+    baseURL: JN_API_BASE,
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    timeout: 30000,
+  });
+
+  const all: Record<string, any>[] = [];
+  const size = 100;
+  let from = 0;
+  // Guard against runaway loops — cap at 100 pages (10,000 jobs).
+  for (let page = 0; page < 100; page++) {
+    const resp = await client.get('/jobs', { params: { from, size } });
+    const results: Record<string, any>[] = resp.data?.results || [];
+    all.push(...results);
+    if (results.length < size) break;
+    from += size;
+  }
+  return all;
+}
+
+let _syncing = false;
+
+/** Pull every job from the JobNimbus API and upsert into the local table. */
+export async function syncJobNimbus(): Promise<{ fetched: number; saved: number; errors: number; skipped?: boolean }> {
+  if (_syncing) return { fetched: 0, saved: 0, errors: 0, skipped: true };
+  _syncing = true;
+  try {
+    const jobs = await fetchAllJobsFromApi();
+    let saved = 0;
+    let errors = 0;
+    for (const job of jobs) {
+      try {
+        await upsertJobFromApi(job);
+        saved++;
+      } catch (err) {
+        errors++;
+        console.error('[jobnimbus] upsert failed:', (err as Error).message);
+      }
+    }
+    await setSetting('jobnimbus_last_sync', new Date().toISOString());
+    await setSetting('jobnimbus_last_count', String(saved));
+    return { fetched: jobs.length, saved, errors };
+  } finally {
+    _syncing = false;
+  }
+}
+
+export async function getJobNimbusSyncMeta(): Promise<{ last_sync: string | null; last_count: number | null }> {
+  const last_sync = await getSetting('jobnimbus_last_sync');
+  const last_count = await getSetting('jobnimbus_last_count');
+  return { last_sync, last_count: last_count === null ? null : Number(last_count) };
+}
+
+/** Kick off periodic background sync (runs once shortly after boot, then on an interval). */
+export function startJobNimbusAutoSync(): void {
+  if (!process.env.JOBNIMBUS_API_KEY) {
+    console.log('[jobnimbus] JOBNIMBUS_API_KEY not set — auto-sync disabled');
+    return;
+  }
+  const minutes = Math.max(1, parseInt(process.env.JOBNIMBUS_SYNC_INTERVAL_MIN || '15', 10) || 15);
+  const run = () => {
+    syncJobNimbus()
+      .then((r) => {
+        if (!r.skipped) console.log(`[jobnimbus] sync complete — fetched ${r.fetched}, saved ${r.saved}, errors ${r.errors}`);
+      })
+      .catch((e) => console.error('[jobnimbus] sync failed:', e.message));
+  };
+  setTimeout(run, 8000); // initial sync a few seconds after boot
+  setInterval(run, minutes * 60 * 1000);
+  console.log(`[jobnimbus] direct-API auto-sync enabled (every ${minutes} min)`);
 }
 
 // ── Summary from DB ───────────────────────────────────────────────────────────

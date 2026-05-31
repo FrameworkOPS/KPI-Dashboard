@@ -1,17 +1,14 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { authenticate, requireAdmin, requireLeadershipOrAdmin } from '../middleware/auth';
 import { AuthRequest } from '../middleware/auth';
 import { getQBOSummary } from '../services/qboService';
 import { connect, callback, disconnect, reconnect, status, refreshQBOToken } from '../controllers/qboOAuthController';
 import {
   isJobNimbusConfigured,
-  getOrCreateWebhookToken,
-  regenerateWebhookToken,
-  removeWebhookToken,
-  getWebhookToken,
-  upsertJobFromWebhook,
   getJobNimbusSummary,
   getJobNimbusAnalytics,
+  syncJobNimbus,
+  getJobNimbusSyncMeta,
 } from '../services/jobNimbusService';
 
 const router = Router();
@@ -43,16 +40,14 @@ router.post('/qbo/disconnect', authenticate, requireAdmin, disconnect);
 router.get('/qbo/reconnect', authenticate, requireAdmin, reconnect);
 router.get('/qbo/status', authenticate, requireLeadershipOrAdmin, status);
 
-// ── JobNimbus (Zapier webhook model) ──────────────────────────────────────────
+// ── JobNimbus (direct REST API model) ──────────────────────────────────────────
 
-// Status + webhook URL — admin/leadership can view
+// Connection status + last-sync info — admin/leadership can view
 router.get('/jobnimbus/status', authenticate, requireLeadershipOrAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const token = await getWebhookToken();
-    const configured = !!token;
-    const appUrl = process.env.APP_URL || '';
-    const webhookUrl = token ? `${appUrl}/api/integrations/jobnimbus/webhook?token=${token}` : null;
-    res.json({ connected: configured, webhook_url: webhookUrl });
+    const connected = await isJobNimbusConfigured();
+    const meta = connected ? await getJobNimbusSyncMeta() : { last_sync: null, last_count: null };
+    res.json({ connected, mode: 'api', last_sync: meta.last_sync, last_count: meta.last_count });
   } catch (err) {
     next(err);
   }
@@ -63,7 +58,7 @@ router.get('/jobnimbus/analytics', authenticate, requireLeadershipOrAdmin, async
   try {
     const configured = await isJobNimbusConfigured();
     if (!configured) {
-      res.status(503).json({ error: 'JobNimbus webhook not configured' });
+      res.status(503).json({ error: 'JobNimbus API not configured' });
       return;
     }
     const days = Math.min(Math.max(parseInt(String(req.query.days || '90')) || 90, 1), 365 * 5);
@@ -74,12 +69,12 @@ router.get('/jobnimbus/analytics', authenticate, requireLeadershipOrAdmin, async
   }
 });
 
-// Summary from DB (data pushed by Zapier)
+// Summary from DB (data pulled from the JobNimbus API)
 router.get('/jobnimbus', authenticate, requireLeadershipOrAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const configured = await isJobNimbusConfigured();
     if (!configured) {
-      res.status(503).json({ error: 'JobNimbus webhook not configured' });
+      res.status(503).json({ error: 'JobNimbus API not configured' });
       return;
     }
     const summary = await getJobNimbusSummary();
@@ -89,69 +84,23 @@ router.get('/jobnimbus', authenticate, requireLeadershipOrAdmin, async (req: Aut
   }
 });
 
-// Generate / return webhook URL — admin only
-router.post('/jobnimbus/configure', authenticate, requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+// Trigger an on-demand sync from the JobNimbus API — admin only
+router.post('/jobnimbus/sync', authenticate, requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const token = await getOrCreateWebhookToken();
-    const appUrl = process.env.APP_URL || '';
-    const webhookUrl = `${appUrl}/api/integrations/jobnimbus/webhook?token=${token}`;
-    res.json({ webhook_url: webhookUrl });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Regenerate token (invalidates the old Zapier webhook URL)
-router.post('/jobnimbus/regenerate', authenticate, requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const token = await regenerateWebhookToken();
-    const appUrl = process.env.APP_URL || '';
-    const webhookUrl = `${appUrl}/api/integrations/jobnimbus/webhook?token=${token}`;
-    res.json({ webhook_url: webhookUrl });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Disconnect — removes token + clears job data
-router.post('/jobnimbus/disconnect', authenticate, requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    await removeWebhookToken();
-    res.json({ success: true });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Public webhook endpoint — called by Zapier (no auth, validated by token query param)
-router.post('/jobnimbus/webhook', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { token } = req.query as { token?: string };
-    if (!token) {
-      res.status(401).json({ error: 'Missing token' });
+    if (!(await isJobNimbusConfigured())) {
+      res.status(503).json({ error: 'JOBNIMBUS_API_KEY is not set on the server' });
       return;
     }
-
-    const storedToken = await getWebhookToken();
-    if (!storedToken || token !== storedToken) {
-      res.status(401).json({ error: 'Invalid token' });
+    const result = await syncJobNimbus();
+    const meta = await getJobNimbusSyncMeta();
+    res.json({ ...result, last_sync: meta.last_sync });
+  } catch (err) {
+    const error = err as any;
+    const apiStatus = error?.response?.status;
+    if (apiStatus === 401 || apiStatus === 403) {
+      res.status(502).json({ error: 'JobNimbus rejected the API key (check JOBNIMBUS_API_KEY)' });
       return;
     }
-
-    const body = req.body;
-    // Zapier can send a single object or an array
-    const jobs = Array.isArray(body) ? body : [body];
-
-    let saved = 0;
-    for (const job of jobs) {
-      if (job && (job.id || job.jnid)) {
-        await upsertJobFromWebhook(job);
-        saved++;
-      }
-    }
-
-    res.json({ received: true, saved });
-  } catch (err) {
     next(err);
   }
 });
