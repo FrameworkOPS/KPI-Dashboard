@@ -169,20 +169,49 @@ async function getSetting(key: string): Promise<string | null> {
   }
 }
 
-// JobNimbus value lives under different keys depending on account config — try in order.
-function extractJobValue(job: Record<string, unknown>): number | null {
-  const candidates = [
-    job.value,
-    job.total,
-    job.approved_estimate_total,
-    job.approved_invoice_total,
-    job.estimate_total,
-  ];
-  for (const c of candidates) {
-    const n = toNumOrNull(c);
-    if (n !== null) return n;
+// First strictly-positive number among the candidates (treats 0 / null / '' as absent).
+function pickPositive(...vals: unknown[]): number | null {
+  for (const v of vals) {
+    const n = toNumOrNull(v);
+    if (n !== null && n > 0) return n;
   }
   return null;
+}
+
+// JobNimbus epoch-seconds → Date, treating 0 / negative as "no date".
+function toEpochDateOrNull(v: unknown): Date | null {
+  const n = toNumOrNull(v);
+  if (n === null || n <= 0) return null;
+  const d = new Date(n * 1000);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function estimateValue(job: Record<string, any>): number | null {
+  return pickPositive(job.approved_estimate_total, job.last_estimate);
+}
+
+function invoiceValue(job: Record<string, any>): number | null {
+  return pickPositive(job.approved_invoice_total, job.last_invoice);
+}
+
+// Classify a JobNimbus job into the status_type used across the dashboard:
+//   1 = Lead (filtered out of analytics), 2 = Open pipeline, 4 = Won (signed), 5 = Lost
+// "Signed estimate is Won" → an approved estimate/invoice, or a status past signing.
+// Note "Contract Sent" has no "signed" token, so it correctly stays Open.
+function classifyJob(job: Record<string, any>): { statusType: number; isLead: boolean } {
+  const s = String(job.status_name || job.status || '').toLowerCase();
+  // A signed/approved ESTIMATE means the deal is won. NOTE: an approved *invoice*
+  // is NOT used here — in this account ~270 jobs still tagged "Lead" carry an old
+  // invoice, so invoice presence would massively over-count wins. Billing is tracked
+  // separately via invoice_value / billed_date regardless of status.
+  const estApproved = (toNumOrNull(job.approved_estimate_total) || 0) > 0;
+
+  if (/(lost|dead|cancel|reject|declin|abandon)/.test(s)) return { statusType: 5, isLead: false };
+  if (estApproved || /(signed|sold|won|installed|complete|finished|paid|production)/.test(s)) {
+    return { statusType: 4, isLead: false };
+  }
+  if (s === 'lead' || s === '') return { statusType: 1, isLead: true };
+  return { statusType: 2, isLead: false };
 }
 
 /** Upsert a single job pulled from the JobNimbus API into jobnimbus_jobs. */
@@ -192,24 +221,50 @@ export async function upsertJobFromApi(job: Record<string, any>): Promise<void> 
 
   const name = job.name || job.display_name || null;
   const statusName = job.status_name ? String(job.status_name) : (job.status ? String(job.status) : null);
-  const statusType = deriveStatusType(statusName);
-  const value = extractJobValue(job);
+  const { statusType, isLead } = classifyJob(job);
+
+  const estValue = estimateValue(job);
+  const invValue = invoiceValue(job);
   const dateCreated = toDateOrNull(job.date_created);
-  const dateUpdated = toDateOrNull(job.date_updated ?? job.date_status_change ?? job.date_created);
+  const dateUpdated = toEpochDateOrNull(job.date_updated) ?? toEpochDateOrNull(job.date_status_change) ?? dateCreated;
+
+  // When the deal was signed (won) and when it was billed (invoiced).
+  const signedDate = statusType === 4
+    ? (toEpochDateOrNull(job.last_estimate_date_estimate) ?? toEpochDateOrNull(job.date_status_change) ?? dateUpdated)
+    : null;
+  const billedDate = invValue !== null ? toEpochDateOrNull(job.last_invoice_date_invoice) : null;
+
+  const salesRep = job.sales_rep_name ? String(job.sales_rep_name) : null;
+  const source = job.source_name ? String(job.source_name) : null;
+  const recordType = job.record_type_name ? String(job.record_type_name) : null;
 
   await query(
-    `INSERT INTO jobnimbus_jobs (jnid, name, status, status_type, value, date_created, date_updated, raw)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO jobnimbus_jobs
+       (jnid, name, status, status_type, value, date_created, date_updated, raw,
+        is_lead, sales_rep_name, source_name, record_type_name, estimate_value, invoice_value, signed_date, billed_date)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
      ON CONFLICT (jnid) DO UPDATE SET
-       name         = EXCLUDED.name,
-       status       = EXCLUDED.status,
-       status_type  = EXCLUDED.status_type,
-       value        = EXCLUDED.value,
-       date_created = EXCLUDED.date_created,
-       date_updated = EXCLUDED.date_updated,
-       raw          = EXCLUDED.raw,
-       updated_at   = NOW()`,
-    [jnid, name ? String(name) : null, statusName, statusType, value, dateCreated, dateUpdated, JSON.stringify(job)],
+       name             = EXCLUDED.name,
+       status           = EXCLUDED.status,
+       status_type      = EXCLUDED.status_type,
+       value            = EXCLUDED.value,
+       date_created     = EXCLUDED.date_created,
+       date_updated     = EXCLUDED.date_updated,
+       raw              = EXCLUDED.raw,
+       is_lead          = EXCLUDED.is_lead,
+       sales_rep_name   = EXCLUDED.sales_rep_name,
+       source_name      = EXCLUDED.source_name,
+       record_type_name = EXCLUDED.record_type_name,
+       estimate_value   = EXCLUDED.estimate_value,
+       invoice_value    = EXCLUDED.invoice_value,
+       signed_date      = EXCLUDED.signed_date,
+       billed_date      = EXCLUDED.billed_date,
+       updated_at       = NOW()`,
+    [
+      jnid, name ? String(name) : null, statusName, statusType, estValue,
+      dateCreated, dateUpdated, JSON.stringify(job),
+      isLead, salesRep, source, recordType, estValue, invValue, signedDate, billedDate,
+    ],
   );
 }
 
@@ -262,6 +317,12 @@ export async function syncJobNimbus(): Promise<{ fetched: number; saved: number;
     }
     await setSetting('jobnimbus_last_sync', new Date().toISOString());
     await setSetting('jobnimbus_last_count', String(saved));
+    // Refresh the JobNimbus-sourced scorecard rows (non-fatal if it fails).
+    try {
+      await syncScorecardFromJobNimbus();
+    } catch (err) {
+      console.error('[jobnimbus] scorecard sync failed:', (err as Error).message);
+    }
     return { fetched: jobs.length, saved, errors };
   } finally {
     _syncing = false;
@@ -300,44 +361,80 @@ export async function getJobNimbusSummary(): Promise<{
   won_this_month: number;
   pipeline_value: number;
   total_jobs: number;
+  leads: number;
+  sold_value_this_month: number;
+  billed_this_month: number;
+  billed_value_this_month: number;
   last_received: string | null;
 }> {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
+  // Leads (status_type = 1) are excluded from job totals/pipeline.
   const result = await query(`
     SELECT
-      COUNT(*)                                                                          AS total_jobs,
-      COUNT(*) FILTER (WHERE status_type NOT IN (4,5) OR status_type IS NULL)           AS open_jobs,
-      COUNT(*) FILTER (WHERE status_type = 4 AND date_updated >= $1)                    AS won_this_month,
-      COALESCE(SUM(value) FILTER (WHERE status_type NOT IN (4,5) OR status_type IS NULL), 0) AS pipeline_value,
-      MAX(updated_at)                                                                   AS last_received
+      COUNT(*) FILTER (WHERE status_type <> 1)                                         AS total_jobs,
+      COUNT(*) FILTER (WHERE status_type = 1)                                          AS leads,
+      COUNT(*) FILTER (WHERE status_type = 2)                                          AS open_jobs,
+      COUNT(*) FILTER (WHERE status_type = 4 AND signed_date >= $1)                    AS won_this_month,
+      COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 2), 0)                  AS pipeline_value,
+      COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1), 0) AS sold_value_this_month,
+      COUNT(*) FILTER (WHERE billed_date >= $1)                                        AS billed_this_month,
+      COALESCE(SUM(invoice_value) FILTER (WHERE billed_date >= $1), 0)                 AS billed_value_this_month,
+      MAX(updated_at)                                                                  AS last_received
     FROM jobnimbus_jobs
   `, [monthStart]);
 
   const row = result.rows[0];
   return {
-    total_jobs:     Number(row.total_jobs),
-    open_jobs:      Number(row.open_jobs),
-    won_this_month: Number(row.won_this_month),
-    pipeline_value: Number(row.pipeline_value),
-    last_received:  row.last_received ? new Date(row.last_received).toISOString() : null,
+    total_jobs:              Number(row.total_jobs),
+    leads:                   Number(row.leads),
+    open_jobs:               Number(row.open_jobs),
+    won_this_month:          Number(row.won_this_month),
+    pipeline_value:          Number(row.pipeline_value),
+    sold_value_this_month:   Number(row.sold_value_this_month),
+    billed_this_month:       Number(row.billed_this_month),
+    billed_value_this_month: Number(row.billed_value_this_month),
+    last_received:           row.last_received ? new Date(row.last_received).toISOString() : null,
   };
 }
 
 // ── Analytics (for live dashboard page) ───────────────────────────────────────
 
 export interface JobNimbusAnalytics {
-  totals: { all: number; open: number; won: number; lost: number };
+  totals: { all: number; open: number; won: number; lost: number; leads: number };
+  values: { pipeline: number; sold: number; billed: number };
   closing_rate: number | null;
   win_rate: number | null;
   by_status: { status: string; count: number; status_type: number | null }[];
-  by_sales_rep: { name: string; open: number; won: number; lost: number; close_rate: number | null }[];
+  by_sales_rep: { name: string; open: number; won: number; lost: number; close_rate: number | null; sold_value: number }[];
   by_source: { source: string; count: number }[];
   by_record_type: { type: string; count: number }[];
-  trend: { week: string; created: number; won: number }[];
-  recent: { jnid: string; name: string | null; status: string | null; status_type: number | null; date_updated: string | null }[];
+  trend: { week: string; leads_created: number; signed: number; billed: number }[];
+  weekly_billed: { week: string; count: number; amount: number }[];
+  recent: { jnid: string; name: string | null; status: string | null; status_type: number | null; value: number | null; date_updated: string | null }[];
   filter: { from: string; to: string };
+}
+
+// Monday (ISO date) for a given date.
+function mondayOf(d: Date): string {
+  const x = new Date(d); x.setHours(0, 0, 0, 0);
+  const dow = x.getDay(); const off = dow === 0 ? -6 : 1 - dow;
+  x.setDate(x.getDate() + off);
+  return x.toISOString().split('T')[0];
+}
+
+// Last `n` Monday buckets (oldest → newest).
+function lastMondays(n: number): string[] {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dow = today.getDay(); const off = dow === 0 ? -6 : 1 - dow;
+  const thisMonday = new Date(today); thisMonday.setDate(today.getDate() + off);
+  const out: string[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(thisMonday); d.setDate(d.getDate() - i * 7);
+    out.push(d.toISOString().split('T')[0]);
+  }
+  return out;
 }
 
 export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnalytics> {
@@ -345,158 +442,269 @@ export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnal
   const to = now;
   const from = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
-  // Jobs in window — based on date_created (when the lead came in)
-  // We include jobs where date_created is null too (count under "no date")
-  const inWindow = `(date_created IS NULL OR date_created >= $1)`;
-
-  // ── Totals ────────────────────────────────────────────────────────────────
+  // Totals — leads (status_type=1) excluded from job counts. `open` is the current
+  // open pipeline; won/lost/leads are measured by their own event date in-window.
   const totalsResult = await query(`
     SELECT
-      COUNT(*)                                                              AS all_count,
-      COUNT(*) FILTER (WHERE status_type NOT IN (4,5) OR status_type IS NULL) AS open_count,
-      COUNT(*) FILTER (WHERE status_type = 4)                               AS won_count,
-      COUNT(*) FILTER (WHERE status_type = 5)                               AS lost_count
-    FROM jobnimbus_jobs WHERE ${inWindow}
+      COUNT(*) FILTER (WHERE status_type = 2)                                              AS open_count,
+      COUNT(*) FILTER (WHERE status_type = 4 AND signed_date >= $1)                        AS won_count,
+      COUNT(*) FILTER (WHERE status_type = 5 AND date_updated >= $1)                       AS lost_count,
+      COUNT(*) FILTER (WHERE status_type = 1 AND date_created >= $1)                        AS leads_count,
+      COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 2), 0)                       AS pipeline_value,
+      COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1), 0) AS sold_value,
+      COALESCE(SUM(invoice_value)  FILTER (WHERE billed_date >= $1), 0)                     AS billed_value
+    FROM jobnimbus_jobs
   `, [from]);
   const t = totalsResult.rows[0];
-  const all = Number(t.all_count);
+  const open = Number(t.open_count);
   const won = Number(t.won_count);
   const lost = Number(t.lost_count);
-  const open = Number(t.open_count);
+  const leads = Number(t.leads_count);
+  const all = open + won + lost;
   const closingRate = (won + lost) > 0 ? won / (won + lost) : null;
   const winRate = all > 0 ? won / all : null;
 
-  // ── By status ────────────────────────────────────────────────────────────
+  // By status — current non-lead snapshot.
   const byStatusResult = await query(`
     SELECT status, status_type, COUNT(*) AS count
     FROM jobnimbus_jobs
-    WHERE ${inWindow} AND status IS NOT NULL
+    WHERE status_type <> 1 AND status IS NOT NULL
     GROUP BY status, status_type
     ORDER BY count DESC
-  `, [from]);
+  `);
 
-  // ── By sales rep (from raw JSON) ─────────────────────────────────────────
-  // Tries multiple common field names since they vary by Zapier mapping
+  // By sales rep — open (current), won/lost + sold $ (in-window).
   const byRepResult = await query(`
     SELECT
-      COALESCE(
-        raw->>'sales_rep_name',
-        raw->>'Sales Rep Name',
-        raw->>'sales_rep'
-      ) AS rep,
-      COUNT(*) FILTER (WHERE status_type NOT IN (4,5) OR status_type IS NULL) AS open,
-      COUNT(*) FILTER (WHERE status_type = 4)                                 AS won,
-      COUNT(*) FILTER (WHERE status_type = 5)                                 AS lost
+      sales_rep_name AS rep,
+      COUNT(*) FILTER (WHERE status_type = 2)                        AS open,
+      COUNT(*) FILTER (WHERE status_type = 4 AND signed_date >= $1)  AS won,
+      COUNT(*) FILTER (WHERE status_type = 5 AND date_updated >= $1) AS lost,
+      COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1), 0) AS sold_value
     FROM jobnimbus_jobs
-    WHERE ${inWindow}
-      AND COALESCE(raw->>'sales_rep_name', raw->>'Sales Rep Name', raw->>'sales_rep') IS NOT NULL
-    GROUP BY rep
-    ORDER BY (COUNT(*) FILTER (WHERE status_type = 4)) DESC, COUNT(*) DESC
+    WHERE status_type <> 1 AND sales_rep_name IS NOT NULL AND sales_rep_name <> ''
+    GROUP BY sales_rep_name
+    ORDER BY won DESC, open DESC
     LIMIT 20
   `, [from]);
-
   const byRep = byRepResult.rows.map((r) => {
-    const repWon = Number(r.won);
-    const repLost = Number(r.lost);
+    const repWon = Number(r.won); const repLost = Number(r.lost);
     return {
-      name: r.rep,
-      open: Number(r.open),
-      won: repWon,
-      lost: repLost,
+      name: r.rep, open: Number(r.open), won: repWon, lost: repLost,
       close_rate: (repWon + repLost) > 0 ? repWon / (repWon + repLost) : null,
+      sold_value: Number(r.sold_value),
     };
   });
 
-  // ── By source ─────────────────────────────────────────────────────────────
+  // By source / record type — non-lead, grouped by readable name.
   const bySourceResult = await query(`
-    SELECT
-      COALESCE(raw->>'source', raw->>'Source Name', raw->>'source_name') AS source,
-      COUNT(*) AS count
+    SELECT source_name AS source, COUNT(*) AS count
     FROM jobnimbus_jobs
-    WHERE ${inWindow}
-      AND COALESCE(raw->>'source', raw->>'Source Name', raw->>'source_name') IS NOT NULL
-      AND COALESCE(raw->>'source', raw->>'Source Name', raw->>'source_name') <> ''
-    GROUP BY source
-    ORDER BY count DESC
-    LIMIT 15
-  `, [from]);
-
-  // ── By record type ───────────────────────────────────────────────────────
+    WHERE status_type <> 1 AND source_name IS NOT NULL AND source_name <> ''
+    GROUP BY source_name ORDER BY count DESC LIMIT 15
+  `);
   const byTypeResult = await query(`
-    SELECT
-      COALESCE(raw->>'record_type', raw->>'Record Type Name', raw->>'record_type_name') AS type,
-      COUNT(*) AS count
+    SELECT record_type_name AS type, COUNT(*) AS count
     FROM jobnimbus_jobs
-    WHERE ${inWindow}
-      AND COALESCE(raw->>'record_type', raw->>'Record Type Name', raw->>'record_type_name') IS NOT NULL
-      AND COALESCE(raw->>'record_type', raw->>'Record Type Name', raw->>'record_type_name') <> ''
-    GROUP BY type
-    ORDER BY count DESC
-    LIMIT 15
-  `, [from]);
+    WHERE status_type <> 1 AND record_type_name IS NOT NULL AND record_type_name <> ''
+    GROUP BY record_type_name ORDER BY count DESC LIMIT 15
+  `);
 
-  // ── Trend by week ────────────────────────────────────────────────────────
-  // Build buckets in JS for last 12 weeks (Mondays)
-  const weeks: { week: string; created: number; won: number }[] = [];
-  const today = new Date(); today.setHours(0,0,0,0);
-  const dow = today.getDay(); const offset = dow === 0 ? -6 : 1 - dow;
-  const thisMonday = new Date(today); thisMonday.setDate(today.getDate() + offset);
-  for (let i = 11; i >= 0; i--) {
-    const d = new Date(thisMonday); d.setDate(d.getDate() - i * 7);
-    weeks.push({ week: d.toISOString().split('T')[0], created: 0, won: 0 });
-  }
-  const trendStart = new Date(thisMonday); trendStart.setDate(trendStart.getDate() - 11 * 7);
+  // Weekly trend (12 wk): leads created, jobs signed, jobs billed (+ billed $).
+  const weeks = lastMondays(12);
+  const idx = new Map(weeks.map((w, i) => [w, i]));
+  const trendStart = new Date(weeks[0] + 'T00:00:00');
+  const trend = weeks.map((week) => ({ week, leads_created: 0, signed: 0, billed: 0 }));
+  const weekly_billed = weeks.map((week) => ({ week, count: 0, amount: 0 }));
 
-  const trendResult = await query(`
-    SELECT
-      DATE_TRUNC('week', date_created) AS wk_created,
-      DATE_TRUNC('week', date_updated) AS wk_updated,
-      status_type
+  const trendRows = await query(`
+    SELECT date_created, signed_date, billed_date, status_type, invoice_value
     FROM jobnimbus_jobs
-    WHERE (date_created >= $1 OR date_updated >= $1)
+    WHERE date_created >= $1 OR signed_date >= $1 OR billed_date >= $1
   `, [trendStart]);
-
-  for (const row of trendResult.rows) {
-    if (row.wk_created) {
-      const k = new Date(row.wk_created).toISOString().split('T')[0];
-      const bucket = weeks.find((w) => w.week === k);
-      if (bucket) bucket.created++;
+  for (const r of trendRows.rows) {
+    if (r.date_created && Number(r.status_type) === 1) {
+      const i = idx.get(mondayOf(new Date(r.date_created))); if (i !== undefined) trend[i].leads_created++;
     }
-    if (row.wk_updated && Number(row.status_type) === 4) {
-      const k = new Date(row.wk_updated).toISOString().split('T')[0];
-      const bucket = weeks.find((w) => w.week === k);
-      if (bucket) bucket.won++;
+    if (r.signed_date) {
+      const i = idx.get(mondayOf(new Date(r.signed_date))); if (i !== undefined) trend[i].signed++;
+    }
+    if (r.billed_date) {
+      const i = idx.get(mondayOf(new Date(r.billed_date)));
+      if (i !== undefined) { trend[i].billed++; weekly_billed[i].count++; weekly_billed[i].amount += Number(r.invoice_value || 0); }
     }
   }
 
-  // ── Recent activity ──────────────────────────────────────────────────────
+  // Recent non-lead activity.
   const recentResult = await query(`
-    SELECT jnid, name, status, status_type, date_updated
+    SELECT jnid, name, status, status_type, COALESCE(invoice_value, estimate_value) AS value, date_updated
     FROM jobnimbus_jobs
+    WHERE status_type <> 1
     ORDER BY COALESCE(date_updated, updated_at) DESC
     LIMIT 15
   `);
 
   return {
-    totals:        { all, open, won, lost },
-    closing_rate:  closingRate,
-    win_rate:      winRate,
-    by_status:     byStatusResult.rows.map((r) => ({
+    totals: { all, open, won, lost, leads },
+    values: { pipeline: Number(t.pipeline_value), sold: Number(t.sold_value), billed: Number(t.billed_value) },
+    closing_rate: closingRate,
+    win_rate: winRate,
+    by_status: byStatusResult.rows.map((r) => ({
       status: r.status,
       status_type: r.status_type !== null ? Number(r.status_type) : null,
       count: Number(r.count),
     })),
-    by_sales_rep:  byRep,
-    by_source:     bySourceResult.rows.map((r) => ({ source: r.source, count: Number(r.count) })),
+    by_sales_rep: byRep,
+    by_source: bySourceResult.rows.map((r) => ({ source: r.source, count: Number(r.count) })),
     by_record_type: byTypeResult.rows.map((r) => ({ type: r.type, count: Number(r.count) })),
-    trend:         weeks,
-    recent:        recentResult.rows.map((r) => ({
+    trend,
+    weekly_billed,
+    recent: recentResult.rows.map((r) => ({
       jnid: r.jnid,
       name: r.name,
       status: r.status,
       status_type: r.status_type !== null ? Number(r.status_type) : null,
+      value: r.value !== null ? Number(r.value) : null,
       date_updated: r.date_updated ? new Date(r.date_updated).toISOString() : null,
     })),
     filter: { from: from.toISOString(), to: to.toISOString() },
   };
+}
+
+// ── Drill-down: list the underlying jobs for a dimension/bucket ────────────────
+
+export interface JobNimbusJobRow {
+  jnid: string; name: string | null; status: string | null; status_type: number | null;
+  sales_rep: string | null; source: string | null; record_type: string | null;
+  estimate_value: number | null; invoice_value: number | null;
+  date_created: string | null; signed_date: string | null; billed_date: string | null;
+  url: string;
+}
+
+export async function getJobNimbusJobs(params: {
+  dimension: string; key?: string; days?: number; limit?: number;
+}): Promise<{ jobs: JobNimbusJobRow[]; total: number }> {
+  const { dimension, key } = params;
+  const days = params.days && params.days > 0 ? params.days : 3650;
+  const limit = Math.min(Math.max(params.limit || 200, 1), 1000);
+  const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  const where: string[] = [];
+  const vals: unknown[] = [];
+  let p = 1;
+
+  switch (dimension) {
+    case 'leads':       where.push(`status_type = 1`, `date_created >= $${p++}`); vals.push(from); break;
+    case 'open':        where.push(`status_type = 2`); break;
+    case 'won':         where.push(`status_type = 4`, `signed_date >= $${p++}`); vals.push(from); break;
+    case 'lost':        where.push(`status_type = 5`, `date_updated >= $${p++}`); vals.push(from); break;
+    case 'billed':      where.push(`billed_date >= $${p++}`); vals.push(from); break;
+    case 'status':      where.push(`status_type <> 1`, `status = $${p++}`); vals.push(key); break;
+    case 'source':      where.push(`status_type <> 1`, `source_name = $${p++}`); vals.push(key); break;
+    case 'record_type': where.push(`status_type <> 1`, `record_type_name = $${p++}`); vals.push(key); break;
+    case 'sales_rep':   where.push(`status_type <> 1`, `sales_rep_name = $${p++}`); vals.push(key); break;
+    default:            where.push(`status_type <> 1`);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const orderCol = dimension === 'billed' ? 'billed_date'
+    : dimension === 'won' ? 'signed_date'
+    : 'COALESCE(date_updated, date_created, updated_at)';
+
+  const rows = await query(`
+    SELECT jnid, name, status, status_type, sales_rep_name, source_name, record_type_name,
+           estimate_value, invoice_value, date_created, signed_date, billed_date
+    FROM jobnimbus_jobs
+    ${whereSql}
+    ORDER BY ${orderCol} DESC NULLS LAST
+    LIMIT ${limit}
+  `, vals);
+
+  const iso = (d: unknown) => d ? new Date(d as string).toISOString() : null;
+  const jobs: JobNimbusJobRow[] = rows.rows.map((r) => ({
+    jnid: r.jnid, name: r.name, status: r.status,
+    status_type: r.status_type !== null ? Number(r.status_type) : null,
+    sales_rep: r.sales_rep_name, source: r.source_name, record_type: r.record_type_name,
+    estimate_value: r.estimate_value !== null ? Number(r.estimate_value) : null,
+    invoice_value: r.invoice_value !== null ? Number(r.invoice_value) : null,
+    date_created: iso(r.date_created), signed_date: iso(r.signed_date), billed_date: iso(r.billed_date),
+    url: `https://app.jobnimbus.com/job/${r.jnid}`,
+  }));
+  return { jobs, total: jobs.length };
+}
+
+// ── Scorecard auto-fill (writes data_source='jobnimbus' entries) ───────────────
+
+interface JNMetricDef { name: string; format: 'number' | 'currency' | 'percent'; sort: number; }
+const JN_TEAM = process.env.JOBNIMBUS_SCORECARD_TEAM || 'leadership';
+const JN_METRICS: JNMetricDef[] = [
+  { name: 'New Leads (JobNimbus)',      format: 'number',   sort: 80 },
+  { name: 'Contracts Sent (JobNimbus)', format: 'number',   sort: 81 },
+  { name: 'Jobs Signed (JobNimbus)',    format: 'number',   sort: 82 },
+  { name: '$ Sold (JobNimbus)',         format: 'currency', sort: 83 },
+  { name: 'Jobs Billed (JobNimbus)',    format: 'number',   sort: 84 },
+  { name: '$ Billed (JobNimbus)',       format: 'currency', sort: 85 },
+  { name: 'Closing Rate (JobNimbus)',   format: 'percent',  sort: 86 },
+];
+
+async function ensureScorecardTemplates(): Promise<void> {
+  for (const m of JN_METRICS) {
+    await query(`
+      INSERT INTO scorecard_templates (team, metric_name, display_format, sort_order, is_active)
+      VALUES ($1, $2, $3, $4, true)
+      ON CONFLICT (team, metric_name) DO UPDATE SET display_format = EXCLUDED.display_format, is_active = true
+    `, [JN_TEAM, m.name, m.format, m.sort]);
+  }
+}
+
+// Compute the metrics for one Monday week and upsert as scorecard_entries.
+async function fillScorecardWeek(weekMonday: string): Promise<void> {
+  const start = new Date(weekMonday + 'T00:00:00');
+  const end = new Date(start); end.setDate(end.getDate() + 7);
+
+  const r = (await query(`
+    SELECT
+      COUNT(*) FILTER (WHERE status_type = 1 AND date_created >= $1 AND date_created < $2)                  AS new_leads,
+      COUNT(*) FILTER (WHERE lower(status) = 'contract sent' AND date_updated >= $1 AND date_updated < $2)  AS contracts_sent,
+      COUNT(*) FILTER (WHERE status_type = 4 AND signed_date >= $1 AND signed_date < $2)                    AS jobs_signed,
+      COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1 AND signed_date < $2), 0) AS sold_value,
+      COUNT(*) FILTER (WHERE billed_date >= $1 AND billed_date < $2)                                        AS jobs_billed,
+      COALESCE(SUM(invoice_value) FILTER (WHERE billed_date >= $1 AND billed_date < $2), 0)                 AS billed_value,
+      COUNT(*) FILTER (WHERE status_type = 5 AND date_updated >= $1 AND date_updated < $2)                  AS lost
+    FROM jobnimbus_jobs
+  `, [start, end])).rows[0];
+
+  const signed = Number(r.jobs_signed);
+  const lost = Number(r.lost);
+  const closing = (signed + lost) > 0 ? signed / (signed + lost) : null;
+
+  const valueByName: Record<string, number | null> = {
+    'New Leads (JobNimbus)':      Number(r.new_leads),
+    'Contracts Sent (JobNimbus)': Number(r.contracts_sent),
+    'Jobs Signed (JobNimbus)':    signed,
+    '$ Sold (JobNimbus)':         Number(r.sold_value),
+    'Jobs Billed (JobNimbus)':    Number(r.jobs_billed),
+    '$ Billed (JobNimbus)':       Number(r.billed_value),
+    'Closing Rate (JobNimbus)':   closing,
+  };
+
+  for (const m of JN_METRICS) {
+    await query(`
+      INSERT INTO scorecard_entries (team, week_of, metric_name, actual, display_format, data_source)
+      VALUES ($1, $2, $3, $4, $5, 'jobnimbus')
+      ON CONFLICT (team, week_of, metric_name) DO UPDATE SET
+        actual = EXCLUDED.actual,
+        display_format = EXCLUDED.display_format,
+        data_source = 'jobnimbus',
+        updated_at = NOW()
+    `, [JN_TEAM, weekMonday, m.name, valueByName[m.name], m.format]);
+  }
+}
+
+/** Refresh JobNimbus-sourced scorecard rows for the last `weeksBack` weeks. */
+export async function syncScorecardFromJobNimbus(weeksBack = 13): Promise<void> {
+  await ensureScorecardTemplates();
+  for (const w of lastMondays(weeksBack)) {
+    await fillScorecardWeek(w);
+  }
 }

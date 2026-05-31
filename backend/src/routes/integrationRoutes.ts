@@ -7,6 +7,7 @@ import {
   isJobNimbusConfigured,
   getJobNimbusSummary,
   getJobNimbusAnalytics,
+  getJobNimbusJobs,
   syncJobNimbus,
   getJobNimbusSyncMeta,
 } from '../services/jobNimbusService';
@@ -79,6 +80,23 @@ router.get('/jobnimbus', authenticate, requireLeadershipOrAdmin, async (req: Aut
     }
     const summary = await getJobNimbusSummary();
     res.json(summary);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Drill-down: list the underlying jobs for a dimension/bucket
+router.get('/jobnimbus/jobs', authenticate, requireLeadershipOrAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!(await isJobNimbusConfigured())) {
+      res.status(503).json({ error: 'JobNimbus API not configured' });
+      return;
+    }
+    const dimension = String(req.query.dimension || 'all');
+    const key = req.query.key !== undefined ? String(req.query.key) : undefined;
+    const days = req.query.days !== undefined ? parseInt(String(req.query.days), 10) : undefined;
+    const result = await getJobNimbusJobs({ dimension, key, days });
+    res.json(result);
   } catch (err) {
     next(err);
   }

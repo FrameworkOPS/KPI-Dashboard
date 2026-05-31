@@ -172,6 +172,9 @@ export const getJobNimbusAnalyticsApi = (days = 90) =>
 export const syncJobNimbusApi = () =>
   api.post('/integrations/jobnimbus/sync')
 
+export const getJobNimbusJobsApi = (dimension: string, key?: string, days?: number) =>
+  api.get('/integrations/jobnimbus/jobs', { params: { dimension, key, days } })
+
 // ── Meetings — ICS export ─────────────────────────────────────────────────────
 export const downloadMeetingIcsApi = (id: string) =>
   api.get(`/meetings/${id}/ics`, { responseType: 'blob' })
