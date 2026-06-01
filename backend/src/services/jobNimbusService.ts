@@ -417,12 +417,34 @@ export async function getJobNimbusSummary(): Promise<{
 // ── Analytics (for live dashboard page) ───────────────────────────────────────
 
 export interface JobNimbusAnalytics {
-  totals: { all: number; open: number; won: number; lost: number; leads: number; contracts_sent: number };
+  totals: { all: number; open: number; won: number; lost: number; leads: number; contracts_sent: number; billed: number };
   values: { pipeline: number; sold: number; billed: number };
+  // Same shape, but for the equivalent prior period (immediately preceding the window).
+  prev_totals: { open: number; won: number; lost: number; leads: number; contracts_sent: number; billed: number };
+  prev_values: { pipeline: number; sold: number; billed: number };
   closing_rate: number | null;
+  prev_closing_rate: number | null;
   win_rate: number | null;
+  funnel: {
+    leads: number;
+    contracts_sent: number;
+    signed: number;
+    billed: number;
+    lead_to_contract: number | null;
+    contract_to_signed: number | null;
+    signed_to_billed: number | null;
+  };
+  aging: {
+    buckets: { label: string; min: number; max: number | null; count: number; value: number }[];
+    stalled_count: number;       // open jobs 30+ days since last update
+    stalled_value: number;
+    avg_age_days: number | null; // avg age of currently-open jobs
+  };
   by_status: { status: string; count: number; status_type: number | null }[];
-  by_sales_rep: { name: string; open: number; won: number; lost: number; close_rate: number | null; sold_value: number }[];
+  by_sales_rep: {
+    name: string; open: number; won: number; lost: number; contracts_sent: number;
+    close_rate: number | null; sold_value: number; pipeline_value: number; avg_deal: number | null;
+  }[];
   by_source: { source: string; count: number }[];
   by_record_type: { type: string; count: number }[];
   trend: { week: string; leads_created: number; signed: number; billed: number }[];
@@ -452,35 +474,101 @@ function lastMondays(n: number): string[] {
   return out;
 }
 
+// Aggregate counts/values bounded by a [from, to) event window. `open` and
+// `pipeline_value` always reflect the *current* open snapshot regardless of
+// window — they're not measured by event date.
+async function totalsForWindow(from: Date, to: Date) {
+  const r = (await query(`
+    SELECT
+      COUNT(*) FILTER (WHERE status_type = 2)                                                              AS open_count,
+      COUNT(*) FILTER (WHERE status_type = 4 AND signed_date >= $1 AND signed_date < $2)                   AS won_count,
+      COUNT(*) FILTER (WHERE status_type = 5 AND date_updated >= $1 AND date_updated < $2)                 AS lost_count,
+      COUNT(*) FILTER (WHERE status_type = 1 AND date_created >= $1 AND date_created < $2)                 AS leads_count,
+      COUNT(*) FILTER (WHERE contract_sent AND contract_sent_date >= $1 AND contract_sent_date < $2)       AS contracts_sent,
+      COUNT(*) FILTER (WHERE billed_date >= $1 AND billed_date < $2)                                       AS billed_count,
+      COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 2), 0)                                      AS pipeline_value,
+      COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1 AND signed_date < $2), 0) AS sold_value,
+      COALESCE(SUM(invoice_value)  FILTER (WHERE billed_date >= $1 AND billed_date < $2), 0)               AS billed_value
+    FROM jobnimbus_jobs
+  `, [from, to])).rows[0];
+  return {
+    open: Number(r.open_count),
+    won: Number(r.won_count),
+    lost: Number(r.lost_count),
+    leads: Number(r.leads_count),
+    contracts_sent: Number(r.contracts_sent),
+    billed: Number(r.billed_count),
+    pipeline_value: Number(r.pipeline_value),
+    sold_value: Number(r.sold_value),
+    billed_value: Number(r.billed_value),
+  };
+}
+
 export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnalytics> {
   const now = new Date();
   const to = now;
   const from = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  const prevTo = from;
+  const prevFrom = new Date(from.getTime() - days * 24 * 60 * 60 * 1000);
 
-  // Totals — leads (status_type=1) excluded from job counts. `open` is the current
-  // open pipeline; won/lost/leads are measured by their own event date in-window.
-  const totalsResult = await query(`
-    SELECT
-      COUNT(*) FILTER (WHERE status_type = 2)                                              AS open_count,
-      COUNT(*) FILTER (WHERE status_type = 4 AND signed_date >= $1)                        AS won_count,
-      COUNT(*) FILTER (WHERE status_type = 5 AND date_updated >= $1)                       AS lost_count,
-      COUNT(*) FILTER (WHERE status_type = 1 AND date_created >= $1)                        AS leads_count,
-      COUNT(*) FILTER (WHERE contract_sent AND contract_sent_date >= $1)                    AS contracts_sent,
-      COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 2), 0)                       AS pipeline_value,
-      COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1), 0) AS sold_value,
-      COALESCE(SUM(invoice_value)  FILTER (WHERE billed_date >= $1), 0)                     AS billed_value
-    FROM jobnimbus_jobs
-  `, [from]);
-  const t = totalsResult.rows[0];
-  const open = Number(t.open_count);
-  const won = Number(t.won_count);
-  const lost = Number(t.lost_count);
-  const leads = Number(t.leads_count);
-  const contractsSent = Number(t.contracts_sent);
+  const t = await totalsForWindow(from, to);
+  const p = await totalsForWindow(prevFrom, prevTo);
+  const open = t.open;
+  const won = t.won;
+  const lost = t.lost;
+  const leads = t.leads;
+  const contractsSent = t.contracts_sent;
+  const billed = t.billed;
   const all = open + won + lost;
   // Closing rate = signed ÷ all contracts sent (not just won/lost).
   const closingRate = contractsSent > 0 ? won / contractsSent : null;
+  const prevClosingRate = p.contracts_sent > 0 ? p.won / p.contracts_sent : null;
   const winRate = all > 0 ? won / all : null;
+
+  // Funnel — counts of jobs that hit each stage during the window.
+  const funnel = {
+    leads,
+    contracts_sent: contractsSent,
+    signed: won,
+    billed,
+    lead_to_contract: leads > 0 ? contractsSent / leads : null,
+    contract_to_signed: contractsSent > 0 ? won / contractsSent : null,
+    signed_to_billed: won > 0 ? billed / won : null,
+  };
+
+  // Aging of currently-open pipeline (status_type=2). Age = days since
+  // COALESCE(date_updated, date_created). Stalled = 30+ days untouched.
+  const agingRows = (await query(`
+    SELECT
+      EXTRACT(EPOCH FROM (NOW() - COALESCE(date_updated, date_created))) / 86400 AS age_days,
+      COALESCE(estimate_value, 0) AS val
+    FROM jobnimbus_jobs
+    WHERE status_type = 2
+  `)).rows;
+  const bucketDefs: { label: string; min: number; max: number | null }[] = [
+    { label: '0–14 days', min: 0, max: 14 },
+    { label: '15–30 days', min: 14, max: 30 },
+    { label: '31–60 days', min: 30, max: 60 },
+    { label: '61–90 days', min: 60, max: 90 },
+    { label: '90+ days', min: 90, max: null },
+  ];
+  const buckets = bucketDefs.map((b) => ({ ...b, count: 0, value: 0 }));
+  let stalledCount = 0, stalledValue = 0, ageSum = 0, ageN = 0;
+  for (const r of agingRows) {
+    const age = Number(r.age_days);
+    if (!Number.isFinite(age)) continue;
+    const v = Number(r.val) || 0;
+    ageSum += age; ageN++;
+    if (age >= 30) { stalledCount++; stalledValue += v; }
+    const b = buckets.find((x) => age >= x.min && (x.max === null || age < x.max));
+    if (b) { b.count++; b.value += v; }
+  }
+  const aging = {
+    buckets,
+    stalled_count: stalledCount,
+    stalled_value: stalledValue,
+    avg_age_days: ageN > 0 ? ageSum / ageN : null,
+  };
 
   // By status — current non-lead snapshot.
   const byStatusResult = await query(`
@@ -499,20 +587,25 @@ export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnal
       COUNT(*) FILTER (WHERE status_type = 4 AND signed_date >= $1)      AS won,
       COUNT(*) FILTER (WHERE status_type = 5 AND date_updated >= $1)     AS lost,
       COUNT(*) FILTER (WHERE contract_sent AND contract_sent_date >= $1) AS contracts_sent,
-      COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1), 0) AS sold_value
+      COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1), 0) AS sold_value,
+      COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 2), 0)                       AS pipeline_value,
+      AVG(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1 AND estimate_value > 0) AS avg_deal
     FROM jobnimbus_jobs
     WHERE status_type <> 1 AND sales_rep_name IS NOT NULL AND sales_rep_name <> ''
     GROUP BY sales_rep_name
     ORDER BY won DESC, open DESC
-    LIMIT 20
+    LIMIT 50
   `, [from]);
   const byRep = byRepResult.rows.map((r) => {
     const repWon = Number(r.won); const repLost = Number(r.lost); const repSent = Number(r.contracts_sent);
     return {
       name: r.rep, open: Number(r.open), won: repWon, lost: repLost,
+      contracts_sent: repSent,
       // Closing rate = signed ÷ contracts sent for this rep.
       close_rate: repSent > 0 ? repWon / repSent : null,
       sold_value: Number(r.sold_value),
+      pipeline_value: Number(r.pipeline_value),
+      avg_deal: r.avg_deal !== null ? Number(r.avg_deal) : null,
     };
   });
 
@@ -565,10 +658,18 @@ export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnal
   `);
 
   return {
-    totals: { all, open, won, lost, leads, contracts_sent: contractsSent },
+    totals: { all, open, won, lost, leads, contracts_sent: contractsSent, billed },
     values: { pipeline: Number(t.pipeline_value), sold: Number(t.sold_value), billed: Number(t.billed_value) },
+    prev_totals: {
+      open: p.open, won: p.won, lost: p.lost, leads: p.leads,
+      contracts_sent: p.contracts_sent, billed: p.billed,
+    },
+    prev_values: { pipeline: Number(p.pipeline_value), sold: Number(p.sold_value), billed: Number(p.billed_value) },
     closing_rate: closingRate,
+    prev_closing_rate: prevClosingRate,
     win_rate: winRate,
+    funnel,
+    aging,
     by_status: byStatusResult.rows.map((r) => ({
       status: r.status,
       status_type: r.status_type !== null ? Number(r.status_type) : null,
