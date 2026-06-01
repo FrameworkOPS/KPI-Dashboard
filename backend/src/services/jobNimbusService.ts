@@ -419,7 +419,8 @@ export async function getJobNimbusSummary(): Promise<{
 export interface JobNimbusAnalytics {
   totals: { all: number; open: number; won: number; lost: number; leads: number; contracts_sent: number; billed: number };
   values: { pipeline: number; sold: number; billed: number };
-  // Same shape, but for the equivalent prior period (immediately preceding the window).
+  // Comparison period — either the auto "same-length-preceding" window or an
+  // explicit compare_from/compare_to passed by the caller.
   prev_totals: { open: number; won: number; lost: number; leads: number; contracts_sent: number; billed: number };
   prev_values: { pipeline: number; sold: number; billed: number };
   closing_rate: number | null;
@@ -434,12 +435,26 @@ export interface JobNimbusAnalytics {
     contract_to_signed: number | null;
     signed_to_billed: number | null;
   };
+  // Same funnel computed against the comparison window.
+  prev_funnel: {
+    leads: number;
+    contracts_sent: number;
+    signed: number;
+    billed: number;
+    lead_to_contract: number | null;
+    contract_to_signed: number | null;
+    signed_to_billed: number | null;
+  };
   aging: {
     buckets: { label: string; min: number; max: number | null; count: number; value: number }[];
-    stalled_count: number;       // open jobs 30+ days since last update
+    stalled_count: number;
     stalled_value: number;
-    avg_age_days: number | null; // avg age of currently-open jobs
+    avg_age_days: number | null;
   };
+  top_open_deals: {
+    jnid: string; name: string | null; status: string | null; sales_rep: string | null;
+    source: string | null; estimate_value: number; age_days: number; url: string;
+  }[];
   by_status: { status: string; count: number; status_type: number | null }[];
   by_sales_rep: {
     name: string; open: number; won: number; lost: number; contracts_sent: number;
@@ -450,7 +465,32 @@ export interface JobNimbusAnalytics {
   trend: { week: string; leads_created: number; signed: number; billed: number }[];
   weekly_billed: { week: string; count: number; amount: number }[];
   recent: { jnid: string; name: string | null; status: string | null; status_type: number | null; value: number | null; date_updated: string | null }[];
-  filter: { from: string; to: string };
+  targets: JobNimbusTargets;
+  progress: {
+    wtd_sold: number; mtd_sold: number;
+    wtd_billed: number; mtd_billed: number;
+    week_start: string; month_start: string;
+  };
+  filter: { from: string; to: string; compare_from: string; compare_to: string;
+            rep: string | null; source: string | null; record_type: string | null };
+  available_filters: { reps: string[]; sources: string[]; record_types: string[] };
+}
+
+export interface JobNimbusTargets {
+  weekly_sold: number | null;
+  monthly_sold: number | null;
+  weekly_billed: number | null;
+  monthly_billed: number | null;
+}
+
+export interface AnalyticsQuery {
+  from: Date;
+  to: Date;
+  compareFrom?: Date | null;
+  compareTo?: Date | null;
+  rep?: string | null;
+  source?: string | null;
+  recordType?: string | null;
 }
 
 // Monday (ISO date) for a given date.
@@ -474,10 +514,22 @@ function lastMondays(n: number): string[] {
   return out;
 }
 
+// Build the extra WHERE-clause fragment + parameters for sales-rep / source /
+// record_type filters. `nextIdx` is the next parameter placeholder to use.
+function buildFilterSql(opts: AnalyticsQuery, nextIdx: number): { sql: string; params: unknown[]; nextIdx: number } {
+  const parts: string[] = [];
+  const params: unknown[] = [];
+  if (opts.rep)        { parts.push(`sales_rep_name = $${nextIdx++}`);   params.push(opts.rep); }
+  if (opts.source)     { parts.push(`source_name = $${nextIdx++}`);      params.push(opts.source); }
+  if (opts.recordType) { parts.push(`record_type_name = $${nextIdx++}`); params.push(opts.recordType); }
+  return { sql: parts.length ? ' AND ' + parts.join(' AND ') : '', params, nextIdx };
+}
+
 // Aggregate counts/values bounded by a [from, to) event window. `open` and
 // `pipeline_value` always reflect the *current* open snapshot regardless of
 // window — they're not measured by event date.
-async function totalsForWindow(from: Date, to: Date) {
+async function totalsForWindow(from: Date, to: Date, filters: AnalyticsQuery) {
+  const f = buildFilterSql(filters, 3);
   const r = (await query(`
     SELECT
       COUNT(*) FILTER (WHERE status_type = 2)                                                              AS open_count,
@@ -490,7 +542,8 @@ async function totalsForWindow(from: Date, to: Date) {
       COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1 AND signed_date < $2), 0) AS sold_value,
       COALESCE(SUM(invoice_value)  FILTER (WHERE billed_date >= $1 AND billed_date < $2), 0)               AS billed_value
     FROM jobnimbus_jobs
-  `, [from, to])).rows[0];
+    WHERE TRUE${f.sql}
+  `, [from, to, ...f.params])).rows[0];
   return {
     open: Number(r.open_count),
     won: Number(r.won_count),
@@ -504,15 +557,49 @@ async function totalsForWindow(from: Date, to: Date) {
   };
 }
 
-export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnalytics> {
-  const now = new Date();
-  const to = now;
-  const from = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-  const prevTo = from;
-  const prevFrom = new Date(from.getTime() - days * 24 * 60 * 60 * 1000);
+// ── Targets (app_settings-backed) ─────────────────────────────────────────────
 
-  const t = await totalsForWindow(from, to);
-  const p = await totalsForWindow(prevFrom, prevTo);
+const TARGET_KEYS: Record<keyof JobNimbusTargets, string> = {
+  weekly_sold:    'jobnimbus_target_weekly_sold',
+  monthly_sold:   'jobnimbus_target_monthly_sold',
+  weekly_billed:  'jobnimbus_target_weekly_billed',
+  monthly_billed: 'jobnimbus_target_monthly_billed',
+};
+
+export async function getJobNimbusTargets(): Promise<JobNimbusTargets> {
+  const entries = await Promise.all(
+    (Object.keys(TARGET_KEYS) as (keyof JobNimbusTargets)[]).map(async (k) => [k, await getSetting(TARGET_KEYS[k])] as const),
+  );
+  const out: JobNimbusTargets = { weekly_sold: null, monthly_sold: null, weekly_billed: null, monthly_billed: null };
+  for (const [k, v] of entries) {
+    out[k] = v === null ? null : (Number(v) || 0);
+  }
+  return out;
+}
+
+export async function setJobNimbusTargets(t: Partial<JobNimbusTargets>): Promise<JobNimbusTargets> {
+  for (const k of Object.keys(t) as (keyof JobNimbusTargets)[]) {
+    const key = TARGET_KEYS[k];
+    if (!key) continue;
+    const v = t[k];
+    if (v === null || v === undefined || (v as unknown) === '') {
+      await query('DELETE FROM app_settings WHERE key = $1', [key]);
+    } else {
+      await setSetting(key, String(v));
+    }
+  }
+  return getJobNimbusTargets();
+}
+
+export async function getJobNimbusAnalytics(opts: AnalyticsQuery): Promise<JobNimbusAnalytics> {
+  const { from, to } = opts;
+  // If no explicit compare window, fall back to the equivalent immediately-preceding window.
+  const windowMs = to.getTime() - from.getTime();
+  const compareTo = opts.compareTo ?? from;
+  const compareFrom = opts.compareFrom ?? new Date(from.getTime() - windowMs);
+
+  const t = await totalsForWindow(from, to, opts);
+  const p = await totalsForWindow(compareFrom, compareTo, opts);
   const open = t.open;
   const won = t.won;
   const lost = t.lost;
@@ -525,26 +612,28 @@ export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnal
   const prevClosingRate = p.contracts_sent > 0 ? p.won / p.contracts_sent : null;
   const winRate = all > 0 ? won / all : null;
 
-  // Funnel — counts of jobs that hit each stage during the window.
-  const funnel = {
-    leads,
-    contracts_sent: contractsSent,
-    signed: won,
-    billed,
-    lead_to_contract: leads > 0 ? contractsSent / leads : null,
-    contract_to_signed: contractsSent > 0 ? won / contractsSent : null,
-    signed_to_billed: won > 0 ? billed / won : null,
-  };
+  const funnelFor = (x: typeof t) => ({
+    leads: x.leads,
+    contracts_sent: x.contracts_sent,
+    signed: x.won,
+    billed: x.billed,
+    lead_to_contract: x.leads > 0 ? x.contracts_sent / x.leads : null,
+    contract_to_signed: x.contracts_sent > 0 ? x.won / x.contracts_sent : null,
+    signed_to_billed: x.won > 0 ? x.billed / x.won : null,
+  });
+  const funnel = funnelFor(t);
+  const prev_funnel = funnelFor(p);
 
   // Aging of currently-open pipeline (status_type=2). Age = days since
   // COALESCE(date_updated, date_created). Stalled = 30+ days untouched.
+  const fAging = buildFilterSql(opts, 1);
   const agingRows = (await query(`
     SELECT
       EXTRACT(EPOCH FROM (NOW() - COALESCE(date_updated, date_created))) / 86400 AS age_days,
       COALESCE(estimate_value, 0) AS val
     FROM jobnimbus_jobs
-    WHERE status_type = 2
-  `)).rows;
+    WHERE status_type = 2${fAging.sql}
+  `, fAging.params)).rows;
   const bucketDefs: { label: string; min: number; max: number | null }[] = [
     { label: '0–14 days', min: 0, max: 14 },
     { label: '15–30 days', min: 14, max: 30 },
@@ -571,15 +660,18 @@ export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnal
   };
 
   // By status — current non-lead snapshot.
+  const fStatus = buildFilterSql(opts, 1);
   const byStatusResult = await query(`
     SELECT status, status_type, COUNT(*) AS count
     FROM jobnimbus_jobs
-    WHERE status_type <> 1 AND status IS NOT NULL
+    WHERE status_type <> 1 AND status IS NOT NULL${fStatus.sql}
     GROUP BY status, status_type
     ORDER BY count DESC
-  `);
+  `, fStatus.params);
 
-  // By sales rep — open (current), won/lost + sold $ (in-window).
+  // By sales rep — uses window $1 plus filter params starting at $2.
+  // Skip the rep filter when listing reps — it's the dimension itself.
+  const fRep = buildFilterSql({ ...opts, rep: null }, 2);
   const byRepResult = await query(`
     SELECT
       sales_rep_name AS rep,
@@ -591,11 +683,11 @@ export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnal
       COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 2), 0)                       AS pipeline_value,
       AVG(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1 AND estimate_value > 0) AS avg_deal
     FROM jobnimbus_jobs
-    WHERE status_type <> 1 AND sales_rep_name IS NOT NULL AND sales_rep_name <> ''
+    WHERE status_type <> 1 AND sales_rep_name IS NOT NULL AND sales_rep_name <> ''${fRep.sql}
     GROUP BY sales_rep_name
     ORDER BY won DESC, open DESC
     LIMIT 50
-  `, [from]);
+  `, [from, ...fRep.params]);
   const byRep = byRepResult.rows.map((r) => {
     const repWon = Number(r.won); const repLost = Number(r.lost); const repSent = Number(r.contracts_sent);
     return {
@@ -610,18 +702,21 @@ export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnal
   });
 
   // By source / record type — non-lead, grouped by readable name.
+  // Skip each dimension's own filter (it's the breakdown itself).
+  const fSource = buildFilterSql({ ...opts, source: null }, 1);
   const bySourceResult = await query(`
     SELECT source_name AS source, COUNT(*) AS count
     FROM jobnimbus_jobs
-    WHERE status_type <> 1 AND source_name IS NOT NULL AND source_name <> ''
+    WHERE status_type <> 1 AND source_name IS NOT NULL AND source_name <> ''${fSource.sql}
     GROUP BY source_name ORDER BY count DESC LIMIT 15
-  `);
+  `, fSource.params);
+  const fType = buildFilterSql({ ...opts, recordType: null }, 1);
   const byTypeResult = await query(`
     SELECT record_type_name AS type, COUNT(*) AS count
     FROM jobnimbus_jobs
-    WHERE status_type <> 1 AND record_type_name IS NOT NULL AND record_type_name <> ''
+    WHERE status_type <> 1 AND record_type_name IS NOT NULL AND record_type_name <> ''${fType.sql}
     GROUP BY record_type_name ORDER BY count DESC LIMIT 15
-  `);
+  `, fType.params);
 
   // Weekly trend (12 wk): leads created, jobs signed, jobs billed (+ billed $).
   const weeks = lastMondays(12);
@@ -630,11 +725,12 @@ export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnal
   const trend = weeks.map((week) => ({ week, leads_created: 0, signed: 0, billed: 0 }));
   const weekly_billed = weeks.map((week) => ({ week, count: 0, amount: 0 }));
 
+  const fTrend = buildFilterSql(opts, 2);
   const trendRows = await query(`
     SELECT date_created, signed_date, billed_date, status_type, invoice_value
     FROM jobnimbus_jobs
-    WHERE date_created >= $1 OR signed_date >= $1 OR billed_date >= $1
-  `, [trendStart]);
+    WHERE (date_created >= $1 OR signed_date >= $1 OR billed_date >= $1)${fTrend.sql}
+  `, [trendStart, ...fTrend.params]);
   for (const r of trendRows.rows) {
     if (r.date_created && Number(r.status_type) === 1) {
       const i = idx.get(mondayOf(new Date(r.date_created))); if (i !== undefined) trend[i].leads_created++;
@@ -649,13 +745,61 @@ export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnal
   }
 
   // Recent non-lead activity.
+  const fRecent = buildFilterSql(opts, 1);
   const recentResult = await query(`
     SELECT jnid, name, status, status_type, COALESCE(invoice_value, estimate_value) AS value, date_updated
     FROM jobnimbus_jobs
-    WHERE status_type <> 1
+    WHERE status_type <> 1${fRecent.sql}
     ORDER BY COALESCE(date_updated, updated_at) DESC
     LIMIT 15
-  `);
+  `, fRecent.params);
+
+  // Top 10 largest currently-open deals.
+  const fTop = buildFilterSql(opts, 1);
+  const topResult = await query(`
+    SELECT jnid, name, status, sales_rep_name, source_name, estimate_value,
+      EXTRACT(EPOCH FROM (NOW() - COALESCE(date_updated, date_created))) / 86400 AS age_days
+    FROM jobnimbus_jobs
+    WHERE status_type = 2 AND COALESCE(estimate_value, 0) > 0${fTop.sql}
+    ORDER BY estimate_value DESC NULLS LAST
+    LIMIT 10
+  `, fTop.params);
+  const top_open_deals = topResult.rows.map((r) => ({
+    jnid: r.jnid,
+    name: r.name,
+    status: r.status,
+    sales_rep: r.sales_rep_name,
+    source: r.source_name,
+    estimate_value: Number(r.estimate_value || 0),
+    age_days: Math.max(0, Math.round(Number(r.age_days) || 0)),
+    url: `https://app.jobnimbus.com/job/${r.jnid}`,
+  }));
+
+  // Available filter values — for the picker chips on the frontend. Always
+  // unfiltered (independent of current selection) so the user can switch.
+  const filters = (await query(`
+    SELECT
+      ARRAY(SELECT DISTINCT sales_rep_name   FROM jobnimbus_jobs WHERE sales_rep_name   IS NOT NULL AND sales_rep_name   <> '' AND status_type <> 1 ORDER BY 1) AS reps,
+      ARRAY(SELECT DISTINCT source_name      FROM jobnimbus_jobs WHERE source_name      IS NOT NULL AND source_name      <> '' AND status_type <> 1 ORDER BY 1) AS sources,
+      ARRAY(SELECT DISTINCT record_type_name FROM jobnimbus_jobs WHERE record_type_name IS NOT NULL AND record_type_name <> '' AND status_type <> 1 ORDER BY 1) AS types
+  `)).rows[0];
+
+  // Week/month progress against targets (always uses current week & month —
+  // independent of the selected window).
+  const targets = await getJobNimbusTargets();
+  const now = new Date();
+  const weekStart = (() => { const x = new Date(now); x.setHours(0,0,0,0); const dow = x.getDay(); const off = dow === 0 ? -6 : 1 - dow; x.setDate(x.getDate() + off); return x; })();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const fProg = buildFilterSql(opts, 3);
+  const progressRow = (await query(`
+    SELECT
+      COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1), 0) AS wtd_sold,
+      COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $2), 0) AS mtd_sold,
+      COALESCE(SUM(invoice_value)  FILTER (WHERE billed_date >= $1), 0)                     AS wtd_billed,
+      COALESCE(SUM(invoice_value)  FILTER (WHERE billed_date >= $2), 0)                     AS mtd_billed
+    FROM jobnimbus_jobs
+    WHERE TRUE${fProg.sql}
+  `, [weekStart, monthStart, ...fProg.params])).rows[0];
 
   return {
     totals: { all, open, won, lost, leads, contracts_sent: contractsSent, billed },
@@ -669,7 +813,9 @@ export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnal
     prev_closing_rate: prevClosingRate,
     win_rate: winRate,
     funnel,
+    prev_funnel,
     aging,
+    top_open_deals,
     by_status: byStatusResult.rows.map((r) => ({
       status: r.status,
       status_type: r.status_type !== null ? Number(r.status_type) : null,
@@ -688,7 +834,25 @@ export async function getJobNimbusAnalytics(days: number): Promise<JobNimbusAnal
       value: r.value !== null ? Number(r.value) : null,
       date_updated: r.date_updated ? new Date(r.date_updated).toISOString() : null,
     })),
-    filter: { from: from.toISOString(), to: to.toISOString() },
+    targets,
+    progress: {
+      wtd_sold: Number(progressRow.wtd_sold),
+      mtd_sold: Number(progressRow.mtd_sold),
+      wtd_billed: Number(progressRow.wtd_billed),
+      mtd_billed: Number(progressRow.mtd_billed),
+      week_start: weekStart.toISOString(),
+      month_start: monthStart.toISOString(),
+    },
+    filter: {
+      from: from.toISOString(), to: to.toISOString(),
+      compare_from: compareFrom.toISOString(), compare_to: compareTo.toISOString(),
+      rep: opts.rep ?? null, source: opts.source ?? null, record_type: opts.recordType ?? null,
+    },
+    available_filters: {
+      reps: filters?.reps || [],
+      sources: filters?.sources || [],
+      record_types: filters?.types || [],
+    },
   };
 }
 
@@ -703,34 +867,53 @@ export interface JobNimbusJobRow {
 }
 
 export async function getJobNimbusJobs(params: {
-  dimension: string; key?: string; days?: number; limit?: number;
+  dimension: string; key?: string;
+  // Either pass an explicit window (preferred) or `days` for back-compat.
+  from?: Date; to?: Date; days?: number;
+  rep?: string | null; source?: string | null; recordType?: string | null;
+  limit?: number;
 }): Promise<{ jobs: JobNimbusJobRow[]; total: number }> {
   const { dimension, key } = params;
-  const days = params.days && params.days > 0 ? params.days : 3650;
   const limit = Math.min(Math.max(params.limit || 200, 1), 1000);
-  const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const fromDate = params.from
+    ?? new Date(Date.now() - (params.days && params.days > 0 ? params.days : 3650) * 24 * 60 * 60 * 1000);
+  const toDate = params.to ?? new Date();
 
   const where: string[] = [];
   const vals: unknown[] = [];
   let p = 1;
 
   switch (dimension) {
-    case 'leads':       where.push(`status_type = 1`, `date_created >= $${p++}`); vals.push(from); break;
-    case 'open':        where.push(`status_type = 2`); break;
-    case 'won':         where.push(`status_type = 4`, `signed_date >= $${p++}`); vals.push(from); break;
-    case 'contracts_sent': where.push(`contract_sent`, `contract_sent_date >= $${p++}`); vals.push(from); break;
-    case 'lost':        where.push(`status_type = 5`, `date_updated >= $${p++}`); vals.push(from); break;
-    case 'billed':      where.push(`billed_date >= $${p++}`); vals.push(from); break;
-    case 'status':      where.push(`status_type <> 1`, `status = $${p++}`); vals.push(key); break;
-    case 'source':      where.push(`status_type <> 1`, `source_name = $${p++}`); vals.push(key); break;
-    case 'record_type': where.push(`status_type <> 1`, `record_type_name = $${p++}`); vals.push(key); break;
-    case 'sales_rep':   where.push(`status_type <> 1`, `sales_rep_name = $${p++}`); vals.push(key); break;
-    default:            where.push(`status_type <> 1`);
+    case 'leads':          where.push(`status_type = 1`, `date_created >= $${p++}`, `date_created < $${p++}`); vals.push(fromDate, toDate); break;
+    case 'open':           where.push(`status_type = 2`); break;
+    case 'won':            where.push(`status_type = 4`, `signed_date >= $${p++}`, `signed_date < $${p++}`); vals.push(fromDate, toDate); break;
+    case 'contracts_sent': where.push(`contract_sent`, `contract_sent_date >= $${p++}`, `contract_sent_date < $${p++}`); vals.push(fromDate, toDate); break;
+    case 'lost':           where.push(`status_type = 5`, `date_updated >= $${p++}`, `date_updated < $${p++}`); vals.push(fromDate, toDate); break;
+    case 'billed':         where.push(`billed_date >= $${p++}`, `billed_date < $${p++}`); vals.push(fromDate, toDate); break;
+    case 'stalled':        where.push(`status_type = 2`, `COALESCE(date_updated, date_created) < NOW() - INTERVAL '30 days'`); break;
+    case 'status':         where.push(`status_type <> 1`, `status = $${p++}`); vals.push(key); break;
+    case 'source':         where.push(`status_type <> 1`, `source_name = $${p++}`); vals.push(key); break;
+    case 'record_type':    where.push(`status_type <> 1`, `record_type_name = $${p++}`); vals.push(key); break;
+    case 'sales_rep':      where.push(`status_type <> 1`, `sales_rep_name = $${p++}`); vals.push(key); break;
+    default:               where.push(`status_type <> 1`);
   }
+
+  // Layer dashboard-level filters on top of the dimension filter — but never
+  // re-apply the rep/source/type filter when it IS the dimension.
+  const filterOpts: AnalyticsQuery = {
+    from: fromDate, to: toDate,
+    rep:        dimension === 'sales_rep'   ? null : (params.rep ?? null),
+    source:     dimension === 'source'      ? null : (params.source ?? null),
+    recordType: dimension === 'record_type' ? null : (params.recordType ?? null),
+  };
+  const f = buildFilterSql(filterOpts, p);
+  if (f.sql) where.push(f.sql.replace(/^ AND /, ''));
+  vals.push(...f.params);
 
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const orderCol = dimension === 'billed' ? 'billed_date'
     : dimension === 'won' ? 'signed_date'
+    : dimension === 'stalled' ? 'estimate_value'
     : 'COALESCE(date_updated, date_created, updated_at)';
 
   const rows = await query(`
@@ -753,6 +936,29 @@ export async function getJobNimbusJobs(params: {
     url: `https://app.jobnimbus.com/job/${r.jnid}`,
   }));
   return { jobs, total: jobs.length };
+}
+
+// CSV serializer for the drill-down lists. RFC-4180-ish: quote any cell that
+// contains a comma, quote, or newline; double-quote any embedded quotes.
+export function jobsToCsv(jobs: JobNimbusJobRow[]): string {
+  const esc = (v: unknown): string => {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = ['Job', 'Status', 'Sales Rep', 'Source', 'Record Type', 'Estimate $', 'Invoice $', 'Created', 'Signed', 'Billed', 'URL'];
+  const fmtDate = (d: string | null) => d ? new Date(d).toISOString().slice(0, 10) : '';
+  const fmtMoney = (n: number | null) => n == null ? '' : n.toFixed(2);
+  const lines = [header.map(esc).join(',')];
+  for (const j of jobs) {
+    lines.push([
+      j.name || '', j.status || '', j.sales_rep || '', j.source || '', j.record_type || '',
+      fmtMoney(j.estimate_value), fmtMoney(j.invoice_value),
+      fmtDate(j.date_created), fmtDate(j.signed_date), fmtDate(j.billed_date),
+      j.url,
+    ].map(esc).join(','));
+  }
+  return lines.join('\r\n');
 }
 
 // ── Scorecard auto-fill (writes data_source='jobnimbus' entries) ───────────────

@@ -8,9 +8,19 @@ import {
   getJobNimbusSummary,
   getJobNimbusAnalytics,
   getJobNimbusJobs,
+  getJobNimbusTargets,
+  setJobNimbusTargets,
+  jobsToCsv,
   syncJobNimbus,
   getJobNimbusSyncMeta,
 } from '../services/jobNimbusService';
+
+// ISO date / datetime string → Date, or null if absent/invalid.
+function parseDate(v: unknown): Date | null {
+  if (v === null || v === undefined || v === '') return null;
+  const d = new Date(String(v));
+  return isNaN(d.getTime()) ? null : d;
+}
 
 const router = Router();
 
@@ -54,7 +64,9 @@ router.get('/jobnimbus/status', authenticate, requireLeadershipOrAdmin, async (r
   }
 });
 
-// Analytics endpoint for live JobNimbus dashboard
+// Analytics endpoint for live JobNimbus dashboard.
+// Accepts either ?from=&to= (preferred, ISO) or ?days= (back-compat).
+// Optional: ?compare_from=&compare_to=&rep=&source=&record_type=
 router.get('/jobnimbus/analytics', authenticate, requireLeadershipOrAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const configured = await isJobNimbusConfigured();
@@ -62,9 +74,54 @@ router.get('/jobnimbus/analytics', authenticate, requireLeadershipOrAdmin, async
       res.status(503).json({ error: 'JobNimbus API not configured' });
       return;
     }
-    const days = Math.min(Math.max(parseInt(String(req.query.days || '90')) || 90, 1), 365 * 5);
-    const analytics = await getJobNimbusAnalytics(days);
+    const now = new Date();
+    let from = parseDate(req.query.from);
+    let to = parseDate(req.query.to);
+    if (!from || !to) {
+      const days = Math.min(Math.max(parseInt(String(req.query.days || '90')) || 90, 1), 365 * 5);
+      to = now;
+      from = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    }
+    const compareFrom = parseDate(req.query.compare_from);
+    const compareTo = parseDate(req.query.compare_to);
+    const analytics = await getJobNimbusAnalytics({
+      from, to, compareFrom, compareTo,
+      rep: (req.query.rep as string) || null,
+      source: (req.query.source as string) || null,
+      recordType: (req.query.record_type as string) || null,
+    });
     res.json(analytics);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Targets — admin or leadership can view; admin can write.
+router.get('/jobnimbus/targets', authenticate, requireLeadershipOrAdmin, async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const targets = await getJobNimbusTargets();
+    res.json(targets);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/jobnimbus/targets', authenticate, requireAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const body = req.body || {};
+    const num = (v: unknown): number | null | undefined => {
+      if (v === undefined) return undefined;
+      if (v === null || v === '') return null;
+      const n = Number(v);
+      return Number.isFinite(n) && n >= 0 ? n : undefined;
+    };
+    const targets = await setJobNimbusTargets({
+      weekly_sold:    num(body.weekly_sold),
+      monthly_sold:   num(body.monthly_sold),
+      weekly_billed:  num(body.weekly_billed),
+      monthly_billed: num(body.monthly_billed),
+    });
+    res.json(targets);
   } catch (err) {
     next(err);
   }
@@ -85,7 +142,9 @@ router.get('/jobnimbus', authenticate, requireLeadershipOrAdmin, async (req: Aut
   }
 });
 
-// Drill-down: list the underlying jobs for a dimension/bucket
+// Drill-down: list the underlying jobs for a dimension/bucket.
+// Accepts the same period + filter params as /analytics.
+// Pass ?format=csv to get a downloadable CSV instead of JSON.
 router.get('/jobnimbus/jobs', authenticate, requireLeadershipOrAdmin, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!(await isJobNimbusConfigured())) {
@@ -95,7 +154,23 @@ router.get('/jobnimbus/jobs', authenticate, requireLeadershipOrAdmin, async (req
     const dimension = String(req.query.dimension || 'all');
     const key = req.query.key !== undefined ? String(req.query.key) : undefined;
     const days = req.query.days !== undefined ? parseInt(String(req.query.days), 10) : undefined;
-    const result = await getJobNimbusJobs({ dimension, key, days });
+    const from = parseDate(req.query.from);
+    const to = parseDate(req.query.to);
+    const result = await getJobNimbusJobs({
+      dimension, key, days,
+      from: from || undefined, to: to || undefined,
+      rep: (req.query.rep as string) || null,
+      source: (req.query.source as string) || null,
+      recordType: (req.query.record_type as string) || null,
+      limit: req.query.limit !== undefined ? parseInt(String(req.query.limit), 10) : undefined,
+    });
+    if (String(req.query.format || '').toLowerCase() === 'csv') {
+      const safeName = `jobnimbus-${dimension}${key ? '-' + key.replace(/[^\w-]+/g, '_') : ''}-${new Date().toISOString().slice(0,10)}.csv`;
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+      res.send(jobsToCsv(result.jobs));
+      return;
+    }
     res.json(result);
   } catch (err) {
     next(err);

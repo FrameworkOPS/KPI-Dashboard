@@ -176,14 +176,52 @@ export const getJobNimbusStatusApi = () =>
 export const getJobNimbusSummaryApi = () =>
   api.get('/integrations/jobnimbus')
 
-export const getJobNimbusAnalyticsApi = (days = 90) =>
-  api.get('/integrations/jobnimbus/analytics', { params: { days } })
+export interface JobNimbusAnalyticsParams {
+  from?: string         // ISO date
+  to?: string           // ISO date
+  compare_from?: string
+  compare_to?: string
+  rep?: string | null
+  source?: string | null
+  record_type?: string | null
+  days?: number         // back-compat fallback
+}
+
+export const getJobNimbusAnalyticsApi = (params: JobNimbusAnalyticsParams = {}) =>
+  api.get('/integrations/jobnimbus/analytics', { params })
 
 export const syncJobNimbusApi = () =>
   api.post('/integrations/jobnimbus/sync')
 
-export const getJobNimbusJobsApi = (dimension: string, key?: string, days?: number) =>
-  api.get('/integrations/jobnimbus/jobs', { params: { dimension, key, days } })
+export interface JobNimbusJobsParams {
+  dimension: string
+  key?: string
+  from?: string
+  to?: string
+  rep?: string | null
+  source?: string | null
+  record_type?: string | null
+  days?: number
+  limit?: number
+}
+
+export const getJobNimbusJobsApi = (params: JobNimbusJobsParams) =>
+  api.get('/integrations/jobnimbus/jobs', { params })
+
+// Build a URL string (with auth) for downloading the drill-down as CSV.
+// Returns { url, headers } so the caller can fetch with the right Authorization.
+export const buildJobNimbusJobsCsvUrl = (params: JobNimbusJobsParams) => {
+  const qs = new URLSearchParams({ ...params, format: 'csv' } as any).toString()
+  return `/api/integrations/jobnimbus/jobs?${qs}`
+}
+
+export const getJobNimbusTargetsApi = () =>
+  api.get('/integrations/jobnimbus/targets')
+
+export const setJobNimbusTargetsApi = (targets: {
+  weekly_sold?: number | null; monthly_sold?: number | null
+  weekly_billed?: number | null; monthly_billed?: number | null
+}) => api.put('/integrations/jobnimbus/targets', targets)
 
 // ── Meetings — ICS export ─────────────────────────────────────────────────────
 export const downloadMeetingIcsApi = (id: string) =>
