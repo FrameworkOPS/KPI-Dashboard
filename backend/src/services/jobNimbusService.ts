@@ -285,9 +285,11 @@ export async function upsertJobFromApi(job: Record<string, any>): Promise<void> 
 
 /**
  * Fetch all Jobs from JobNimbus, paginating until exhausted. JobNimbus returns
- * { count, results } and accepts `from` / `size` query params.
+ * { count, results } and accepts `from` / `size` query params. `complete` is
+ * false when we hit the page-count safety cap before exhausting results — in
+ * that case callers must NOT treat the returned set as authoritative.
  */
-export async function fetchAllJobsFromApi(): Promise<Record<string, any>[]> {
+export async function fetchAllJobsFromApi(): Promise<{ jobs: Record<string, any>[]; complete: boolean }> {
   const apiKey = process.env.JOBNIMBUS_API_KEY;
   if (!apiKey) throw new Error('JOBNIMBUS_API_KEY is not set');
 
@@ -299,37 +301,57 @@ export async function fetchAllJobsFromApi(): Promise<Record<string, any>[]> {
 
   const all: Record<string, any>[] = [];
   const size = 100;
+  const maxPages = 100;
   let from = 0;
-  // Guard against runaway loops — cap at 100 pages (10,000 jobs).
-  for (let page = 0; page < 100; page++) {
+  let complete = false;
+  for (let page = 0; page < maxPages; page++) {
     const resp = await client.get('/jobs', { params: { from, size } });
     const results: Record<string, any>[] = resp.data?.results || [];
     all.push(...results);
-    if (results.length < size) break;
+    if (results.length < size) { complete = true; break; }
     from += size;
   }
-  return all;
+  return { jobs: all, complete };
 }
 
 let _syncing = false;
 
 /** Pull every job from the JobNimbus API and upsert into the local table. */
-export async function syncJobNimbus(): Promise<{ fetched: number; saved: number; errors: number; skipped?: boolean }> {
-  if (_syncing) return { fetched: 0, saved: 0, errors: 0, skipped: true };
+export async function syncJobNimbus(): Promise<{ fetched: number; saved: number; errors: number; deleted: number; skipped?: boolean }> {
+  if (_syncing) return { fetched: 0, saved: 0, errors: 0, deleted: 0, skipped: true };
   _syncing = true;
   try {
-    const jobs = await fetchAllJobsFromApi();
+    const { jobs, complete } = await fetchAllJobsFromApi();
     let saved = 0;
     let errors = 0;
+    const seenIds: string[] = [];
     for (const job of jobs) {
       try {
         await upsertJobFromApi(job);
+        const jnid = String(job.jnid || job.id || '').trim();
+        if (jnid) seenIds.push(jnid);
         saved++;
       } catch (err) {
         errors++;
         console.error('[jobnimbus] upsert failed:', (err as Error).message);
       }
     }
+
+    // Reconcile deletions: drop any local rows whose jnid wasn't returned by
+    // JobNimbus. Only safe to do when the fetch completed cleanly AND we had
+    // zero upsert errors — otherwise we might delete rows that simply weren't
+    // re-pulled this cycle. (A jnid that errored on upsert won't be in seenIds
+    // but still exists in JobNimbus, so an unconditional delete would lose it.)
+    let deleted = 0;
+    if (complete && errors === 0 && seenIds.length > 0) {
+      const r = await query(
+        `DELETE FROM jobnimbus_jobs WHERE jnid <> ALL($1::text[])`,
+        [seenIds],
+      );
+      deleted = r.rowCount || 0;
+      if (deleted > 0) console.log(`[jobnimbus] removed ${deleted} job(s) no longer present in JobNimbus`);
+    }
+
     await setSetting('jobnimbus_last_sync', new Date().toISOString());
     await setSetting('jobnimbus_last_count', String(saved));
     // Refresh the JobNimbus-sourced scorecard rows (non-fatal if it fails).
@@ -338,7 +360,7 @@ export async function syncJobNimbus(): Promise<{ fetched: number; saved: number;
     } catch (err) {
       console.error('[jobnimbus] scorecard sync failed:', (err as Error).message);
     }
-    return { fetched: jobs.length, saved, errors };
+    return { fetched: jobs.length, saved, errors, deleted };
   } finally {
     _syncing = false;
   }
@@ -360,7 +382,7 @@ export function startJobNimbusAutoSync(): void {
   const run = () => {
     syncJobNimbus()
       .then((r) => {
-        if (!r.skipped) console.log(`[jobnimbus] sync complete — fetched ${r.fetched}, saved ${r.saved}, errors ${r.errors}`);
+        if (!r.skipped) console.log(`[jobnimbus] sync complete — fetched ${r.fetched}, saved ${r.saved}, deleted ${r.deleted}, errors ${r.errors}`);
       })
       .catch((e) => console.error('[jobnimbus] sync failed:', e.message));
   };
