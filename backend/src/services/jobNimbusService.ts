@@ -1007,26 +1007,79 @@ async function ensureScorecardTemplates(): Promise<void> {
   }
 }
 
+// Manual scorecard metrics that duplicate a JobNimbus-sourced metric: drop the
+// manual template + entries, and inherit the manual goal/color settings onto
+// the JN-sourced template so the scorecard keeps the same goal & on-track
+// coloring after the merge. Idempotent — re-runs are a no-op once merged.
+const DUPLICATE_MANUAL_PAIRS: { manual: string; jn: string }[] = [
+  { manual: 'Weekly Sales',  jn: '$ Sold (JobNimbus)' },
+  { manual: 'Closing Rate',  jn: 'Closing Rate (JobNimbus)' },
+  { manual: 'Appointments',  jn: 'New Leads (JobNimbus)' },
+];
+
+async function mergeManualDuplicatesIntoJN(): Promise<void> {
+  for (const { manual, jn } of DUPLICATE_MANUAL_PAIRS) {
+    // Copy goal/goal_text/lower_is_better/sort_order from the manual template
+    // to the JN template, but only on first run (while the JN template still
+    // has no goal). This preserves any goal an admin has set later.
+    await query(`
+      UPDATE scorecard_templates jn
+      SET goal            = m.goal,
+          goal_text       = m.goal_text,
+          lower_is_better = m.lower_is_better,
+          sort_order      = m.sort_order
+      FROM scorecard_templates m
+      WHERE jn.team = $1 AND jn.metric_name = $2
+        AND m.team  = $1 AND m.metric_name  = $3
+        AND jn.goal IS NULL
+    `, [JN_TEAM, jn, manual]);
+
+    // Drop the manual template + its historical entries.
+    await query(`DELETE FROM scorecard_entries   WHERE team = $1 AND metric_name = $2`, [JN_TEAM, manual]);
+    await query(`DELETE FROM scorecard_templates WHERE team = $1 AND metric_name = $2`, [JN_TEAM, manual]);
+  }
+}
+
+function computeIsOnTrack(actual: number | null, goal: number | null, lowerIsBetter: boolean): boolean | null {
+  if (actual === null || goal === null) return null;
+  return lowerIsBetter ? actual <= goal : actual >= goal;
+}
+
 // Compute the metrics for one Monday week and upsert as scorecard_entries.
 async function fillScorecardWeek(weekMonday: string): Promise<void> {
   const start = new Date(weekMonday + 'T00:00:00');
   const end = new Date(start); end.setDate(end.getDate() + 7);
+  // YTD window: Jan 1 of this week's year through the end of this week. Closing
+  // rate is reported as the cumulative aggregate, not the week-in-isolation rate.
+  const yearStart = new Date(start.getFullYear(), 0, 1);
 
   const r = (await query(`
     SELECT
-      COUNT(*) FILTER (WHERE status_type = 1 AND date_created >= $1 AND date_created < $2)                  AS new_leads,
-      COUNT(*) FILTER (WHERE contract_sent AND contract_sent_date >= $1 AND contract_sent_date < $2)        AS contracts_sent,
-      COUNT(*) FILTER (WHERE status_type = 4 AND signed_date >= $1 AND signed_date < $2)                    AS jobs_signed,
+      -- "New Leads" = jobs whose JobNimbus next_appointment_date (epoch seconds)
+      -- lands inside this week. JobNimbus stores it as a numeric string; coerce
+      -- safely and skip anything non-numeric or <= 0.
+      COUNT(*) FILTER (
+        WHERE (raw->>'next_appointment_date') ~ '^[0-9]+(\\.[0-9]+)?$'
+          AND to_timestamp(NULLIF(raw->>'next_appointment_date','')::double precision) >= $1
+          AND to_timestamp(NULLIF(raw->>'next_appointment_date','')::double precision) <  $2
+      )                                                                                                AS new_leads,
+      COUNT(*) FILTER (WHERE contract_sent AND contract_sent_date >= $1 AND contract_sent_date < $2)   AS contracts_sent,
+      COUNT(*) FILTER (WHERE status_type = 4 AND signed_date >= $1 AND signed_date < $2)               AS jobs_signed,
       COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1 AND signed_date < $2), 0) AS sold_value,
-      COUNT(*) FILTER (WHERE billed_date >= $1 AND billed_date < $2)                                        AS jobs_billed,
-      COALESCE(SUM(invoice_value) FILTER (WHERE billed_date >= $1 AND billed_date < $2), 0)                 AS billed_value
+      COUNT(*) FILTER (WHERE billed_date >= $1 AND billed_date < $2)                                   AS jobs_billed,
+      COALESCE(SUM(invoice_value) FILTER (WHERE billed_date >= $1 AND billed_date < $2), 0)            AS billed_value,
+      -- YTD-through-end-of-this-week numerator/denominator for closing rate
+      COUNT(*) FILTER (WHERE status_type = 4 AND signed_date >= $3 AND signed_date < $2)               AS ytd_signed,
+      COUNT(*) FILTER (WHERE contract_sent AND contract_sent_date >= $3 AND contract_sent_date < $2)   AS ytd_contracts_sent
     FROM jobnimbus_jobs
-  `, [start, end])).rows[0];
+  `, [start, end, yearStart])).rows[0];
 
   const signed = Number(r.jobs_signed);
-  const contractsSent = Number(r.contracts_sent);
-  // Closing rate = signed ÷ all contracts sent that week.
-  const closing = contractsSent > 0 ? signed / contractsSent : null;
+  // Closing rate = aggregate YTD signed ÷ YTD contracts sent across all reps,
+  // measured through the end of this scorecard week.
+  const ytdSigned = Number(r.ytd_signed);
+  const ytdContractsSent = Number(r.ytd_contracts_sent);
+  const closing = ytdContractsSent > 0 ? ytdSigned / ytdContractsSent : null;
 
   const valueByName: Record<string, number | null> = {
     'New Leads (JobNimbus)':      Number(r.new_leads),
@@ -1038,22 +1091,54 @@ async function fillScorecardWeek(weekMonday: string): Promise<void> {
     'Closing Rate (JobNimbus)':   closing,
   };
 
+  // Pull each metric's template (goal / goal_text / lower_is_better) so we can
+  // stamp goal + is_on_track on every auto-filled entry — this is what drives
+  // the scorecard's green/red color coding.
+  const tmplResult = await query(
+    `SELECT metric_name, goal, goal_text, lower_is_better
+       FROM scorecard_templates
+      WHERE team = $1 AND metric_name = ANY($2::text[])`,
+    [JN_TEAM, JN_METRICS.map((m) => m.name)],
+  );
+  const tmplByName = new Map<string, { goal: number | null; goal_text: string | null; lower_is_better: boolean }>();
+  for (const row of tmplResult.rows) {
+    tmplByName.set(row.metric_name, {
+      goal: row.goal !== null ? Number(row.goal) : null,
+      goal_text: row.goal_text,
+      lower_is_better: !!row.lower_is_better,
+    });
+  }
+
   for (const m of JN_METRICS) {
+    const actual = valueByName[m.name];
+    const tmpl = tmplByName.get(m.name);
+    const goal = tmpl?.goal ?? null;
+    const goalText = tmpl?.goal_text ?? null;
+    const lib = tmpl?.lower_is_better ?? false;
+    const onTrack = computeIsOnTrack(actual, goal, lib);
     await query(`
-      INSERT INTO scorecard_entries (team, week_of, metric_name, actual, display_format, data_source)
-      VALUES ($1, $2, $3, $4, $5, 'jobnimbus')
+      INSERT INTO scorecard_entries (team, week_of, metric_name, goal, goal_text, actual, is_on_track, display_format, lower_is_better, data_source)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'jobnimbus')
       ON CONFLICT (team, week_of, metric_name) DO UPDATE SET
-        actual = EXCLUDED.actual,
-        display_format = EXCLUDED.display_format,
-        data_source = 'jobnimbus',
-        updated_at = NOW()
-    `, [JN_TEAM, weekMonday, m.name, valueByName[m.name], m.format]);
+        goal            = EXCLUDED.goal,
+        goal_text       = EXCLUDED.goal_text,
+        actual          = EXCLUDED.actual,
+        is_on_track     = EXCLUDED.is_on_track,
+        display_format  = EXCLUDED.display_format,
+        lower_is_better = EXCLUDED.lower_is_better,
+        data_source     = 'jobnimbus',
+        updated_at      = NOW()
+    `, [JN_TEAM, weekMonday, m.name, goal, goalText, actual, onTrack, m.format, lib]);
   }
 }
 
 /** Refresh JobNimbus-sourced scorecard rows for the last `weeksBack` weeks. */
 export async function syncScorecardFromJobNimbus(weeksBack = 13): Promise<void> {
   await ensureScorecardTemplates();
+  // Merge manual duplicates (Weekly Sales, Closing Rate, Appointments) into
+  // their JobNimbus equivalents. Runs after ensureScorecardTemplates so the JN
+  // rows exist and can inherit the manual goal/color settings.
+  await mergeManualDuplicatesIntoJN();
   for (const w of lastMondays(weeksBack)) {
     await fillScorecardWeek(w);
   }
