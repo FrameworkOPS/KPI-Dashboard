@@ -415,6 +415,43 @@ export async function initializeDatabase(): Promise<void> {
       WHERE NOT EXISTS (SELECT 1 FROM scorecard_entries WHERE team='leadership' AND week_of='2026-04-05')
     `);
 
+    // Seed sales scorecard templates
+    // Per-rep rows + a Total row for each metric. Goal on the Total row matches
+    // per-rep target (user-configured aggregation: sum for currency/count, avg for rate).
+    await client.query(`
+      INSERT INTO scorecard_templates (team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order)
+      SELECT * FROM (VALUES
+        ('sales', 'Pete — Weekly Sales',                          77000::DECIMAL, '$77,000', 'currency', false, 1),
+        ('sales', 'Peter — Weekly Sales',                         77000::DECIMAL, '$77,000', 'currency', false, 2),
+        ('sales', 'Total — Weekly Sales',                         77000::DECIMAL, '$77,000', 'currency', false, 3),
+        ('sales', 'Pete — Close Rate',                            0.45::DECIMAL,  '45%',     'percent',  false, 4),
+        ('sales', 'Peter — Close Rate',                           0.45::DECIMAL,  '45%',     'percent',  false, 5),
+        ('sales', 'Total — Close Rate',                           0.45::DECIMAL,  '45%',     'percent',  false, 6),
+        ('sales', 'Pete — Total Leads (Prev Week Thu–Wed)',       NULL::DECIMAL,  NULL,      'number',   false, 7),
+        ('sales', 'Peter — Total Leads (Prev Week Thu–Wed)',      NULL::DECIMAL,  NULL,      'number',   false, 8),
+        ('sales', 'Total — Total Leads (Prev Week Thu–Wed)',      NULL::DECIMAL,  NULL,      'number',   false, 9),
+        ('sales', 'Pete — Appointments (Last 7 Days Thu–Wed)',    NULL::DECIMAL,  NULL,      'number',   false, 10),
+        ('sales', 'Peter — Appointments (Last 7 Days Thu–Wed)',   NULL::DECIMAL,  NULL,      'number',   false, 11),
+        ('sales', 'Total — Appointments (Last 7 Days Thu–Wed)',   NULL::DECIMAL,  NULL,      'number',   false, 12),
+        ('sales', 'Pete — Self-Generated Leads (Last 7 Days)',    2::DECIMAL,     '2',       'number',   false, 13),
+        ('sales', 'Peter — Self-Generated Leads (Last 7 Days)',   2::DECIMAL,     '2',       'number',   false, 14),
+        ('sales', 'Total — Self-Generated Leads (Last 7 Days)',   2::DECIMAL,     '2',       'number',   false, 15)
+      ) AS v(team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order)
+      WHERE NOT EXISTS (SELECT 1 FROM scorecard_templates WHERE team = 'sales')
+    `);
+
+    // Seed current week sales scorecard entries (blank actuals — to be filled weekly)
+    await client.query(`
+      INSERT INTO scorecard_entries (team, week_of, metric_name, goal, goal_text, actual, is_on_track, display_format, lower_is_better, data_source, notes)
+      SELECT 'sales', date_trunc('week', CURRENT_DATE)::DATE, metric_name, goal, goal_text, NULL, NULL, display_format, lower_is_better, 'manual', NULL
+      FROM scorecard_templates
+      WHERE team = 'sales' AND is_active = true
+        AND NOT EXISTS (
+          SELECT 1 FROM scorecard_entries
+          WHERE team = 'sales' AND week_of = date_trunc('week', CURRENT_DATE)::DATE
+        )
+    `);
+
     // Seed recurring IDS issues for leadership
     await client.query(`
       INSERT INTO issues (team, title, description, priority, status)

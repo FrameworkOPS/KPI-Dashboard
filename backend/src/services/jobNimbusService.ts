@@ -1142,4 +1142,190 @@ export async function syncScorecardFromJobNimbus(weeksBack = 13): Promise<void> 
   for (const w of lastMondays(weeksBack)) {
     await fillScorecardWeek(w);
   }
+  // Per-rep Sales scorecard (Pete / Peter / Total).
+  for (const w of lastMondays(weeksBack)) {
+    await fillSalesScorecardWeek(w);
+  }
+}
+
+// ── Sales team per-rep scorecard auto-fill ────────────────────────────────────
+//
+// Mirrors the leadership auto-fill but breaks every metric out by sales rep,
+// plus a Total row. Rep matching is first-name based on
+// `jobnimbus_jobs.sales_rep_name` (case-insensitive). The week-over-week
+// metrics use a Thursday→Wednesday 7-day window ending the Wednesday before
+// the scorecard's Monday week_of.
+
+const SALES_TEAM = 'sales';
+
+interface SalesRep { label: string; firstName: string }
+const SALES_REPS: SalesRep[] = [
+  { label: 'Pete',  firstName: 'Pete'  },
+  { label: 'Peter', firstName: 'Peter' },
+];
+
+// Metric_name suffixes — must match the seeded scorecard_templates rows.
+const SALES_METRICS = {
+  weeklySales:    'Weekly Sales',
+  closeRate:      'Close Rate',
+  totalLeads:     'Total Leads (Prev Week Thu–Wed)',
+  appointments:   'Appointments (Last 7 Days Thu–Wed)',
+  selfGenLeads:   'Self-Generated Leads (Last 7 Days)',
+} as const;
+
+function salesMetricName(repLabel: string, base: string): string {
+  return `${repLabel} — ${base}`;
+}
+
+// `sales_rep_name` filter clause that matches by first name (case-insensitive),
+// or matches "everyone" when firstName is null (used for the Total row).
+function repFilterSql(firstName: string | null, paramIdx: number): { sql: string; param: string | null } {
+  if (firstName === null) return { sql: 'TRUE', param: null };
+  return {
+    sql: `LOWER(split_part(COALESCE(sales_rep_name,''), ' ', 1)) = LOWER($${paramIdx})`,
+    param: firstName,
+  };
+}
+
+async function fillSalesScorecardWeek(weekMonday: string): Promise<void> {
+  const start = new Date(weekMonday + 'T00:00:00');   // Monday 00:00
+  const end   = new Date(start); end.setDate(end.getDate() + 7);
+  const yearStart = new Date(start.getFullYear(), 0, 1);
+  // Thu→Wed window ending the Wednesday before this Monday.
+  // Monday X − 11 days = Thu (start); Monday X − 4 days = next Thu (exclusive end).
+  const thuWedStart = new Date(start); thuWedStart.setDate(thuWedStart.getDate() - 11);
+  const thuWedEnd   = new Date(start); thuWedEnd.setDate(thuWedEnd.getDate() - 4);
+
+  // Pull each rep's numbers (and a "total" row with no rep filter).
+  type RepRow = {
+    label: string;
+    weeklySales: number;
+    closeRate: number | null;
+    totalLeads: number;
+    appointments: number;
+    selfGenLeads: number;
+  };
+  const rows: RepRow[] = [];
+
+  const repsForAggregation: ({ label: string; firstName: string | null })[] = [
+    ...SALES_REPS,
+    { label: 'Total', firstName: null },
+  ];
+
+  for (const r of repsForAggregation) {
+    const f = repFilterSql(r.firstName, 4);
+    const params: unknown[] = [start, end, yearStart];
+    if (f.param !== null) params.push(f.param);
+
+    const agg = (await query(`
+      SELECT
+        COALESCE(SUM(estimate_value) FILTER (
+          WHERE status_type = 4 AND signed_date >= $1 AND signed_date < $2
+        ), 0)                                                                                      AS weekly_sales,
+        COUNT(*) FILTER (
+          WHERE status_type = 4 AND signed_date >= $3 AND signed_date < $2
+        )                                                                                          AS ytd_signed,
+        COUNT(*) FILTER (
+          WHERE contract_sent AND contract_sent_date >= $3 AND contract_sent_date < $2
+        )                                                                                          AS ytd_contracts_sent
+      FROM jobnimbus_jobs
+      WHERE ${f.sql}
+    `, params)).rows[0];
+
+    // Thu→Wed windowed counts (Total Leads + Appointments + Self-Gen).
+    const f2 = repFilterSql(r.firstName, 3);
+    const params2: unknown[] = [thuWedStart, thuWedEnd];
+    if (f2.param !== null) params2.push(f2.param);
+
+    const wkAgg = (await query(`
+      SELECT
+        COUNT(*) FILTER (
+          WHERE status_type = 1 AND date_created >= $1 AND date_created < $2
+        )                                                                                          AS total_leads,
+        COUNT(*) FILTER (
+          WHERE (raw->>'next_appointment_date') ~ '^[0-9]+(\\.[0-9]+)?$'
+            AND to_timestamp(NULLIF(raw->>'next_appointment_date','')::double precision) >= $1
+            AND to_timestamp(NULLIF(raw->>'next_appointment_date','')::double precision) <  $2
+        )                                                                                          AS appointments,
+        -- "Self-generated" heuristic: source name contains self/door/knock/referral,
+        -- or matches the rep's own name (rep-sourced lead). Tune as needed.
+        COUNT(*) FILTER (
+          WHERE status_type = 1
+            AND date_created >= $1 AND date_created < $2
+            AND (
+              source_name ILIKE '%self%'
+              OR source_name ILIKE '%door%'
+              OR source_name ILIKE '%knock%'
+              OR source_name ILIKE '%canvas%'
+              OR source_name ILIKE '%referral%'
+            )
+        )                                                                                          AS self_gen_leads
+      FROM jobnimbus_jobs
+      WHERE ${f2.sql}
+    `, params2)).rows[0];
+
+    const ytdSigned = Number(agg.ytd_signed);
+    const ytdContractsSent = Number(agg.ytd_contracts_sent);
+
+    rows.push({
+      label: r.label,
+      weeklySales: Number(agg.weekly_sales),
+      closeRate: ytdContractsSent > 0 ? ytdSigned / ytdContractsSent : null,
+      totalLeads: Number(wkAgg.total_leads),
+      appointments: Number(wkAgg.appointments),
+      selfGenLeads: Number(wkAgg.self_gen_leads),
+    });
+  }
+
+  // Load each template (for goal / goal_text / lower_is_better → on-track coloring).
+  const wantedNames: string[] = [];
+  for (const row of rows) {
+    wantedNames.push(salesMetricName(row.label, SALES_METRICS.weeklySales));
+    wantedNames.push(salesMetricName(row.label, SALES_METRICS.closeRate));
+    wantedNames.push(salesMetricName(row.label, SALES_METRICS.totalLeads));
+    wantedNames.push(salesMetricName(row.label, SALES_METRICS.appointments));
+    wantedNames.push(salesMetricName(row.label, SALES_METRICS.selfGenLeads));
+  }
+  const tmplResult = await query(
+    `SELECT metric_name, goal, goal_text, lower_is_better, display_format
+       FROM scorecard_templates
+      WHERE team = $1 AND metric_name = ANY($2::text[])`,
+    [SALES_TEAM, wantedNames],
+  );
+  const tmplByName = new Map<string, { goal: number | null; goal_text: string | null; lower_is_better: boolean; display_format: string }>();
+  for (const t of tmplResult.rows) {
+    tmplByName.set(t.metric_name, {
+      goal: t.goal !== null ? Number(t.goal) : null,
+      goal_text: t.goal_text,
+      lower_is_better: !!t.lower_is_better,
+      display_format: t.display_format || 'number',
+    });
+  }
+
+  const upsertEntry = async (metricName: string, actual: number | null, fallbackFormat: string) => {
+    const tmpl = tmplByName.get(metricName);
+    if (!tmpl) return; // template not seeded — skip (e.g. user renamed it)
+    const onTrack = computeIsOnTrack(actual, tmpl.goal, tmpl.lower_is_better);
+    await query(`
+      INSERT INTO scorecard_entries (team, week_of, metric_name, goal, goal_text, actual, is_on_track, display_format, lower_is_better, data_source)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'jobnimbus')
+      ON CONFLICT (team, week_of, metric_name) DO UPDATE SET
+        goal            = EXCLUDED.goal,
+        goal_text       = EXCLUDED.goal_text,
+        actual          = EXCLUDED.actual,
+        is_on_track     = EXCLUDED.is_on_track,
+        display_format  = EXCLUDED.display_format,
+        lower_is_better = EXCLUDED.lower_is_better,
+        data_source     = 'jobnimbus',
+        updated_at      = NOW()
+    `, [SALES_TEAM, weekMonday, metricName, tmpl.goal, tmpl.goal_text, actual, onTrack, tmpl.display_format || fallbackFormat, tmpl.lower_is_better]);
+  };
+
+  for (const row of rows) {
+    await upsertEntry(salesMetricName(row.label, SALES_METRICS.weeklySales),  row.weeklySales,  'currency');
+    await upsertEntry(salesMetricName(row.label, SALES_METRICS.closeRate),    row.closeRate,    'percent');
+    await upsertEntry(salesMetricName(row.label, SALES_METRICS.totalLeads),   row.totalLeads,   'number');
+    await upsertEntry(salesMetricName(row.label, SALES_METRICS.appointments), row.appointments, 'number');
+    await upsertEntry(salesMetricName(row.label, SALES_METRICS.selfGenLeads), row.selfGenLeads, 'number');
+  }
 }
