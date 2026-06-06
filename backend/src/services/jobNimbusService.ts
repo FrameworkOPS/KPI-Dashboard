@@ -1196,7 +1196,10 @@ async function fillSalesScorecardWeek(weekMonday: string): Promise<void> {
   const thuWedStart = new Date(start); thuWedStart.setDate(thuWedStart.getDate() - 11);
   const thuWedEnd   = new Date(start); thuWedEnd.setDate(thuWedEnd.getDate() - 4);
 
-  // Pull each rep's numbers (and a "total" row with no rep filter).
+  // Pull each rep's numbers; the Total row is aggregated from these per-rep
+  // values below (sum for counts/currency, average of non-null rep rates for
+  // Close Rate) — NOT recomputed from all jobs, so it excludes jobs assigned
+  // to anyone outside the configured rep list.
   type RepRow = {
     label: string;
     weeklySales: number;
@@ -1207,12 +1210,7 @@ async function fillSalesScorecardWeek(weekMonday: string): Promise<void> {
   };
   const rows: RepRow[] = [];
 
-  const repsForAggregation: ({ label: string; firstName: string | null })[] = [
-    ...SALES_REPS,
-    { label: 'Total', firstName: null },
-  ];
-
-  for (const r of repsForAggregation) {
+  for (const r of SALES_REPS) {
     const f = repFilterSql(r.firstName, 4);
     const params: unknown[] = [start, end, yearStart];
     if (f.param !== null) params.push(f.param);
@@ -1276,6 +1274,21 @@ async function fillSalesScorecardWeek(weekMonday: string): Promise<void> {
       selfGenLeads: Number(wkAgg.self_gen_leads),
     });
   }
+
+  // Total row = aggregate of the per-rep rows. Sum for currency/counts;
+  // average (of non-null rates) for Close Rate.
+  const repRates = rows.map(r => r.closeRate).filter((v): v is number => v !== null);
+  const closeRateAvg = repRates.length > 0
+    ? repRates.reduce((s, v) => s + v, 0) / repRates.length
+    : null;
+  rows.push({
+    label: 'Total',
+    weeklySales:  rows.reduce((s, r) => s + r.weeklySales,  0),
+    closeRate:    closeRateAvg,
+    totalLeads:   rows.reduce((s, r) => s + r.totalLeads,   0),
+    appointments: rows.reduce((s, r) => s + r.appointments, 0),
+    selfGenLeads: rows.reduce((s, r) => s + r.selfGenLeads, 0),
+  });
 
   // Load each template (for goal / goal_text / lower_is_better → on-track coloring).
   const wantedNames: string[] = [];
