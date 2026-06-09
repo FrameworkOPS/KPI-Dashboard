@@ -93,6 +93,7 @@ export interface AccountabilitySeat {
   seat_name: string;
   seat_description: string | null;
   owner_id: string | null;
+  owner_name: string | null;
   owner?: User;
   owner_first_name?: string | null;
   owner_last_name?: string | null;
