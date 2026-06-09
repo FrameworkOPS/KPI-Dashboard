@@ -150,6 +150,107 @@ export async function initializeDatabase(): Promise<void> {
       )
     `);
 
+    // seat_documents table — files attached to a seat (stored in object storage)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS seat_documents (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        seat_id UUID NOT NULL REFERENCES accountability_seats(id) ON DELETE CASCADE,
+        file_name VARCHAR(500) NOT NULL,
+        mime_type VARCHAR(200),
+        file_size BIGINT,
+        storage_key TEXT NOT NULL,
+        uploaded_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_seat_documents_seat ON seat_documents(seat_id)`);
+
+    // Seed the org-chart scaffold (CEO → COO → Sales / Marketing / Production / Finance)
+    // on first boot only — leaves any existing chart alone.
+    {
+      const cnt = await client.query('SELECT COUNT(*)::int AS n FROM accountability_seats');
+      if (cnt.rows[0].n === 0) {
+        const ceo = await client.query(
+          `INSERT INTO accountability_seats (seat_name, seat_description, responsibilities, sort_order)
+           VALUES ('CEO', 'Chief Executive Officer',
+                   $1::jsonb, 0)
+           RETURNING id`,
+          [JSON.stringify([
+            'Set vision and strategic direction',
+            'Drive company culture and core values',
+            'Make final decisions on major investments',
+            'Build and lead the leadership team',
+            'Own profitability and growth',
+          ])],
+        );
+        const ceoId = ceo.rows[0].id;
+        const coo = await client.query(
+          `INSERT INTO accountability_seats (seat_name, seat_description, parent_seat_id, responsibilities, sort_order)
+           VALUES ('COO', 'Chief Operating Officer', $1, $2::jsonb, 0)
+           RETURNING id`,
+          [ceoId, JSON.stringify([
+            'Run day-to-day operations',
+            'Integrate leadership team output',
+            'Remove obstacles for departments',
+            'Hold leaders accountable to numbers',
+            'Drive operational excellence',
+          ])],
+        );
+        const cooId = coo.rows[0].id;
+        const departments: { name: string; desc: string; duties: string[] }[] = [
+          {
+            name: 'Sales', desc: 'Owns revenue and the sales engine',
+            duties: [
+              'Hit weekly and monthly sales targets',
+              'Manage and coach the sales team',
+              'Own the close rate and pipeline health',
+              'Refine the sales process and playbook',
+              'Partner with marketing on lead quality',
+            ],
+          },
+          {
+            name: 'Marketing', desc: 'Owns lead generation and brand',
+            duties: [
+              'Generate qualified leads at target CPL',
+              'Manage paid and organic channels',
+              'Own brand, website, and creative',
+              'Measure marketing-sourced revenue',
+              'Plan and execute campaigns',
+            ],
+          },
+          {
+            name: 'Production', desc: 'Owns project delivery and quality',
+            duties: [
+              'Deliver every project on schedule',
+              'Hold quality, safety, and warranty standards',
+              'Manage crews, vendors, and materials',
+              'Own gross margin on installed jobs',
+              'Resolve callbacks and customer issues',
+            ],
+          },
+          {
+            name: 'Finance', desc: 'Owns accounting, cash, and reporting',
+            duties: [
+              'Maintain accurate books and clean P&L',
+              'Manage AR, AP, and cash flow',
+              'Produce weekly and monthly reporting',
+              'Own budgeting and forecasting',
+              'Ensure tax and compliance hygiene',
+            ],
+          },
+        ];
+        for (let i = 0; i < departments.length; i++) {
+          const d = departments[i];
+          await client.query(
+            `INSERT INTO accountability_seats (seat_name, seat_description, parent_seat_id, responsibilities, sort_order)
+             VALUES ($1, $2, $3, $4::jsonb, $5)`,
+            [d.name, d.desc, cooId, JSON.stringify(d.duties), i],
+          );
+        }
+        console.log('Seeded accountability chart scaffold (CEO/COO/Sales/Marketing/Production/Finance)');
+      }
+    }
+
     // meetings table
     await client.query(`
       CREATE TABLE IF NOT EXISTS meetings (

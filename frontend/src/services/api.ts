@@ -143,6 +143,20 @@ export const updateSeatApi = (id: string, data: any) =>
 export const deleteSeatApi = (id: string) =>
   api.delete(`/accountability/${id}`)
 
+export const listSeatDocumentsApi = (seatId: string) =>
+  api.get(`/accountability/${seatId}/documents`)
+
+export const uploadSeatDocumentApi = (seatId: string, file: File) => {
+  const fd = new FormData()
+  fd.append('file', file)
+  return api.post(`/accountability/${seatId}/documents`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+
+export const deleteSeatDocumentApi = (docId: string) =>
+  api.delete(`/accountability/documents/${docId}`)
+
 // ── Meetings ──────────────────────────────────────────────────────────────────
 export const getMeetingsApi = (team?: string) =>
   api.get('/meetings', { params: { team } })

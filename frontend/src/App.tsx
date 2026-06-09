@@ -17,6 +17,7 @@ import Issues from './pages/Issues'
 import Todos from './pages/Todos'
 import VTO from './pages/VTO'
 import Accountability from './pages/Accountability'
+import LearningDen from './pages/LearningDen'
 import Meetings from './pages/Meetings'
 import UserManagement from './pages/UserManagement'
 import Integrations from './pages/Integrations'
@@ -104,6 +105,16 @@ const App: React.FC = () => {
             <ProtectedRoute>
               <Layout>
                 <Accountability />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/learning-den"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <LearningDen />
               </Layout>
             </ProtectedRoute>
           }
