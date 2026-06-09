@@ -62,7 +62,7 @@ export async function getAccountabilityChart(req: AuthRequest, res: Response, ne
 
 export async function createSeat(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { seat_name, seat_description, owner_id, parent_seat_id, responsibilities, sort_order } = req.body;
+    const { seat_name, seat_description, owner_id, owner_name, parent_seat_id, responsibilities, sort_order } = req.body;
 
     if (!seat_name) {
       res.status(400).json({ error: 'seat_name is required' });
@@ -71,13 +71,14 @@ export async function createSeat(req: AuthRequest, res: Response, next: NextFunc
 
     const result = await pool.query(
       `INSERT INTO accountability_seats
-         (seat_name, seat_description, owner_id, parent_seat_id, responsibilities, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6)
+         (seat_name, seat_description, owner_id, owner_name, parent_seat_id, responsibilities, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
       [
         seat_name,
         seat_description || null,
         owner_id || null,
+        owner_name?.trim() || null,
         parent_seat_id || null,
         JSON.stringify(responsibilities || []),
         sort_order ?? 0,
@@ -93,7 +94,7 @@ export async function createSeat(req: AuthRequest, res: Response, next: NextFunc
 export async function updateSeat(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const { seat_name, seat_description, owner_id, parent_seat_id, responsibilities, sort_order } = req.body;
+    const { seat_name, seat_description, owner_id, owner_name, parent_seat_id, responsibilities, sort_order } = req.body;
 
     const existing = await pool.query('SELECT * FROM accountability_seats WHERE id = $1', [id]);
     if (!existing.rows[0]) {
@@ -112,16 +113,18 @@ export async function updateSeat(req: AuthRequest, res: Response, next: NextFunc
          seat_name = COALESCE($1, seat_name),
          seat_description = COALESCE($2, seat_description),
          owner_id = $3,
-         parent_seat_id = $4,
-         responsibilities = COALESCE($5, responsibilities),
-         sort_order = COALESCE($6, sort_order),
+         owner_name = $4,
+         parent_seat_id = $5,
+         responsibilities = COALESCE($6, responsibilities),
+         sort_order = COALESCE($7, sort_order),
          updated_at = NOW()
-       WHERE id = $7
+       WHERE id = $8
        RETURNING *`,
       [
         seat_name || null,
         seat_description !== undefined ? seat_description : null,
         owner_id !== undefined ? owner_id : existing.rows[0].owner_id,
+        owner_name !== undefined ? (owner_name?.trim() || null) : existing.rows[0].owner_name,
         parent_seat_id !== undefined ? parent_seat_id : existing.rows[0].parent_seat_id,
         responsibilities ? JSON.stringify(responsibilities) : null,
         sort_order !== undefined ? sort_order : null,

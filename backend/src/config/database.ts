@@ -165,6 +165,11 @@ export async function initializeDatabase(): Promise<void> {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_seat_documents_seat ON seat_documents(seat_id)`);
 
+    // Allow a free-text seat holder name when the holder isn't a User row
+    // (vendors, contractors, placeholder names, etc.). owner_id still wins
+    // when both are set.
+    await client.query(`ALTER TABLE accountability_seats ADD COLUMN IF NOT EXISTS owner_name VARCHAR(255)`);
+
     // Seed the org-chart scaffold (CEO → COO → Sales / Marketing / Production / Finance).
     // Idempotent and additive: inserts any seat from the scaffold that doesn't
     // already exist by name, parents departments under COO when COO exists.

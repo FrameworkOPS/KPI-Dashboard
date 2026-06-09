@@ -35,14 +35,27 @@ function buildTree(seats: AccountabilitySeat[]): AccountabilitySeat[] {
   return roots
 }
 
+function initialsFromName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return ''
+  const first = parts[0][0] || ''
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : ''
+  return `${first}${last}`.toUpperCase()
+}
+
 function ownerLabel(seat: AccountabilitySeat, users: User[]): { name: string | null; initials: string | null } {
+  // Linked User wins over the free-text holder name.
   const u = users.find((x) => x.id === seat.owner_id)
   const first = u?.first_name || seat.owner?.first_name || seat.owner_first_name || null
   const last  = u?.last_name  || seat.owner?.last_name  || seat.owner_last_name  || null
-  if (!first && !last) return { name: null, initials: null }
-  const name = `${first || ''} ${last || ''}`.trim()
-  const initials = `${(first?.[0] || '').toUpperCase()}${(last?.[0] || '').toUpperCase()}` || null
-  return { name, initials }
+  if (first || last) {
+    const name = `${first || ''} ${last || ''}`.trim()
+    return { name, initials: initialsFromName(name) || null }
+  }
+  if (seat.owner_name) {
+    return { name: seat.owner_name, initials: initialsFromName(seat.owner_name) || null }
+  }
+  return { name: null, initials: null }
 }
 
 // ── Detail panel — name, owner, 5 duties, documents ───────────────────────────
@@ -61,6 +74,7 @@ const SeatDetail: React.FC<SeatDetailProps> = ({ seat, allSeats, users, canEdit,
   const [name, setName] = useState(seat.seat_name)
   const [description, setDescription] = useState(seat.seat_description || '')
   const [ownerId, setOwnerId] = useState(seat.owner_id || '')
+  const [ownerName, setOwnerName] = useState(seat.owner_name || '')
   const [parentId, setParentId] = useState(seat.parent_seat_id || '')
   // Always render 5 duty rows; blanks are stripped on save.
   const initialDuties = (() => {
@@ -94,6 +108,8 @@ const SeatDetail: React.FC<SeatDetailProps> = ({ seat, allSeats, users, canEdit,
         seat_name: name.trim() || seat.seat_name,
         seat_description: description.trim() || null,
         owner_id: ownerId || null,
+        // owner_name only applies when no user is linked
+        owner_name: ownerId ? null : (ownerName.trim() || null),
         parent_seat_id: parentId || null,
         responsibilities: duties.map((d) => d.trim()).filter(Boolean),
       })
@@ -153,14 +169,26 @@ const SeatDetail: React.FC<SeatDetailProps> = ({ seat, allSeats, users, canEdit,
               <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} disabled={!canEdit} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Seat Holder</label>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Seat Holder (user)</label>
               <select className={inputCls} value={ownerId} onChange={(e) => setOwnerId(e.target.value)} disabled={!canEdit}>
-                <option value="">— Open Seat —</option>
+                <option value="">— Pick a user or type a name below —</option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>{u.first_name} {u.last_name}</option>
                 ))}
               </select>
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">
+              Or type holder name {ownerId && <span className="text-slate-600">(ignored while a user is selected)</span>}
+            </label>
+            <input
+              className={inputCls}
+              value={ownerName}
+              onChange={(e) => setOwnerName(e.target.value)}
+              placeholder="Free-text name (vendor, contractor, placeholder…)"
+              disabled={!canEdit || !!ownerId}
+            />
           </div>
 
           <div>
@@ -295,6 +323,7 @@ interface AddSeatModalProps {
 const AddSeatModal: React.FC<AddSeatModalProps> = ({ defaultParentId, allSeats, users, onClose, onCreated }) => {
   const [name, setName] = useState('')
   const [ownerId, setOwnerId] = useState('')
+  const [ownerName, setOwnerName] = useState('')
   const [parentId, setParentId] = useState(defaultParentId || '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -306,6 +335,7 @@ const AddSeatModal: React.FC<AddSeatModalProps> = ({ defaultParentId, allSeats, 
       await createSeatApi({
         seat_name: name.trim(),
         owner_id: ownerId || null,
+        owner_name: ownerId ? null : (ownerName.trim() || null),
         parent_seat_id: parentId || null,
         responsibilities: [],
       })
@@ -333,11 +363,23 @@ const AddSeatModal: React.FC<AddSeatModalProps> = ({ defaultParentId, allSeats, 
             <input required className={inputCls} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1">Seat Holder</label>
+            <label className="block text-xs font-medium text-slate-400 mb-1">Seat Holder (user)</label>
             <select className={inputCls} value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
-              <option value="">— Open Seat —</option>
+              <option value="">— Pick a user or type a name below —</option>
               {users.map((u) => <option key={u.id} value={u.id}>{u.first_name} {u.last_name}</option>)}
             </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">
+              Or type holder name {ownerId && <span className="text-slate-600">(ignored)</span>}
+            </label>
+            <input
+              className={inputCls}
+              value={ownerName}
+              onChange={(e) => setOwnerName(e.target.value)}
+              placeholder="Free-text name (vendor, contractor, placeholder…)"
+              disabled={!!ownerId}
+            />
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1">Reports To</label>
