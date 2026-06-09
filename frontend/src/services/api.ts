@@ -154,6 +154,13 @@ export const uploadSeatDocumentApi = (seatId: string, file: File) => {
   })
 }
 
+// Inline-stored docs go through our auth-gated endpoint; fetch as blob so we
+// can attach the bearer token, then return an object URL the browser can open.
+export const downloadSeatDocumentBlobApi = async (docId: string): Promise<string> => {
+  const res = await api.get(`/accountability/documents/${docId}/download`, { responseType: 'blob' })
+  return URL.createObjectURL(res.data as Blob)
+}
+
 export const deleteSeatDocumentApi = (docId: string) =>
   api.delete(`/accountability/documents/${docId}`)
 

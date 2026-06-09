@@ -165,6 +165,12 @@ export async function initializeDatabase(): Promise<void> {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_seat_documents_seat ON seat_documents(seat_id)`);
 
+    // Inline-storage fallback: when no object storage is configured, the file
+    // bytes are written straight into the row. storage_key is nullable in that
+    // mode. file_data is BYTEA and gets streamed out by the download endpoint.
+    await client.query(`ALTER TABLE seat_documents ADD COLUMN IF NOT EXISTS file_data BYTEA`);
+    await client.query(`ALTER TABLE seat_documents ALTER COLUMN storage_key DROP NOT NULL`);
+
     // Allow a free-text seat holder name when the holder isn't a User row
     // (vendors, contractors, placeholder names, etc.). owner_id still wins
     // when both are set.
@@ -558,6 +564,31 @@ export async function initializeDatabase(): Promise<void> {
         AND NOT EXISTS (
           SELECT 1 FROM scorecard_entries
           WHERE team = 'sales' AND week_of = date_trunc('week', CURRENT_DATE)::DATE
+        )
+    `);
+
+    // Seed production scorecard templates (idempotent per metric_name).
+    await client.query(`
+      INSERT INTO scorecard_templates (team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order)
+      VALUES
+        ('production', '$ Invoiced',               150000::DECIMAL, '$150K / week', 'currency', false, 1),
+        ('production', '# Scheduled',              NULL::DECIMAL,   NULL,           'number',   false, 2),
+        ('production', '# Completed',              NULL::DECIMAL,   NULL,           'number',   false, 3),
+        ('production', 'Job Profitability % GP',   NULL::DECIMAL,   '% GP Goal',    'percent',  false, 4),
+        ('production', 'LF Mat Scheduled vs Ran',  NULL::DECIMAL,   NULL,           'number',   false, 5)
+      ON CONFLICT (team, metric_name) DO NOTHING
+    `);
+
+    // Seed current week production scorecard entries (blank actuals).
+    await client.query(`
+      INSERT INTO scorecard_entries (team, week_of, metric_name, goal, goal_text, actual, is_on_track, display_format, lower_is_better, data_source, notes)
+      SELECT 'production', date_trunc('week', CURRENT_DATE)::DATE, metric_name, goal, goal_text, NULL, NULL, display_format, lower_is_better, 'manual', NULL
+      FROM scorecard_templates
+      WHERE team = 'production' AND is_active = true
+        AND NOT EXISTS (
+          SELECT 1 FROM scorecard_entries
+          WHERE team = 'production' AND week_of = date_trunc('week', CURRENT_DATE)::DATE
+            AND metric_name = scorecard_templates.metric_name
         )
     `);
 

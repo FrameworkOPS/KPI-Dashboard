@@ -8,6 +8,7 @@ import {
   getUsersApi,
   listSeatDocumentsApi,
   uploadSeatDocumentApi,
+  downloadSeatDocumentBlobApi,
   deleteSeatDocumentApi,
 } from '../services/api'
 import { AccountabilitySeat, SeatDocument, User } from '../types'
@@ -262,10 +263,28 @@ const SeatDetail: React.FC<SeatDetailProps> = ({ seat, allSeats, users, canEdit,
                   <li key={d.id} className="flex items-center justify-between gap-2 bg-slate-700/40 rounded px-3 py-2">
                     <div className="min-w-0 flex-1">
                       {d.download_url ? (
-                        <a href={d.download_url} target="_blank" rel="noopener noreferrer"
-                          className="text-sm text-blue-400 hover:text-blue-300 truncate block">
-                          {d.file_name}
-                        </a>
+                        d.download_url.startsWith('/api/') ? (
+                          // Inline-stored: fetch authenticated, open as blob URL.
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const url = await downloadSeatDocumentBlobApi(d.id)
+                                window.open(url, '_blank', 'noopener,noreferrer')
+                              } catch (e: any) {
+                                setError(e.response?.data?.error || e.message)
+                              }
+                            }}
+                            className="text-sm text-blue-400 hover:text-blue-300 truncate block text-left w-full"
+                          >
+                            {d.file_name}
+                          </button>
+                        ) : (
+                          <a href={d.download_url} target="_blank" rel="noopener noreferrer"
+                            className="text-sm text-blue-400 hover:text-blue-300 truncate block">
+                            {d.file_name}
+                          </a>
+                        )
                       ) : (
                         <span className="text-sm text-slate-300 truncate block">{d.file_name}</span>
                       )}

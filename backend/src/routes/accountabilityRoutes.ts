@@ -7,6 +7,7 @@ import {
   deleteSeat,
   listSeatDocuments,
   uploadSeatDocument,
+  downloadSeatDocument,
   deleteSeatDocument,
 } from '../controllers/accountabilityController';
 import { authenticate, requireLeadershipOrAdmin } from '../middleware/auth';
@@ -26,6 +27,7 @@ router.delete('/:id', authenticate, requireLeadershipOrAdmin, deleteSeat);
 
 router.get('/:id/documents', authenticate, listSeatDocuments);
 router.post('/:id/documents', authenticate, requireLeadershipOrAdmin, upload.single('file'), uploadSeatDocument);
+router.get('/documents/:docId/download', authenticate, downloadSeatDocument);
 router.delete('/documents/:docId', authenticate, requireLeadershipOrAdmin, deleteSeatDocument);
 
 export default router;

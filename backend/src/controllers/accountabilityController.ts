@@ -155,9 +155,10 @@ export async function deleteSeat(req: AuthRequest, res: Response, next: NextFunc
     );
 
     // Best-effort: remove S3 objects for any attached documents before
-    // ON DELETE CASCADE wipes the rows. Failures here don't block the delete.
+    // ON DELETE CASCADE wipes the rows. Inline-stored rows skip this step.
     const docs = await pool.query('SELECT storage_key FROM seat_documents WHERE seat_id = $1', [id]);
     for (const d of docs.rows) {
+      if (!d.storage_key) continue;
       try { await deleteObject(d.storage_key); } catch { /* ignore — DB row removal still proceeds */ }
     }
 
@@ -169,9 +170,16 @@ export async function deleteSeat(req: AuthRequest, res: Response, next: NextFunc
 }
 
 // ── Seat documents ────────────────────────────────────────────────────────────
+//
+// Storage layout — two paths share the same seat_documents row:
+//   • Object storage (S3-compatible) when configured via env vars: storage_key
+//     points at the object, file_data is NULL, download URL is presigned.
+//   • Inline DB storage as the default fallback: file_data carries the bytes,
+//     storage_key is NULL, download URL points at /documents/:id/download
+//     which streams the bytea out.
 
-// List a seat's documents. Each row carries a short-lived presigned download
-// URL so the frontend can link straight to the object without proxying.
+// List a seat's documents. Each row carries a download URL — either a
+// short-lived presigned S3 URL or our own /download endpoint for inline rows.
 export async function listSeatDocuments(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
@@ -189,9 +197,14 @@ export async function listSeatDocuments(req: AuthRequest, res: Response, next: N
     const out = [];
     for (const r of docs.rows) {
       let url: string | null = null;
-      try {
-        url = isStorageConfigured() ? await getDownloadUrl(r.storage_key, 3600) : null;
-      } catch { /* presign failed — return row without URL so UI can still show metadata */ }
+      if (r.storage_key) {
+        try {
+          url = isStorageConfigured() ? await getDownloadUrl(r.storage_key, 3600) : null;
+        } catch { /* presign failed — return row without URL so UI can still show metadata */ }
+      } else {
+        // Inline (DB-stored) — the frontend will hit this proxied download endpoint.
+        url = `/api/accountability/documents/${r.id}/download`;
+      }
       out.push({
         id: r.id,
         seat_id: r.seat_id,
@@ -214,12 +227,6 @@ export async function listSeatDocuments(req: AuthRequest, res: Response, next: N
 
 export async function uploadSeatDocument(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    if (!isStorageConfigured()) {
-      res.status(503).json({
-        error: 'Object storage is not configured. Set S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY env vars on the server.',
-      });
-      return;
-    }
     const { id: seatId } = req.params;
     const file = (req as unknown as { file?: { originalname: string; mimetype: string; size: number; buffer: Buffer } }).file;
     if (!file) {
@@ -232,20 +239,32 @@ export async function uploadSeatDocument(req: AuthRequest, res: Response, next: 
       return;
     }
 
-    const storageKey = makeStorageKey(`accountability/${seatId}`, file.originalname || 'file');
-    await uploadObject(storageKey, file.buffer, file.mimetype || 'application/octet-stream');
+    // Prefer object storage when configured; otherwise store inline in the DB.
+    const useObjectStorage = isStorageConfigured();
+    let storageKey: string | null = null;
+    let fileData: Buffer | null = null;
+    if (useObjectStorage) {
+      storageKey = makeStorageKey(`accountability/${seatId}`, file.originalname || 'file');
+      await uploadObject(storageKey, file.buffer, file.mimetype || 'application/octet-stream');
+    } else {
+      fileData = file.buffer;
+    }
 
     const inserted = await pool.query(
-      `INSERT INTO seat_documents (seat_id, file_name, mime_type, file_size, storage_key, uploaded_by)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO seat_documents (seat_id, file_name, mime_type, file_size, storage_key, file_data, uploaded_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, seat_id, file_name, mime_type, file_size, storage_key, uploaded_by, created_at`,
-      [seatId, file.originalname || 'file', file.mimetype || null, file.size, storageKey, req.user?.id || null],
+      [seatId, file.originalname || 'file', file.mimetype || null, file.size, storageKey, fileData, req.user?.id || null],
     );
 
-    let download_url: string | null = null;
-    try { download_url = await getDownloadUrl(storageKey, 3600); } catch { /* ignore */ }
-
     const r = inserted.rows[0];
+    let download_url: string | null = null;
+    if (useObjectStorage && storageKey) {
+      try { download_url = await getDownloadUrl(storageKey, 3600); } catch { /* ignore */ }
+    } else {
+      download_url = `/api/accountability/documents/${r.id}/download`;
+    }
+
     res.status(201).json({
       id: r.id, seat_id: r.seat_id, file_name: r.file_name,
       mime_type: r.mime_type,
@@ -253,6 +272,33 @@ export async function uploadSeatDocument(req: AuthRequest, res: Response, next: 
       uploaded_by: r.uploaded_by, created_at: r.created_at,
       download_url,
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Stream an inline-stored document's bytes back to the client. Only used for
+// rows whose file_data column is populated (S3-stored rows go through the
+// presigned URL instead).
+export async function downloadSeatDocument(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { docId } = req.params;
+    const row = await pool.query(
+      `SELECT file_name, mime_type, file_data FROM seat_documents WHERE id = $1`,
+      [docId],
+    );
+    if (!row.rows[0]) {
+      res.status(404).json({ error: 'Document not found' });
+      return;
+    }
+    const r = row.rows[0];
+    if (!r.file_data) {
+      res.status(404).json({ error: 'Document is not stored inline' });
+      return;
+    }
+    res.setHeader('Content-Type', r.mime_type || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${(r.file_name || 'file').replace(/"/g, '')}"`);
+    res.send(r.file_data);
   } catch (err) {
     next(err);
   }
@@ -266,8 +312,10 @@ export async function deleteSeatDocument(req: AuthRequest, res: Response, next: 
       res.status(404).json({ error: 'Document not found' });
       return;
     }
-    // Try to remove the object; whether or not it succeeds, drop the DB row.
-    try { await deleteObject(existing.rows[0].storage_key); } catch { /* ignore */ }
+    // Remove the S3 object only when one exists. Inline rows just drop the row.
+    if (existing.rows[0].storage_key) {
+      try { await deleteObject(existing.rows[0].storage_key); } catch { /* ignore */ }
+    }
     await pool.query('DELETE FROM seat_documents WHERE id = $1', [docId]);
     res.json({ message: 'Document deleted' });
   } catch (err) {
