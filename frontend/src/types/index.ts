@@ -94,10 +94,24 @@ export interface AccountabilitySeat {
   seat_description: string | null;
   owner_id: string | null;
   owner?: User;
+  owner_first_name?: string | null;
+  owner_last_name?: string | null;
   parent_seat_id: string | null;
   responsibilities: string[];
   sort_order: number;
   children?: AccountabilitySeat[];
+}
+
+export interface SeatDocument {
+  id: string;
+  seat_id: string;
+  file_name: string;
+  mime_type: string | null;
+  file_size: number | null;
+  uploaded_by: string | null;
+  uploaded_by_name?: string | null;
+  created_at: string;
+  download_url: string | null;
 }
 
 export interface Meeting {
