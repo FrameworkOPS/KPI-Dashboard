@@ -13,7 +13,7 @@ export async function getIssues(req: AuthRequest, res: Response, next: NextFunct
     let paramCount = 1;
 
     if (team) {
-      if (!canAccessTeam(user.role, user.team, team as string)) {
+      if (!canAccessTeam(user.role, user.team, team as string, user.teams)) {
         res.status(403).json({ error: 'Access to this team is not allowed' });
         return;
       }
@@ -61,7 +61,7 @@ export async function createIssue(req: AuthRequest, res: Response, next: NextFun
       return;
     }
 
-    if (!canAccessTeam(user.role, user.team, team)) {
+    if (!canAccessTeam(user.role, user.team, team, user.teams)) {
       res.status(403).json({ error: 'Access to this team is not allowed' });
       return;
     }
@@ -103,7 +103,7 @@ export async function updateIssue(req: AuthRequest, res: Response, next: NextFun
       return;
     }
 
-    if (!canAccessTeam(user.role, user.team, existing.rows[0].team)) {
+    if (!canAccessTeam(user.role, user.team, existing.rows[0].team, user.teams)) {
       res.status(403).json({ error: 'Access to this team is not allowed' });
       return;
     }
@@ -138,7 +138,7 @@ export async function deleteIssue(req: AuthRequest, res: Response, next: NextFun
       return;
     }
 
-    if (!canAccessTeam(user.role, user.team, existing.rows[0].team)) {
+    if (!canAccessTeam(user.role, user.team, existing.rows[0].team, user.teams)) {
       res.status(403).json({ error: 'Access to this team is not allowed' });
       return;
     }

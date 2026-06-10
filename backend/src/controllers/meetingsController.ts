@@ -14,7 +14,7 @@ export async function getMeetings(req: AuthRequest, res: Response, next: NextFun
     let paramCount = 1;
 
     if (team) {
-      if (!canAccessTeam(user.role, user.team, team as string)) {
+      if (!canAccessTeam(user.role, user.team, team as string, user.teams)) {
         res.status(403).json({ error: 'Access to this team is not allowed' });
         return;
       }
@@ -57,7 +57,7 @@ export async function createMeeting(req: AuthRequest, res: Response, next: NextF
       return;
     }
 
-    if (!canAccessTeam(user.role, user.team, team)) {
+    if (!canAccessTeam(user.role, user.team, team, user.teams)) {
       res.status(403).json({ error: 'Access to this team is not allowed' });
       return;
     }
@@ -108,7 +108,7 @@ export async function updateMeeting(req: AuthRequest, res: Response, next: NextF
       return;
     }
 
-    if (!canAccessTeam(user.role, user.team, existing.rows[0].team)) {
+    if (!canAccessTeam(user.role, user.team, existing.rows[0].team, user.teams)) {
       res.status(403).json({ error: 'Access to this team is not allowed' });
       return;
     }
@@ -189,7 +189,7 @@ export async function deleteMeeting(req: AuthRequest, res: Response, next: NextF
       return;
     }
 
-    if (!canAccessTeam(user.role, user.team, existing.rows[0].team)) {
+    if (!canAccessTeam(user.role, user.team, existing.rows[0].team, user.teams)) {
       res.status(403).json({ error: 'Access to this team is not allowed' });
       return;
     }
@@ -265,7 +265,7 @@ export async function sendReminder(req: AuthRequest, res: Response, next: NextFu
       return;
     }
 
-    if (!canAccessTeam(user.role, user.team, meeting.team)) {
+    if (!canAccessTeam(user.role, user.team, meeting.team, user.teams)) {
       res.status(403).json({ error: 'Access to this team is not allowed' });
       return;
     }

@@ -28,6 +28,11 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
   const [invite, setInvite] = useState(!user) // new users default to email invitation
   const [rosterOnly, setRosterOnly] = useState(user?.roster_only ?? false)
   const [jobDuties, setJobDuties] = useState((user?.job_duties || []).join('\n'))
+  // Multi-team membership. Defaults to the user's existing team list, or just
+  // the primary team for new users. The primary `team` is always the first.
+  const [teams, setTeams] = useState<User['team'][]>(
+    user?.teams && user.teams.length ? user.teams : [(user?.team as User['team']) || 'sales']
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [warning, setWarning] = useState('')
@@ -39,8 +44,10 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
     setWarning('')
     try {
       const duties = jobDuties.split('\n').map((s) => s.trim()).filter(Boolean)
+      const teamsPayload = teams.length ? teams : [form.team]
+      const primaryTeam = teamsPayload[0]
       if (user) {
-        const payload: any = { ...form, roster_only: rosterOnly, job_duties: duties }
+        const payload: any = { ...form, team: primaryTeam, teams: teamsPayload, roster_only: rosterOnly, job_duties: duties }
         if (rosterOnly) payload.email = null
         if (!payload.password) delete payload.password
         await updateUserApi(user.id, payload)
@@ -51,7 +58,8 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
           first_name: form.first_name,
           last_name: form.last_name,
           role: form.role,
-          team: form.team,
+          team: primaryTeam,
+          teams: teamsPayload,
           roster_only: true,
           job_duties: duties,
         })
@@ -63,7 +71,8 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
           last_name: form.last_name,
           email: form.email,
           role: form.role,
-          team: form.team,
+          team: primaryTeam,
+          teams: teamsPayload,
           job_duties: duties,
           invite: true,
         })
@@ -71,7 +80,7 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
         if (res.data?.email_warning) setWarning(res.data.email_warning)
         else onClose()
       } else {
-        await createUserApi({ ...form, job_duties: duties })
+        await createUserApi({ ...form, team: primaryTeam, teams: teamsPayload, job_duties: duties })
         onSave()
         onClose()
       }
@@ -175,14 +184,38 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">Team</label>
-              <select className={inputCls} value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value as User['team'] })}>
-                <option value="sales">Sales</option>
-                <option value="production">Production</option>
-                <option value="office">Office</option>
-                <option value="leadership">Leadership</option>
-                <option value="all">All</option>
-              </select>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Teams</label>
+              <div className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 space-y-1.5">
+                {(['sales','production','office','leadership','all'] as const).map((t) => {
+                  const checked = teams.includes(t)
+                  const isPrimary = teams[0] === t
+                  return (
+                    <label key={t} className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            const next = teams.includes(t) ? teams : [...teams, t]
+                            setTeams(next)
+                            setForm({ ...form, team: next[0] })
+                          } else {
+                            const next = teams.filter((x) => x !== t)
+                            setTeams(next)
+                            if (next[0]) setForm({ ...form, team: next[0] })
+                          }
+                        }}
+                        className="h-4 w-4 rounded border-slate-500 bg-slate-700 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="capitalize">{t}</span>
+                      {isPrimary && teams.length > 1 && (
+                        <span className="text-[10px] text-blue-400 ml-1">primary</span>
+                      )}
+                    </label>
+                  )
+                })}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1">First team checked is the primary team.</p>
             </div>
           </div>
           <div>
@@ -357,7 +390,9 @@ const UserManagement: React.FC = () => {
                           {u.invited && <StatusBadge status="invited" />}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-400 capitalize">{u.team}</td>
+                      <td className="px-4 py-3 text-slate-400 capitalize">
+                        {(u.teams && u.teams.length > 1) ? u.teams.join(', ') : u.team}
+                      </td>
                       <td className="px-4 py-3 text-center">
                         <button
                           onClick={() => handleToggleActive(u)}

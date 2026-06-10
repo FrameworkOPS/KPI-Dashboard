@@ -13,7 +13,7 @@ export async function getRocks(req: AuthRequest, res: Response, next: NextFuncti
     let paramCount = 1;
 
     if (team) {
-      if (!canAccessTeam(user.role, user.team, team as string)) {
+      if (!canAccessTeam(user.role, user.team, team as string, user.teams)) {
         res.status(403).json({ error: 'Access to this team is not allowed' });
         return;
       }
@@ -63,7 +63,7 @@ export async function createRock(req: AuthRequest, res: Response, next: NextFunc
       return;
     }
 
-    if (!canAccessTeam(user.role, user.team, team)) {
+    if (!canAccessTeam(user.role, user.team, team, user.teams)) {
       res.status(403).json({ error: 'Access to this team is not allowed' });
       return;
     }
@@ -112,7 +112,7 @@ export async function updateRock(req: AuthRequest, res: Response, next: NextFunc
     }
 
     const rock = existing.rows[0];
-    if (!canAccessTeam(user.role, user.team, rock.team)) {
+    if (!canAccessTeam(user.role, user.team, rock.team, user.teams)) {
       res.status(403).json({ error: 'Access to this team is not allowed' });
       return;
     }
@@ -160,7 +160,7 @@ export async function deleteRock(req: AuthRequest, res: Response, next: NextFunc
       return;
     }
 
-    if (!canAccessTeam(user.role, user.team, existing.rows[0].team)) {
+    if (!canAccessTeam(user.role, user.team, existing.rows[0].team, user.teams)) {
       res.status(403).json({ error: 'Access to this team is not allowed' });
       return;
     }

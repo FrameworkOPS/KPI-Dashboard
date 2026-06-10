@@ -13,7 +13,7 @@ export async function getTodos(req: AuthRequest, res: Response, next: NextFuncti
     let paramCount = 1;
 
     if (team) {
-      if (!canAccessTeam(user.role, user.team, team as string)) {
+      if (!canAccessTeam(user.role, user.team, team as string, user.teams)) {
         res.status(403).json({ error: 'Access to this team is not allowed' });
         return;
       }
@@ -59,7 +59,7 @@ export async function createTodo(req: AuthRequest, res: Response, next: NextFunc
       return;
     }
 
-    if (!canAccessTeam(user.role, user.team, team)) {
+    if (!canAccessTeam(user.role, user.team, team, user.teams)) {
       res.status(403).json({ error: 'Access to this team is not allowed' });
       return;
     }
@@ -95,7 +95,7 @@ export async function updateTodo(req: AuthRequest, res: Response, next: NextFunc
       return;
     }
 
-    if (!canAccessTeam(user.role, user.team, existing.rows[0].team)) {
+    if (!canAccessTeam(user.role, user.team, existing.rows[0].team, user.teams)) {
       res.status(403).json({ error: 'Access to this team is not allowed' });
       return;
     }
@@ -130,7 +130,7 @@ export async function deleteTodo(req: AuthRequest, res: Response, next: NextFunc
       return;
     }
 
-    if (!canAccessTeam(user.role, user.team, existing.rows[0].team)) {
+    if (!canAccessTeam(user.role, user.team, existing.rows[0].team, user.teams)) {
       res.status(403).json({ error: 'Access to this team is not allowed' });
       return;
     }
