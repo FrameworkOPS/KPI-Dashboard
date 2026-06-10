@@ -564,6 +564,7 @@ const Scorecard: React.FC = () => {
   const [selectedMetric, setSelectedMetric] = useState<MetricHistory | null>(null)
   const [showNewWeekModal, setShowNewWeekModal] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [aggregateMode, setAggregateMode] = useState<'total' | 'average'>('total')
 
   const isLeadershipOrAdmin = user?.role === 'admin' || user?.role === 'leadership'
   const canEdit = user?.role === 'admin' || user?.role === 'leadership' || user?.role === 'manager'
@@ -591,6 +592,16 @@ const Scorecard: React.FC = () => {
       if (refreshed) setSelectedMetric(refreshed)
     }
   }, [history])
+
+  const computeAggregate = (metric: MetricHistory): number | null => {
+    if (!history) return null
+    const actuals = history.weeks
+      .map(w => metric.data[w]?.actual)
+      .filter((v): v is number => v !== null && v !== undefined)
+    if (actuals.length === 0) return null
+    const sum = actuals.reduce((a, b) => a + b, 0)
+    return aggregateMode === 'total' ? sum : sum / actuals.length
+  }
 
   // Cell color classes
   const cellColor = (entry: WeekEntry | undefined, isCurrent: boolean) => {
@@ -690,6 +701,18 @@ const Scorecard: React.FC = () => {
                   <th className="text-right px-3 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide whitespace-nowrap min-w-[80px]">
                     Goal
                   </th>
+                  <th className="text-center px-2 py-3 text-xs font-medium uppercase tracking-wide whitespace-nowrap min-w-[70px] border-l border-slate-700/50">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setAggregateMode(prev => prev === 'total' ? 'average' : 'total') }}
+                      className="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 transition-colors"
+                      title={`Click to switch to ${aggregateMode === 'total' ? 'Average' : 'Total'}`}
+                    >
+                      {aggregateMode === 'total' ? 'Total' : 'Avg'}
+                      <svg className="w-3 h-3 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                      </svg>
+                    </button>
+                  </th>
                   {/* Week columns */}
                   {history.weeks.map((w, i) => {
                     const isCurrent = w === currentWeek
@@ -729,6 +752,10 @@ const Scorecard: React.FC = () => {
                     {/* Goal */}
                     <td className="text-right px-3 py-3 text-slate-400 text-xs whitespace-nowrap">
                       {metric.goal_text || formatValue(metric.goal, metric.display_format)}
+                    </td>
+                    {/* Aggregate (Total / Avg) */}
+                    <td className="text-center px-2 py-3 text-xs whitespace-nowrap font-semibold text-blue-300 border-l border-slate-700/50">
+                      {formatValue(computeAggregate(metric), metric.display_format)}
                     </td>
                     {/* Data cells */}
                     {history.weeks.map(w => {
