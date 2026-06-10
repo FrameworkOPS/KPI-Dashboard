@@ -61,6 +61,16 @@ export async function initializeDatabase(): Promise<void> {
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS roster_only BOOLEAN NOT NULL DEFAULT false`);
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS job_duties JSONB NOT NULL DEFAULT '[]'`);
 
+    // Multi-team membership. `team` stays as the primary team (back-compat
+    // with the JWT and the canAccessTeam helper); `teams` is the source of
+    // truth when set. Existing rows are back-filled with their single team.
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS teams JSONB NOT NULL DEFAULT '[]'`);
+    await client.query(`
+      UPDATE users
+         SET teams = jsonb_build_array(team)
+       WHERE (teams = '[]'::jsonb OR teams IS NULL) AND team IS NOT NULL
+    `);
+
     // scorecard_entries table
     await client.query(`
       CREATE TABLE IF NOT EXISTS scorecard_entries (

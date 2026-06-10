@@ -35,7 +35,7 @@ async function teamMeetingLink(team: string): Promise<string | null> {
 export async function getUsers(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const result = await pool.query(
-      `SELECT id, email, first_name, last_name, role, team, active, roster_only, job_duties, created_at,
+      `SELECT id, email, first_name, last_name, role, team, teams, active, roster_only, job_duties, created_at,
               (invite_token IS NOT NULL) AS invited
        FROM users
        ORDER BY first_name, last_name`
@@ -48,7 +48,7 @@ export async function getUsers(req: AuthRequest, res: Response, next: NextFuncti
 
 export async function createUser(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { email, password, first_name, last_name, role, team, active, invite, roster_only, job_duties } = req.body;
+    const { email, password, first_name, last_name, role, team, teams, active, invite, roster_only, job_duties } = req.body;
     const wantsInvite = invite === true || invite === 'true';
     const isRosterOnly = roster_only === true || roster_only === 'true';
 
@@ -60,6 +60,12 @@ export async function createUser(req: AuthRequest, res: Response, next: NextFunc
       res.status(400).json({ error: `team must be one of: ${VALID_TEAMS.join(', ')}` });
       return;
     }
+    // Normalize multi-team input. Accept either a `teams` array or a single
+    // `team` string. The primary `team` column = first element of the array.
+    const teamsArr: string[] = Array.isArray(teams)
+      ? Array.from(new Set(teams.map((t: unknown) => String(t)).filter((t: string) => VALID_TEAMS.includes(t))))
+      : (team && VALID_TEAMS.includes(team) ? [team] : []);
+    const primaryTeam = teamsArr[0] || team || 'all';
     if (!isRosterOnly && !email) {
       res.status(400).json({ error: 'email is required' });
       return;
@@ -109,10 +115,10 @@ export async function createUser(req: AuthRequest, res: Response, next: NextFunc
       : [];
 
     const result = await pool.query(
-      `INSERT INTO users (email, password_hash, first_name, last_name, role, team, active,
+      `INSERT INTO users (email, password_hash, first_name, last_name, role, team, teams, active,
                           invite_token, invite_expires, roster_only, job_duties)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
-       RETURNING id, email, first_name, last_name, role, team, active, roster_only, job_duties,
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12::jsonb)
+       RETURNING id, email, first_name, last_name, role, team, teams, active, roster_only, job_duties,
                  created_at, (invite_token IS NOT NULL) AS invited`,
       [
         emailValue,
@@ -120,7 +126,8 @@ export async function createUser(req: AuthRequest, res: Response, next: NextFunc
         first_name || '',
         last_name || '',
         role || 'team_member',
-        team || 'all',
+        primaryTeam,
+        JSON.stringify(teamsArr.length ? teamsArr : [primaryTeam]),
         isActive,
         inviteToken,
         inviteExpires,
@@ -199,7 +206,7 @@ export async function resendInvite(req: AuthRequest, res: Response, next: NextFu
 export async function updateUser(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const { email, password, first_name, last_name, role, team, active, roster_only, job_duties } = req.body;
+    const { email, password, first_name, last_name, role, team, teams, active, roster_only, job_duties } = req.body;
 
     const existing = await pool.query('SELECT id FROM users WHERE id = $1', [id]);
     if (existing.rows.length === 0) {
@@ -216,9 +223,22 @@ export async function updateUser(req: AuthRequest, res: Response, next: NextFunc
     if (first_name !== undefined)  { sets.push(`first_name = $${p++}`);   values.push(first_name); }
     if (last_name !== undefined)   { sets.push(`last_name = $${p++}`);    values.push(last_name); }
     if (role !== undefined)        { sets.push(`role = $${p++}`);         values.push(role); }
-    if (team !== undefined)        { sets.push(`team = $${p++}`);         values.push(team); }
     if (active !== undefined)      { sets.push(`active = $${p++}`);       values.push(active); }
     if (roster_only !== undefined) { sets.push(`roster_only = $${p++}`);  values.push(!!roster_only); }
+    // Multi-team update: writing `teams` updates both `teams` (jsonb) and the
+    // primary `team` column (= first element). A standalone `team` write still
+    // works for callers that haven't been updated yet.
+    if (teams !== undefined) {
+      const teamsArr: string[] = Array.isArray(teams)
+        ? Array.from(new Set(teams.map((t: unknown) => String(t)).filter((t: string) => VALID_TEAMS.includes(t))))
+        : [];
+      const primary = teamsArr[0] || team || 'all';
+      sets.push(`teams = $${p++}::jsonb`); values.push(JSON.stringify(teamsArr.length ? teamsArr : [primary]));
+      sets.push(`team = $${p++}`);         values.push(primary);
+    } else if (team !== undefined) {
+      sets.push(`team = $${p++}`);         values.push(team);
+      sets.push(`teams = $${p++}::jsonb`); values.push(JSON.stringify([team]));
+    }
     if (job_duties !== undefined) {
       const dutiesArr = Array.isArray(job_duties)
         ? job_duties.map((d: unknown) => String(d).trim()).filter(Boolean)
@@ -243,7 +263,7 @@ export async function updateUser(req: AuthRequest, res: Response, next: NextFunc
 
     const result = await pool.query(
       `UPDATE users SET ${sets.join(', ')} WHERE id = $${p}
-       RETURNING id, email, first_name, last_name, role, team, active, roster_only, job_duties, created_at`,
+       RETURNING id, email, first_name, last_name, role, team, teams, active, roster_only, job_duties, created_at`,
       values
     );
 

@@ -5,6 +5,7 @@ export interface User {
   last_name: string;
   role: 'admin' | 'leadership' | 'manager' | 'team_member';
   team: 'sales' | 'production' | 'office' | 'leadership' | 'all';
+  teams?: ('sales' | 'production' | 'office' | 'leadership' | 'all')[];
   active: boolean;
   roster_only?: boolean;
   job_duties?: string[];

@@ -29,11 +29,13 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
       return;
     }
 
+    const teamsArr: string[] = Array.isArray(user.teams) ? user.teams.filter(Boolean) : [];
     const token = signToken({
       id: user.id,
       email: user.email,
       role: user.role,
       team: user.team,
+      teams: teamsArr,
     });
 
     res.json({
@@ -45,6 +47,7 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
         last_name: user.last_name,
         role: user.role,
         team: user.team,
+        teams: teamsArr,
         active: user.active,
       },
     });
@@ -56,7 +59,7 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
 export async function getMe(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const result = await pool.query(
-      'SELECT id, email, first_name, last_name, role, team, active, created_at FROM users WHERE id = $1',
+      'SELECT id, email, first_name, last_name, role, team, teams, active, created_at FROM users WHERE id = $1',
       [req.user!.id]
     );
     if (!result.rows[0]) {

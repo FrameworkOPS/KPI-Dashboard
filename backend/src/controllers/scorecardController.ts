@@ -13,7 +13,7 @@ export async function getScorecardEntries(req: AuthRequest, res: Response, next:
     let paramCount = 1;
 
     if (team) {
-      if (!canAccessTeam(user.role, user.team, team as string)) {
+      if (!canAccessTeam(user.role, user.team, team as string, user.teams)) {
         res.status(403).json({ error: 'Access to this team is not allowed' });
         return;
       }
@@ -59,7 +59,7 @@ export async function createScorecardEntry(req: AuthRequest, res: Response, next
       return;
     }
 
-    if (!canAccessTeam(user.role, user.team, team)) {
+    if (!canAccessTeam(user.role, user.team, team, user.teams)) {
       res.status(403).json({ error: 'Access to this team is not allowed' });
       return;
     }
@@ -100,7 +100,7 @@ export async function updateScorecardEntry(req: AuthRequest, res: Response, next
     }
 
     const entry = existing.rows[0];
-    if (!canAccessTeam(user.role, user.team, entry.team)) {
+    if (!canAccessTeam(user.role, user.team, entry.team, user.teams)) {
       res.status(403).json({ error: 'Access to this team is not allowed' });
       return;
     }
@@ -142,7 +142,7 @@ export async function deleteScorecardEntry(req: AuthRequest, res: Response, next
       return;
     }
 
-    if (!canAccessTeam(user.role, user.team, existing.rows[0].team)) {
+    if (!canAccessTeam(user.role, user.team, existing.rows[0].team, user.teams)) {
       res.status(403).json({ error: 'Access to this team is not allowed' });
       return;
     }
@@ -215,7 +215,7 @@ export async function getScorecardHistory(req: AuthRequest, res: Response, next:
     let p = 3;
 
     if (team) {
-      if (!canAccessTeam(user.role, user.team, team as string)) {
+      if (!canAccessTeam(user.role, user.team, team as string, user.teams)) {
         res.status(403).json({ error: 'Access to this team is not allowed' });
         return;
       }
