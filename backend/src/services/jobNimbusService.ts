@@ -196,21 +196,32 @@ function invoiceValue(job: Record<string, any>): number | null {
 
 // Classify a JobNimbus job into the status_type used across the dashboard:
 //   1 = Lead (filtered out of analytics), 2 = Open pipeline, 4 = Won (signed), 5 = Lost
-// "Signed estimate is Won" → an approved estimate/invoice, or a status past signing.
-// Note "Contract Sent" has no "signed" token, so it correctly stays Open.
+// Rules:
+//   - status containing lost/dead/cancel/etc → Lost
+//   - approved estimate OR status containing signed/sold/won/etc → Won
+//   - no estimate created yet (no estimate number, no estimate value, no estimate
+//     date) → Lead. This covers JobNimbus accounts that use custom lead-stage
+//     status names ("Lead", "New Lead", "Appt Set", "Inspection Scheduled",
+//     etc.) without having to enumerate them.
+//   - otherwise → Open
 function classifyJob(job: Record<string, any>): { statusType: number; isLead: boolean } {
   const s = String(job.status_name || job.status || '').toLowerCase();
+  const estApproved = (toNumOrNull(job.approved_estimate_total) || 0) > 0;
   // A signed/approved ESTIMATE means the deal is won. NOTE: an approved *invoice*
   // is NOT used here — in this account ~270 jobs still tagged "Lead" carry an old
   // invoice, so invoice presence would massively over-count wins. Billing is tracked
   // separately via invoice_value / billed_date regardless of status.
-  const estApproved = (toNumOrNull(job.approved_estimate_total) || 0) > 0;
+  const hasEstimate = estApproved
+    || (toNumOrNull(job.last_estimate) || 0) > 0
+    || (toNumOrNull(job.last_estimate_date_estimate) || 0) > 0
+    || !!job.last_estimate_number;
 
   if (/(lost|dead|cancel|reject|declin|abandon)/.test(s)) return { statusType: 5, isLead: false };
   if (estApproved || /(signed|sold|won|installed|complete|finished|paid|production)/.test(s)) {
     return { statusType: 4, isLead: false };
   }
-  if (s === 'lead' || s === '') return { statusType: 1, isLead: true };
+  // No estimate yet (and not lost/won) → still a lead.
+  if (!hasEstimate) return { statusType: 1, isLead: true };
   return { statusType: 2, isLead: false };
 }
 
@@ -1046,11 +1057,15 @@ function computeIsOnTrack(actual: number | null, goal: number | null, lowerIsBet
 }
 
 // Compute the metrics for one Monday week and upsert as scorecard_entries.
+// The week_of label is the *review week* — the actual data comes from the
+// preceding 7-day window (Mon→Sun before week_of). Example: an entry stamped
+// 2026-06-08 reports the data from 2026-06-01 through 2026-06-07.
 async function fillScorecardWeek(weekMonday: string): Promise<void> {
-  const start = new Date(weekMonday + 'T00:00:00');
-  const end = new Date(start); end.setDate(end.getDate() + 7);
-  // YTD window: Jan 1 of this week's year through the end of this week. Closing
-  // rate is reported as the cumulative aggregate, not the week-in-isolation rate.
+  const label = new Date(weekMonday + 'T00:00:00');
+  const start = new Date(label); start.setDate(start.getDate() - 7);  // prior Monday
+  const end = label;                                                  // up through prior Sunday end
+  // YTD window: Jan 1 of this week's year through the end of last week.
+  // Closing rate is reported as the cumulative aggregate, not the week-in-isolation rate.
   const yearStart = new Date(start.getFullYear(), 0, 1);
 
   const r = (await query(`
@@ -1188,13 +1203,17 @@ function repFilterSql(firstName: string | null, paramIdx: number): { sql: string
 }
 
 async function fillSalesScorecardWeek(weekMonday: string): Promise<void> {
-  const start = new Date(weekMonday + 'T00:00:00');   // Monday 00:00
-  const end   = new Date(start); end.setDate(end.getDate() + 7);
+  // Like fillScorecardWeek: the week_of label is the review week, the data
+  // window is the prior Mon→Sun. Entry stamped 6/8 reports 6/1–6/7.
+  const label = new Date(weekMonday + 'T00:00:00');
+  const start = new Date(label); start.setDate(start.getDate() - 7);   // prior Monday
+  const end   = label;                                                 // prior Sunday end (exclusive)
   const yearStart = new Date(start.getFullYear(), 0, 1);
-  // Thu→Wed window ending the Wednesday before this Monday.
-  // Monday X − 11 days = Thu (start); Monday X − 4 days = next Thu (exclusive end).
-  const thuWedStart = new Date(start); thuWedStart.setDate(thuWedStart.getDate() - 11);
-  const thuWedEnd   = new Date(start); thuWedEnd.setDate(thuWedEnd.getDate() - 4);
+  // Thu→Wed window ending the Wednesday before the label Monday (unchanged —
+  // the metric is already named "Previous Week — Thursday to Wednesday").
+  // Label X − 11 days = Thu (start); Label X − 4 days = next Thu (exclusive end).
+  const thuWedStart = new Date(label); thuWedStart.setDate(thuWedStart.getDate() - 11);
+  const thuWedEnd   = new Date(label); thuWedEnd.setDate(thuWedEnd.getDate() - 4);
 
   // Pull each rep's numbers; the Total row is aggregated from these per-rep
   // values below (sum for counts/currency, average of non-null rep rates for
