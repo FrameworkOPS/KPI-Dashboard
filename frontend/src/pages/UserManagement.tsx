@@ -26,6 +26,8 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
     active: user?.active ?? true,
   })
   const [invite, setInvite] = useState(!user) // new users default to email invitation
+  const [rosterOnly, setRosterOnly] = useState(user?.roster_only ?? false)
+  const [jobDuties, setJobDuties] = useState((user?.job_duties || []).join('\n'))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [warning, setWarning] = useState('')
@@ -36,10 +38,23 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
     setError('')
     setWarning('')
     try {
+      const duties = jobDuties.split('\n').map((s) => s.trim()).filter(Boolean)
       if (user) {
-        const payload: any = { ...form }
+        const payload: any = { ...form, roster_only: rosterOnly, job_duties: duties }
+        if (rosterOnly) payload.email = null
         if (!payload.password) delete payload.password
         await updateUserApi(user.id, payload)
+        onSave()
+        onClose()
+      } else if (rosterOnly) {
+        await createUserApi({
+          first_name: form.first_name,
+          last_name: form.last_name,
+          role: form.role,
+          team: form.team,
+          roster_only: true,
+          job_duties: duties,
+        })
         onSave()
         onClose()
       } else if (invite) {
@@ -49,13 +64,14 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
           email: form.email,
           role: form.role,
           team: form.team,
+          job_duties: duties,
           invite: true,
         })
         onSave()
         if (res.data?.email_warning) setWarning(res.data.email_warning)
         else onClose()
       } else {
-        await createUserApi({ ...form })
+        await createUserApi({ ...form, job_duties: duties })
         onSave()
         onClose()
       }
@@ -87,6 +103,20 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
               <button type="button" onClick={onClose} className="ml-2 underline">Close</button>
             </div>
           )}
+          <label className="flex items-start gap-2 text-sm text-slate-300 cursor-pointer bg-slate-700/30 border border-slate-700 rounded-lg px-3 py-2">
+            <input
+              type="checkbox"
+              checked={rosterOnly}
+              onChange={(e) => setRosterOnly(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500"
+            />
+            <span>
+              <span className="font-medium">Roster only (no login)</span>
+              <span className="block text-xs text-slate-500">
+                Track this person on the org chart without giving them an account. No email or password required.
+              </span>
+            </span>
+          </label>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">First Name *</label>
@@ -97,11 +127,13 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
               <input required className={inputCls} value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} />
             </div>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1">Email *</label>
-            <input required type="email" className={inputCls} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          </div>
-          {!user && (
+          {!rosterOnly && (
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Email *</label>
+              <input required={!rosterOnly} type="email" className={inputCls} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            </div>
+          )}
+          {!user && !rosterOnly && (
             <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
               <input
                 type="checkbox"
@@ -112,14 +144,14 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
               Send email invitation (user sets their own password)
             </label>
           )}
-          {!(invite && !user) && (
+          {!rosterOnly && !(invite && !user) && (
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">
                 Password {user ? '(leave blank to keep current)' : '*'}
               </label>
               <input
                 type="password"
-                required={!user}
+                required={!user && !rosterOnly}
                 className={inputCls}
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
@@ -127,7 +159,7 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
               />
             </div>
           )}
-          {invite && !user && (
+          {invite && !user && !rosterOnly && (
             <p className="text-xs text-slate-500">
               An invitation email with a link to set a password (and the team's meeting link) will be sent to this address.
             </p>
@@ -153,7 +185,17 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
               </select>
             </div>
           </div>
-          {user && (
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">Job Duties (one per line)</label>
+            <textarea
+              rows={4}
+              className={inputCls}
+              value={jobDuties}
+              onChange={(e) => setJobDuties(e.target.value)}
+              placeholder={'Duty 1\nDuty 2\nDuty 3'}
+            />
+          </div>
+          {user && !rosterOnly && (
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -218,7 +260,7 @@ const UserManagement: React.FC = () => {
     setNotice(null)
     try {
       await resendInviteApi(user.id)
-      setNotice(`Invitation re-sent to ${user.email}.`)
+      setNotice(`Invitation re-sent to ${user.email || 'user'}.`)
       setTimeout(() => setNotice(null), 5000)
       await loadUsers()
     } catch (e: any) {
@@ -230,7 +272,7 @@ const UserManagement: React.FC = () => {
     if (!search) return true
     const q = search.toLowerCase()
     return (
-      u.email.toLowerCase().includes(q) ||
+      (u.email || '').toLowerCase().includes(q) ||
       u.first_name.toLowerCase().includes(q) ||
       u.last_name.toLowerCase().includes(q)
     )
@@ -304,7 +346,11 @@ const UserManagement: React.FC = () => {
                           <span className="text-white font-medium">{u.first_name || ''} {u.last_name || ''}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-400">{u.email}</td>
+                      <td className="px-4 py-3 text-slate-400">
+                        {u.roster_only
+                          ? <span className="text-slate-500 italic text-xs">roster only · no login</span>
+                          : (u.email || <span className="text-slate-600">—</span>)}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5">
                           <StatusBadge status={u.role} />

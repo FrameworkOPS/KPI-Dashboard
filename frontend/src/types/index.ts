@@ -1,11 +1,13 @@
 export interface User {
   id: string;
-  email: string;
+  email: string | null;
   first_name: string;
   last_name: string;
   role: 'admin' | 'leadership' | 'manager' | 'team_member';
   team: 'sales' | 'production' | 'office' | 'leadership' | 'all';
   active: boolean;
+  roster_only?: boolean;
+  job_duties?: string[];
   invited?: boolean;
 }
 

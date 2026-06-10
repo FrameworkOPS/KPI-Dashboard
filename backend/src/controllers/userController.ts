@@ -35,7 +35,7 @@ async function teamMeetingLink(team: string): Promise<string | null> {
 export async function getUsers(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const result = await pool.query(
-      `SELECT id, email, first_name, last_name, role, team, active, created_at,
+      `SELECT id, email, first_name, last_name, role, team, active, roster_only, job_duties, created_at,
               (invite_token IS NOT NULL) AS invited
        FROM users
        ORDER BY first_name, last_name`
@@ -48,13 +48,10 @@ export async function getUsers(req: AuthRequest, res: Response, next: NextFuncti
 
 export async function createUser(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { email, password, first_name, last_name, role, team, active, invite } = req.body;
+    const { email, password, first_name, last_name, role, team, active, invite, roster_only, job_duties } = req.body;
     const wantsInvite = invite === true || invite === 'true';
+    const isRosterOnly = roster_only === true || roster_only === 'true';
 
-    if (!email) {
-      res.status(400).json({ error: 'email is required' });
-      return;
-    }
     if (role && !VALID_ROLES.includes(role)) {
       res.status(400).json({ error: `role must be one of: ${VALID_ROLES.join(', ')}` });
       return;
@@ -63,24 +60,36 @@ export async function createUser(req: AuthRequest, res: Response, next: NextFunc
       res.status(400).json({ error: `team must be one of: ${VALID_TEAMS.join(', ')}` });
       return;
     }
-
-    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase().trim()]);
-    if (existing.rows.length > 0) {
-      res.status(409).json({ error: 'A user with that email already exists' });
+    if (!isRosterOnly && !email) {
+      res.status(400).json({ error: 'email is required' });
       return;
     }
+    if (!isRosterOnly) {
+      const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase().trim()]);
+      if (existing.rows.length > 0) {
+        res.status(409).json({ error: 'A user with that email already exists' });
+        return;
+      }
+    }
 
-    let password_hash: string;
+    let password_hash: string | null = null;
     let inviteToken: string | null = null;
     let inviteExpires: Date | null = null;
     let isActive: boolean;
+    let emailValue: string | null = null;
 
-    if (wantsInvite) {
+    if (isRosterOnly) {
+      // Org-chart-only person: no auth, can never log in (active=false + no hash).
+      password_hash = null;
+      isActive = false;
+      emailValue = email ? email.toLowerCase().trim() : null;
+    } else if (wantsInvite) {
       // Invited users get an unusable random password + are inactive until they accept.
       password_hash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 12);
       inviteToken = makeInviteToken();
       inviteExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       isActive = false;
+      emailValue = email.toLowerCase().trim();
     } else {
       if (!password) {
         res.status(400).json({ error: 'password is required (or set invite: true to send an invitation)' });
@@ -92,14 +101,21 @@ export async function createUser(req: AuthRequest, res: Response, next: NextFunc
       }
       password_hash = await bcrypt.hash(password, 12);
       isActive = active !== false;
+      emailValue = email.toLowerCase().trim();
     }
 
+    const dutiesArr = Array.isArray(job_duties)
+      ? job_duties.map((d: unknown) => String(d).trim()).filter(Boolean)
+      : [];
+
     const result = await pool.query(
-      `INSERT INTO users (email, password_hash, first_name, last_name, role, team, active, invite_token, invite_expires)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, email, first_name, last_name, role, team, active, created_at, (invite_token IS NOT NULL) AS invited`,
+      `INSERT INTO users (email, password_hash, first_name, last_name, role, team, active,
+                          invite_token, invite_expires, roster_only, job_duties)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
+       RETURNING id, email, first_name, last_name, role, team, active, roster_only, job_duties,
+                 created_at, (invite_token IS NOT NULL) AS invited`,
       [
-        email.toLowerCase().trim(),
+        emailValue,
         password_hash,
         first_name || '',
         last_name || '',
@@ -108,12 +124,14 @@ export async function createUser(req: AuthRequest, res: Response, next: NextFunc
         isActive,
         inviteToken,
         inviteExpires,
+        isRosterOnly,
+        JSON.stringify(dutiesArr),
       ]
     );
     const user = result.rows[0];
 
     let email_warning: string | undefined;
-    if (wantsInvite) {
+    if (wantsInvite && !isRosterOnly) {
       if (!isEmailConfigured()) {
         email_warning = 'User created, but email is not configured (set SMTP_USER / SMTP_PASS on the server). Use "Resend Invite" once email works.';
       } else {
@@ -181,7 +199,7 @@ export async function resendInvite(req: AuthRequest, res: Response, next: NextFu
 export async function updateUser(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const { email, password, first_name, last_name, role, team, active } = req.body;
+    const { email, password, first_name, last_name, role, team, active, roster_only, job_duties } = req.body;
 
     const existing = await pool.query('SELECT id FROM users WHERE id = $1', [id]);
     if (existing.rows.length === 0) {
@@ -194,12 +212,20 @@ export async function updateUser(req: AuthRequest, res: Response, next: NextFunc
     const values: unknown[] = [];
     let p = 1;
 
-    if (email !== undefined)      { sets.push(`email = $${p++}`);       values.push(email.toLowerCase().trim()); }
-    if (first_name !== undefined) { sets.push(`first_name = $${p++}`);  values.push(first_name); }
-    if (last_name !== undefined)  { sets.push(`last_name = $${p++}`);   values.push(last_name); }
-    if (role !== undefined)       { sets.push(`role = $${p++}`);        values.push(role); }
-    if (team !== undefined)       { sets.push(`team = $${p++}`);        values.push(team); }
-    if (active !== undefined)     { sets.push(`active = $${p++}`);      values.push(active); }
+    if (email !== undefined)       { sets.push(`email = $${p++}`);        values.push(email ? email.toLowerCase().trim() : null); }
+    if (first_name !== undefined)  { sets.push(`first_name = $${p++}`);   values.push(first_name); }
+    if (last_name !== undefined)   { sets.push(`last_name = $${p++}`);    values.push(last_name); }
+    if (role !== undefined)        { sets.push(`role = $${p++}`);         values.push(role); }
+    if (team !== undefined)        { sets.push(`team = $${p++}`);         values.push(team); }
+    if (active !== undefined)      { sets.push(`active = $${p++}`);       values.push(active); }
+    if (roster_only !== undefined) { sets.push(`roster_only = $${p++}`);  values.push(!!roster_only); }
+    if (job_duties !== undefined) {
+      const dutiesArr = Array.isArray(job_duties)
+        ? job_duties.map((d: unknown) => String(d).trim()).filter(Boolean)
+        : [];
+      sets.push(`job_duties = $${p++}::jsonb`);
+      values.push(JSON.stringify(dutiesArr));
+    }
 
     if (password) {
       const hash = await bcrypt.hash(password, 12);
@@ -217,7 +243,7 @@ export async function updateUser(req: AuthRequest, res: Response, next: NextFunc
 
     const result = await pool.query(
       `UPDATE users SET ${sets.join(', ')} WHERE id = $${p}
-       RETURNING id, email, first_name, last_name, role, team, active, created_at`,
+       RETURNING id, email, first_name, last_name, role, team, active, roster_only, job_duties, created_at`,
       values
     );
 
