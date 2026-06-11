@@ -22,6 +22,7 @@ import Meetings from './pages/Meetings'
 import UserManagement from './pages/UserManagement'
 import Integrations from './pages/Integrations'
 import JobNimbusDashboard from './pages/JobNimbusDashboard'
+import PeopleAnalyzer from './pages/PeopleAnalyzer'
 
 const App: React.FC = () => {
   const { loadUser } = useAuthStore()
@@ -157,6 +158,17 @@ const App: React.FC = () => {
             <ProtectedRoute roles={['admin']}>
               <Layout>
                 <Integrations />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/people-analyzer"
+          element={
+            <ProtectedRoute roles={['admin']}>
+              <Layout>
+                <PeopleAnalyzer />
               </Layout>
             </ProtectedRoute>
           }
