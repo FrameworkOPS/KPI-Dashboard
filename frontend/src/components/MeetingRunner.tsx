@@ -5,7 +5,7 @@ import {
   completeMeetingApi,
 } from '../services/api'
 import { Meeting, MeetingStage, MeetingAttendance } from '../types'
-import { fireMeetingCompleteConfetti } from '../utils/confetti'
+import { beep, fireMeetingCompleteConfetti } from '../utils/confetti'
 
 interface Props {
   meeting: Meeting
@@ -74,6 +74,24 @@ const MeetingRunner: React.FC<Props> = ({ meeting, onClose, onComplete }) => {
     const elapsed = Math.floor((now - new Date(currentStage.started_at).getTime()) / 1000)
     return currentStage.planned_minutes * 60 - elapsed
   }, [currentStage, now])
+
+  // Beep cues: one warning at exactly 60s remaining, two beeps at 0s. Tracked
+  // per stage via a ref so we don't replay them on every tick.
+  const beepedRef = useRef<Record<string, { warned: boolean; ended: boolean }>>({})
+  useEffect(() => {
+    if (!currentStage) return
+    const state = beepedRef.current[currentStage.id] || { warned: false, ended: false }
+    if (!state.warned && stageRemaining <= 60 && stageRemaining > 0) {
+      beep(660, 180)
+      state.warned = true
+    }
+    if (!state.ended && stageRemaining <= 0) {
+      beep(523, 240)
+      window.setTimeout(() => beep(523, 240), 280)
+      state.ended = true
+    }
+    beepedRef.current[currentStage.id] = state
+  }, [currentStage, stageRemaining])
 
   const handleAdvance = useCallback(async () => {
     if (!currentStage) return

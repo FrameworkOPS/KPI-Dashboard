@@ -658,6 +658,56 @@ export async function initializeDatabase(): Promise<void> {
       WHERE NOT EXISTS (SELECT 1 FROM issues WHERE team='leadership' AND title='People')
     `);
 
+    // ── People Analyzer (EOS quarterly review) ────────────────────────────────
+    // core_values: the company-wide values each person is scored against.
+    // people_analyzer_entries: one row per (subject, quarter, year). Stores
+    //   value_scores as { core_value_id -> '+' | '-' | '+/-' } and gwc as
+    //   { get, want, capacity } booleans. Notes are free text.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS core_values (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        name VARCHAR(120) NOT NULL,
+        description TEXT,
+        sort_order INT NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS people_analyzer_entries (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        subject_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        quarter INT NOT NULL CHECK (quarter BETWEEN 1 AND 4),
+        year INT NOT NULL,
+        value_scores JSONB NOT NULL DEFAULT '{}',
+        gwc_get BOOLEAN,
+        gwc_want BOOLEAN,
+        gwc_capacity BOOLEAN,
+        notes TEXT,
+        evaluated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        UNIQUE(subject_user_id, quarter, year)
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_pae_subject ON people_analyzer_entries(subject_user_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_pae_quarter_year ON people_analyzer_entries(quarter, year)`);
+
+    // Seed default SkyRight core values (idempotent — only adds them if the
+    // table is empty so admins can edit/replace without them coming back).
+    await client.query(`
+      INSERT INTO core_values (name, description, sort_order)
+      SELECT * FROM (VALUES
+        ('Do the Right Thing',    'Integrity in every job, every quote, every conversation.', 0),
+        ('Own the Outcome',       'Take responsibility — no excuses, no finger-pointing.',     1),
+        ('Move with Urgency',     'Roof leaks don''t wait. We don''t either.',                 2),
+        ('Be Coachable',          'Stay humble, seek feedback, get better every week.',        3),
+        ('Customer for Life',     'Every interaction earns the next referral.',                4)
+      ) AS v(name, description, sort_order)
+      WHERE NOT EXISTS (SELECT 1 FROM core_values)
+    `);
+
     console.log('Database initialized successfully');
   } finally {
     client.release();

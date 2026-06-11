@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import Header from '../components/Header'
 import StatCard from '../components/StatCard'
 import StatusBadge from '../components/StatusBadge'
+import NextMeetingCard from '../components/NextMeetingCard'
 import {
   getRocksApi,
   getIssuesApi,
@@ -32,35 +33,36 @@ const Dashboard: React.FC = () => {
   const endOfWeek = new Date(today)
   endOfWeek.setDate(today.getDate() + (7 - today.getDay()))
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true)
-      try {
-        const now = new Date()
-        const [rocksRes, issuesRes, todosRes, meetingsRes] = await Promise.all([
-          getRocksApi(undefined, Math.ceil((now.getMonth() + 1) / 3), now.getFullYear()),
-          getIssuesApi(undefined, 'open'),
-          getTodosApi(),
-          getMeetingsApi(),
-        ])
-        setRocks(rocksRes.data)
-        setIssues(issuesRes.data)
-        setTodos(todosRes.data)
-        setMeetings(meetingsRes.data)
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const now = new Date()
+      // Use allSettled so a single 5xx (e.g. transient JN/QBO failure) doesn't
+      // wipe out the whole dashboard. Each tile renders independently.
+      const [rocksRes, issuesRes, todosRes, meetingsRes] = await Promise.allSettled([
+        getRocksApi(undefined, Math.ceil((now.getMonth() + 1) / 3), now.getFullYear()),
+        getIssuesApi(undefined, 'open'),
+        getTodosApi(),
+        getMeetingsApi(),
+      ])
+      if (rocksRes.status    === 'fulfilled') setRocks(rocksRes.value.data)
+      if (issuesRes.status   === 'fulfilled') setIssues(issuesRes.value.data)
+      if (todosRes.status    === 'fulfilled') setTodos(todosRes.value.data)
+      if (meetingsRes.status === 'fulfilled') setMeetings(meetingsRes.value.data)
 
-        if (user?.role === 'admin' || user?.role === 'leadership') {
-          const [qboRes, jnRes] = await Promise.allSettled([getQBOSummaryApi(), getJobNimbusSummaryApi()])
-          if (qboRes.status === 'fulfilled') setQbo(qboRes.value.data)
-          if (jnRes.status === 'fulfilled') setJn(jnRes.value.data)
-        }
-      } catch (e: any) {
-        setError(e.message || 'Failed to load dashboard data')
-      } finally {
-        setLoading(false)
+      if (user?.role === 'admin' || user?.role === 'leadership') {
+        const [qboRes, jnRes] = await Promise.allSettled([getQBOSummaryApi(), getJobNimbusSummaryApi()])
+        if (qboRes.status === 'fulfilled') setQbo(qboRes.value.data)
+        if (jnRes.status === 'fulfilled') setJn(jnRes.value.data)
       }
+    } catch (e: any) {
+      setError(e.message || 'Failed to load dashboard data')
+    } finally {
+      setLoading(false)
     }
-    load()
   }, [user])
+
+  useEffect(() => { load() }, [load])
 
   const openRocks = rocks.filter((r) => r.status !== 'done').length
   const openIssues = issues.filter((i) => i.status === 'open').length
@@ -108,6 +110,9 @@ const Dashboard: React.FC = () => {
     <>
       <Header title="Dashboard" />
       <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+
+        {/* Next meeting CTA — biggest action on this page */}
+        <NextMeetingCard meetings={meetings} onMeetingChanged={load} />
 
         {/* Stat cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

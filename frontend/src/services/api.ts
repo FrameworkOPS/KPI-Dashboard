@@ -195,6 +195,35 @@ export const completeMeetingApi = (
   attendance: { user_id: string; status: 'present' | 'absent'; rating?: number | null; comments?: string | null }[],
 ) => api.post(`/meetings/${id}/complete`, { attendance })
 
+// ── People Analyzer (admin) ───────────────────────────────────────────────────
+export const listCoreValuesApi = () =>
+  api.get('/people-analyzer/core-values')
+
+export const createCoreValueApi = (data: { name: string; description?: string; sort_order?: number }) =>
+  api.post('/people-analyzer/core-values', data)
+
+export const updateCoreValueApi = (
+  id: string,
+  data: { name?: string; description?: string; sort_order?: number; is_active?: boolean },
+) => api.put(`/people-analyzer/core-values/${id}`, data)
+
+export const deleteCoreValueApi = (id: string) =>
+  api.delete(`/people-analyzer/core-values/${id}`)
+
+export const listAnalyzerEntriesApi = (quarter: number, year: number) =>
+  api.get('/people-analyzer/entries', { params: { quarter, year } })
+
+export const upsertAnalyzerEntryApi = (data: {
+  subject_user_id: string;
+  quarter: number;
+  year: number;
+  value_scores: Record<string, string>;
+  gwc_get: boolean | null;
+  gwc_want: boolean | null;
+  gwc_capacity: boolean | null;
+  notes?: string;
+}) => api.post('/people-analyzer/entries', data)
+
 // ── Integrations — QuickBooks ─────────────────────────────────────────────────
 export const getQBOSummaryApi = () =>
   api.get('/integrations/qbo')

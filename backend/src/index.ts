@@ -18,6 +18,7 @@ import vtoRoutes from './routes/vtoRoutes';
 import accountabilityRoutes from './routes/accountabilityRoutes';
 import meetingsRoutes from './routes/meetingsRoutes';
 import integrationRoutes from './routes/integrationRoutes';
+import peopleAnalyzerRoutes from './routes/peopleAnalyzerRoutes';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '5001', 10);
@@ -61,6 +62,7 @@ app.use('/api/vto', vtoRoutes);
 app.use('/api/accountability', accountabilityRoutes);
 app.use('/api/meetings', meetingsRoutes);
 app.use('/api/integrations', integrationRoutes);
+app.use('/api/people-analyzer', peopleAnalyzerRoutes);
 
 // Serve frontend static files
 const frontendDist = path.join(__dirname, '../../frontend/dist');

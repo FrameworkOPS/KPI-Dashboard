@@ -164,6 +164,34 @@ export interface MeetingAttendance {
   email: string | null;
 }
 
+export interface CoreValue {
+  id: string;
+  name: string;
+  description: string | null;
+  sort_order: number;
+  is_active: boolean;
+}
+
+export type ValueScore = '+' | '-' | '+/-'
+
+export interface PeopleAnalyzerRow {
+  user_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  role: string;
+  team: string;
+  roster_only: boolean;
+  entry_id: string | null;
+  value_scores: Record<string, ValueScore> | null;
+  gwc_get: boolean | null;
+  gwc_want: boolean | null;
+  gwc_capacity: boolean | null;
+  notes: string | null;
+  evaluated_by: string | null;
+  updated_at: string | null;
+}
+
 export interface QBOSummary {
   total_revenue: number;
   total_expenses: number;
