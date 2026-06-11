@@ -13,10 +13,11 @@ import {
 } from '../services/api'
 import { Rock, Issue, Todo, Meeting, QBOSummary, JobNimbusSummary } from '../types'
 import { useAuthStore } from '../store/authStore'
+import { isoDate, parseLocalDate } from '../utils/dates'
 
 const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 const fmtDate = (d: string) =>
-  new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  new Date(isoDate(d) + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 
 const Dashboard: React.FC = () => {
   const { user } = useAuthStore()
@@ -73,8 +74,8 @@ const Dashboard: React.FC = () => {
     return d <= endOfWeek
   }).length
   const nextMeeting = meetings
-    .filter((m) => m.status !== 'complete' && new Date(m.meeting_date) >= today)
-    .sort((a, b) => new Date(a.meeting_date).getTime() - new Date(b.meeting_date).getTime())[0]
+    .filter((m) => m.status !== 'complete' && parseLocalDate(m.meeting_date) >= today)
+    .sort((a, b) => parseLocalDate(a.meeting_date).getTime() - parseLocalDate(b.meeting_date).getTime())[0]
 
   const recentIssues = [...issues].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
