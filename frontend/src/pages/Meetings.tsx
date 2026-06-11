@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react'
 import Header from '../components/Header'
 import TeamFilter from '../components/TeamFilter'
 import StatusBadge from '../components/StatusBadge'
+import MeetingRunner from '../components/MeetingRunner'
 import {
   getMeetingsApi,
   createMeetingApi,
@@ -284,6 +285,7 @@ const Meetings: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null)
+  const [runningMeeting, setRunningMeeting] = useState<Meeting | null>(null)
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [createForm, setCreateForm] = useState({
     team: user?.role === 'manager' ? user.team : 'leadership',
@@ -476,6 +478,19 @@ const Meetings: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2 flex-shrink-0">
+                      {/* Start / Resume meeting — primary action for active meetings */}
+                      {meeting.status !== 'complete' && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setRunningMeeting(meeting) }}
+                          className="flex items-center gap-1 px-2.5 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-semibold transition-colors"
+                        >
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          {meeting.status === 'in_progress' ? 'Resume' : 'Start'}
+                        </button>
+                      )}
                       {/* Quick action buttons — stop propagation so they don't open modal */}
                       <button
                         onClick={async (e) => {
@@ -543,6 +558,13 @@ const Meetings: React.FC = () => {
           meeting={selectedMeeting}
           onUpdate={() => { loadMeetings(); setSelectedMeeting(null) }}
           onClose={() => setSelectedMeeting(null)}
+        />
+      )}
+      {runningMeeting && (
+        <MeetingRunner
+          meeting={runningMeeting}
+          onClose={() => { loadMeetings(); setRunningMeeting(null) }}
+          onComplete={() => { loadMeetings(); setRunningMeeting(null) }}
         />
       )}
     </>

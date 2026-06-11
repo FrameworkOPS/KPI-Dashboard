@@ -5,6 +5,7 @@ import StatusBadge from '../components/StatusBadge'
 import { getRocksApi, createRockApi, updateRockApi, deleteRockApi, getUsersApi } from '../services/api'
 import { Rock, TeamType, User } from '../types'
 import { useAuthStore } from '../store/authStore'
+import { fireRockDoneConfetti } from '../utils/confetti'
 
 const statusColumns: { key: Rock['status']; label: string }[] = [
   { key: 'not_started', label: 'Not Started' },
@@ -52,11 +53,14 @@ const RockModal: React.FC<RockModalProps> = ({ rock, users, teams, onClose, onSa
     e.preventDefault()
     setSaving(true)
     try {
+      const wasDone = rock?.status === 'done'
       if (rock) {
         await updateRockApi(rock.id, form)
       } else {
         await createRockApi(form)
       }
+      // Confetti when a rock moves into the done column.
+      if (form.status === 'done' && !wasDone) fireRockDoneConfetti()
       onSave()
       onClose()
     } catch (e: any) {

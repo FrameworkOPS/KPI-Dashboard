@@ -180,6 +180,21 @@ export const deleteMeetingApi = (id: string) =>
 export const sendMeetingReminderApi = (id: string, emails?: string[]) =>
   api.post(`/meetings/${id}/reminder`, emails ? { emails } : {})
 
+// Meeting runner
+export const startMeetingApi = (id: string) =>
+  api.post(`/meetings/${id}/start`)
+
+export const getMeetingStagesApi = (id: string) =>
+  api.get(`/meetings/${id}/stages`)
+
+export const advanceMeetingStageApi = (id: string, stage_key?: string) =>
+  api.post(`/meetings/${id}/advance`, stage_key ? { stage_key } : {})
+
+export const completeMeetingApi = (
+  id: string,
+  attendance: { user_id: string; status: 'present' | 'absent'; rating?: number | null; comments?: string | null }[],
+) => api.post(`/meetings/${id}/complete`, { attendance })
+
 // ── Integrations — QuickBooks ─────────────────────────────────────────────────
 export const getQBOSummaryApi = () =>
   api.get('/integrations/qbo')

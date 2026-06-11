@@ -309,6 +309,49 @@ export async function initializeDatabase(): Promise<void> {
     await client.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS meeting_link TEXT`);
     await client.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS attendee_emails JSONB DEFAULT '[]'`);
     await client.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN DEFAULT false`);
+    // Recurring weekly meetings: lazily upserted by the meetings list endpoint.
+    // `is_recurring` flags rows generated from a weekly rule (vs. one-off);
+    // `started_at` / `completed_at` capture the actual run times for the runner.
+    await client.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS is_recurring BOOLEAN NOT NULL DEFAULT false`);
+    await client.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS started_at TIMESTAMP`);
+    await client.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP`);
+    // Non-unique index to keep recurring-meeting upsert lookups fast.
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_meetings_team_date ON meetings(team, meeting_date)`);
+
+    // Meeting stages — the EOS Level 10 agenda steps as runtime state, so the
+    // in-meeting wizard can track which step is active and how long it took.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS meeting_stages (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        meeting_id UUID NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+        stage_key VARCHAR(50) NOT NULL,
+        label VARCHAR(100) NOT NULL,
+        planned_minutes INT NOT NULL,
+        sort_order INT NOT NULL,
+        started_at TIMESTAMP,
+        completed_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        UNIQUE(meeting_id, stage_key)
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_meeting_stages_meeting ON meeting_stages(meeting_id)`);
+
+    // Meeting attendance — one row per (meeting, user). Captures present/absent
+    // and the post-meeting 1–10 rating from each attendee.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS meeting_attendance (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        meeting_id UUID NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        status VARCHAR(20) NOT NULL DEFAULT 'present',
+        rating INT CHECK (rating BETWEEN 1 AND 10),
+        comments TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        UNIQUE(meeting_id, user_id)
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_meeting_attendance_meeting ON meeting_attendance(meeting_id)`);
 
     // Seed VTO sections
     const vtoSections = [
@@ -506,14 +549,15 @@ export async function initializeDatabase(): Promise<void> {
       UPDATE scorecard_entries SET data_source = 'manual' WHERE data_source = 'hubspot'
     `);
 
-    // Seed leadership scorecard templates
+    // Seed leadership scorecard templates. Metrics that JobNimbus auto-fills
+    // (Weekly Sales → "$ Sold (JobNimbus)", Closing Rate → "Closing Rate
+    // (JobNimbus)", Appointments → "New Leads (JobNimbus)") are intentionally
+    // omitted here so they don't get re-created on every boot after the JN
+    // dedup migration deletes them.
     await client.query(`
       INSERT INTO scorecard_templates (team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order)
       SELECT * FROM (VALUES
-        ('leadership', 'Weekly Sales',          120000::DECIMAL,    '$120,000',           'currency', false,  1),
         ('leadership', 'Total Sales (YTD)',     10000000::DECIMAL,  '$10,000,000',        'currency', false,  2),
-        ('leadership', 'Closing Rate',          0.40::DECIMAL,      '40%',                'percent',  false,  3),
-        ('leadership', 'Appointments',          12::DECIMAL,        '12',                 'number',   false,  4),
         ('leadership', 'Weekly Invoiced',       120000::DECIMAL,    '$120K / $230K',      'currency', false,  5),
         ('leadership', 'Total Invoiced (YTD)',  9000000::DECIMAL,   '$9,000,000',         'currency', false,  6),
         ('leadership', 'Backlog (Weeks)',        4::DECIMAL,        '4 weeks',            'number',   true,   7),
@@ -524,28 +568,19 @@ export async function initializeDatabase(): Promise<void> {
         ('leadership', 'AR',                    500000::DECIMAL,    '$500,000',           'currency', false,  12),
         ('leadership', 'DSO (Days)',             20::DECIMAL,       '20 days',            'number',   true,   13)
       ) AS v(team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order)
-      WHERE NOT EXISTS (SELECT 1 FROM scorecard_templates WHERE team = 'leadership')
+      ON CONFLICT (team, metric_name) DO NOTHING
     `);
 
-    // Seed current week (2026-04-05) leadership scorecard entries
+    // Belt-and-suspenders: if a previous boot seeded the dedup'd manual
+    // metrics, drop them now. JN sync also does this, but doing it here keeps
+    // the scorecard clean even if a JN sync hasn't run yet.
     await client.query(`
-      INSERT INTO scorecard_entries (team, week_of, metric_name, goal, goal_text, actual, is_on_track, display_format, lower_is_better, data_source, notes)
-      SELECT * FROM (VALUES
-        ('leadership','2026-04-05'::DATE,'Weekly Sales',         120000::DECIMAL,   '$120,000',      15564::DECIMAL,       false, 'currency', false, 'manual',   'Weighted by the week'),
-        ('leadership','2026-04-05'::DATE,'Total Sales (YTD)',    10000000::DECIMAL, '$10,000,000',   812648.45::DECIMAL,   true,  'currency', false, 'manual',   ''),
-        ('leadership','2026-04-05'::DATE,'Closing Rate',         0.40::DECIMAL,     '40%',           0.18::DECIMAL,        false, 'percent',  false, 'manual',   ''),
-        ('leadership','2026-04-05'::DATE,'Appointments',         12::DECIMAL,       '12',            21::DECIMAL,          true,  'number',   false, 'manual',   ''),
-        ('leadership','2026-04-05'::DATE,'Weekly Invoiced',      120000::DECIMAL,   '$120K / $230K', 17646::DECIMAL,       false, 'currency', false, 'qbo',      ''),
-        ('leadership','2026-04-05'::DATE,'Total Invoiced (YTD)', 9000000::DECIMAL,  '$9,000,000',    898129.49::DECIMAL,   true,  'currency', false, 'qbo',      ''),
-        ('leadership','2026-04-05'::DATE,'Backlog (Weeks)',       4::DECIMAL,       '4 weeks',       8::DECIMAL,           false, 'number',   true,  'manual',   ''),
-        ('leadership','2026-04-05'::DATE,'Callbacks (Weeks)',     1::DECIMAL,       '1 week',        3::DECIMAL,           true,  'number',   true,  'manual',   ''),
-        ('leadership','2026-04-05'::DATE,'COGS % (YTD)',          0.59::DECIMAL,    '59%',           0.76::DECIMAL,        false, 'percent',  true,  'qbo',      'Big delivery billed this week for Charter Academy. Will balance with end of month billing.'),
-        ('leadership','2026-04-05'::DATE,'Net % (YTD)',           0.175::DECIMAL,   '17.5%',         -0.1775::DECIMAL,     false, 'percent',  false, 'qbo',      ''),
-        ('leadership','2026-04-05'::DATE,'Cash Balance',          100000::DECIMAL,  'Min $100,000',  168855::DECIMAL,      true,  'currency', false, 'qbo',      ''),
-        ('leadership','2026-04-05'::DATE,'AR',                    500000::DECIMAL,  '$500,000',      500000::DECIMAL,      true,  'currency', false, 'qbo',      ''),
-        ('leadership','2026-04-05'::DATE,'DSO (Days)',            20::DECIMAL,      '20 days',       37.4::DECIMAL,        false, 'number',   true,  'qbo',      '')
-      ) AS v(team, week_of, metric_name, goal, goal_text, actual, is_on_track, display_format, lower_is_better, data_source, notes)
-      WHERE NOT EXISTS (SELECT 1 FROM scorecard_entries WHERE team='leadership' AND week_of='2026-04-05')
+      DELETE FROM scorecard_entries
+       WHERE team = 'leadership' AND metric_name IN ('Weekly Sales','Closing Rate','Appointments')
+    `);
+    await client.query(`
+      DELETE FROM scorecard_templates
+       WHERE team = 'leadership' AND metric_name IN ('Weekly Sales','Closing Rate','Appointments')
     `);
 
     // Seed sales scorecard templates
