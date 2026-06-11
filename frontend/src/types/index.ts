@@ -136,6 +136,32 @@ export interface Meeting {
   status: 'scheduled' | 'in_progress' | 'complete';
   reminder_sent: boolean;
   created_by: string;
+  is_recurring?: boolean;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface MeetingStage {
+  id: string;
+  meeting_id: string;
+  stage_key: string;
+  label: string;
+  planned_minutes: number;
+  sort_order: number;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface MeetingAttendance {
+  id: string;
+  meeting_id: string;
+  user_id: string;
+  status: 'present' | 'absent';
+  rating: number | null;
+  comments: string | null;
+  first_name: string;
+  last_name: string;
+  email: string | null;
 }
 
 export interface QBOSummary {

@@ -4,8 +4,67 @@ import { AuthRequest } from '../middleware/auth';
 import { canAccessTeam } from '../utils/auth';
 import { sendMeetingReminder } from '../services/emailService';
 
+// EOS Level 10 meeting agenda — keep in sync with the frontend MeetingRunner.
+// `sort_order` drives the wizard, `planned_minutes` drives the per-stage timer.
+const MEETING_STAGES: { key: string; label: string; minutes: number }[] = [
+  { key: 'segue',     label: 'Segue',           minutes: 5 },
+  { key: 'scorecard', label: 'Scorecard',       minutes: 5 },
+  { key: 'rocks',     label: 'Rock Review',     minutes: 5 },
+  { key: 'headlines', label: 'Headlines',       minutes: 5 },
+  { key: 'todos',     label: 'To-Do List',      minutes: 5 },
+  { key: 'ids',       label: 'IDS — Issues',    minutes: 60 },
+  { key: 'conclude',  label: 'Conclude',        minutes: 5 },
+];
+
+// Recurring meeting rules: every week, one meeting per team on the named day at
+// 08:30 (interpreted as the team's local time by the calendar/reminder layer).
+// dayOfWeek follows JS conventions: 0=Sun, 1=Mon, …
+const RECURRING_RULES: { team: string; dayOfWeek: number; time: string }[] = [
+  { team: 'production', dayOfWeek: 2, time: '08:30' }, // Tuesday
+  { team: 'leadership', dayOfWeek: 3, time: '08:30' }, // Wednesday
+  { team: 'sales',      dayOfWeek: 4, time: '08:30' }, // Thursday
+];
+
+function weekDateForDow(reference: Date, targetDow: number): string {
+  // Returns YYYY-MM-DD for the given day-of-week within the same week (Mon-start)
+  // containing `reference`.
+  const d = new Date(reference);
+  d.setHours(0, 0, 0, 0);
+  const currentDow = d.getDay(); // 0=Sun..6=Sat
+  // Treat Monday as the week anchor: shift so Mon=0..Sun=6
+  const fromMon = (currentDow + 6) % 7;
+  const targetFromMon = (targetDow + 6) % 7;
+  d.setDate(d.getDate() - fromMon + targetFromMon);
+  return d.toISOString().split('T')[0];
+}
+
+// Lazily ensure the recurring meeting rows exist for the current and next week.
+// Idempotent — uses the (team, meeting_date) unique index. Safe to call on
+// every GET /meetings.
+async function ensureRecurringMeetings(): Promise<void> {
+  const now = new Date();
+  const nextWeek = new Date(now); nextWeek.setDate(nextWeek.getDate() + 7);
+  for (const rule of RECURRING_RULES) {
+    for (const ref of [now, nextWeek]) {
+      const date = weekDateForDow(ref, rule.dayOfWeek);
+      // EXISTS-check insert: avoids needing a unique constraint on
+      // (team, meeting_date), which we can't add safely if old deploys have
+      // duplicate manual rows for the same team on the same day.
+      await pool.query(
+        `INSERT INTO meetings (team, meeting_date, meeting_time, status, is_recurring)
+         SELECT $1, $2::DATE, $3, 'scheduled', true
+         WHERE NOT EXISTS (
+           SELECT 1 FROM meetings WHERE team = $1 AND meeting_date = $2::DATE
+         )`,
+        [rule.team, date, rule.time],
+      );
+    }
+  }
+}
+
 export async function getMeetings(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
+    await ensureRecurringMeetings();
     const { team } = req.query;
     const user = req.user!;
 
@@ -319,6 +378,246 @@ export async function sendReminder(req: AuthRequest, res: Response, next: NextFu
       res.status(503).json({ error: 'Email not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASS in environment variables.' });
       return;
     }
+    next(err);
+  }
+}
+
+// ── Meeting runner: stages + attendance ────────────────────────────────────────
+
+async function loadStages(meetingId: unknown) {
+  const r = await pool.query(
+    'SELECT * FROM meeting_stages WHERE meeting_id = $1 ORDER BY sort_order',
+    [meetingId],
+  );
+  return r.rows;
+}
+
+async function loadAttendance(meetingId: unknown) {
+  const r = await pool.query(
+    `SELECT a.*, u.first_name, u.last_name, u.email
+       FROM meeting_attendance a
+       JOIN users u ON a.user_id = u.id
+      WHERE a.meeting_id = $1
+      ORDER BY u.first_name, u.last_name`,
+    [meetingId],
+  );
+  return r.rows;
+}
+
+// Start the meeting: seed the 7 EOS stages if not already present, mark the
+// first stage as started, flip the meeting to in_progress, and seed an
+// attendance row for every active user on the team.
+export async function startMeeting(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const user = req.user!;
+
+    const existing = await pool.query('SELECT * FROM meetings WHERE id = $1', [id]);
+    const meeting = existing.rows[0];
+    if (!meeting) {
+      res.status(404).json({ error: 'Meeting not found' });
+      return;
+    }
+    if (!canAccessTeam(user.role, user.team, meeting.team, user.teams)) {
+      res.status(403).json({ error: 'Access to this team is not allowed' });
+      return;
+    }
+
+    // Seed stages (no-op on conflict)
+    for (let i = 0; i < MEETING_STAGES.length; i++) {
+      const s = MEETING_STAGES[i];
+      await pool.query(
+        `INSERT INTO meeting_stages (meeting_id, stage_key, label, planned_minutes, sort_order)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (meeting_id, stage_key) DO NOTHING`,
+        [id, s.key, s.label, s.minutes, i],
+      );
+    }
+
+    // Start the first stage if nothing has started yet
+    await pool.query(
+      `UPDATE meeting_stages
+          SET started_at = COALESCE(started_at, NOW())
+        WHERE meeting_id = $1 AND sort_order = 0`,
+      [id],
+    );
+
+    // Seed attendance rows for every active user on the team (multi-team aware).
+    // ON CONFLICT preserves any prior status / rating.
+    await pool.query(
+      `INSERT INTO meeting_attendance (meeting_id, user_id, status)
+       SELECT $1, u.id, 'present'
+         FROM users u
+        WHERE u.active = true
+          AND (u.team = $2 OR u.teams ? $2)
+       ON CONFLICT (meeting_id, user_id) DO NOTHING`,
+      [id, meeting.team],
+    );
+
+    // Flip meeting status
+    await pool.query(
+      `UPDATE meetings
+          SET status = 'in_progress',
+              started_at = COALESCE(started_at, NOW()),
+              updated_at = NOW()
+        WHERE id = $1`,
+      [id],
+    );
+
+    const stages = await loadStages(id);
+    const attendance = await loadAttendance(id);
+    const updated = (await pool.query('SELECT * FROM meetings WHERE id = $1', [id])).rows[0];
+    res.json({ meeting: updated, stages, attendance });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getMeetingStages(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const stages = await loadStages(id);
+    const attendance = await loadAttendance(id);
+    res.json({ stages, attendance });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Advance to the next stage: mark the current one complete and start the next.
+// Accepts stage_key in the body for idempotency / out-of-order safety.
+export async function advanceStage(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const { stage_key } = req.body as { stage_key?: string };
+    const user = req.user!;
+
+    const meeting = (await pool.query('SELECT team FROM meetings WHERE id = $1', [id])).rows[0];
+    if (!meeting) {
+      res.status(404).json({ error: 'Meeting not found' });
+      return;
+    }
+    if (!canAccessTeam(user.role, user.team, meeting.team, user.teams)) {
+      res.status(403).json({ error: 'Access to this team is not allowed' });
+      return;
+    }
+
+    // Find the stage to complete: either explicit key, or the first
+    // in-progress stage.
+    const current = stage_key
+      ? (await pool.query(
+          'SELECT * FROM meeting_stages WHERE meeting_id = $1 AND stage_key = $2',
+          [id, stage_key],
+        )).rows[0]
+      : (await pool.query(
+          `SELECT * FROM meeting_stages
+            WHERE meeting_id = $1 AND completed_at IS NULL
+            ORDER BY sort_order LIMIT 1`,
+          [id],
+        )).rows[0];
+
+    if (!current) {
+      res.status(400).json({ error: 'No active stage to advance' });
+      return;
+    }
+
+    await pool.query(
+      `UPDATE meeting_stages
+          SET completed_at = COALESCE(completed_at, NOW()),
+              started_at   = COALESCE(started_at, NOW())
+        WHERE id = $1`,
+      [current.id],
+    );
+
+    // Start the next stage if one exists
+    await pool.query(
+      `UPDATE meeting_stages
+          SET started_at = COALESCE(started_at, NOW())
+        WHERE meeting_id = $1
+          AND sort_order = $2`,
+      [id, current.sort_order + 1],
+    );
+
+    const stages = await loadStages(id);
+    res.json({ stages });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Complete the meeting: capture attendance + per-attendee ratings, compute the
+// overall meeting rating as the mean of present attendees' ratings, and stamp
+// the meeting complete.
+export async function completeMeeting(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const user = req.user!;
+    const { attendance } = req.body as {
+      attendance?: { user_id: string; status: 'present' | 'absent'; rating?: number | null; comments?: string | null }[];
+    };
+
+    const meeting = (await pool.query('SELECT team FROM meetings WHERE id = $1', [id])).rows[0];
+    if (!meeting) {
+      res.status(404).json({ error: 'Meeting not found' });
+      return;
+    }
+    if (!canAccessTeam(user.role, user.team, meeting.team, user.teams)) {
+      res.status(403).json({ error: 'Access to this team is not allowed' });
+      return;
+    }
+
+    if (Array.isArray(attendance)) {
+      for (const a of attendance) {
+        if (!a.user_id) continue;
+        const status = a.status === 'absent' ? 'absent' : 'present';
+        const rating = status === 'absent' ? null
+          : (a.rating != null && a.rating >= 1 && a.rating <= 10 ? Math.round(a.rating) : null);
+        await pool.query(
+          `INSERT INTO meeting_attendance (meeting_id, user_id, status, rating, comments)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (meeting_id, user_id) DO UPDATE SET
+             status   = EXCLUDED.status,
+             rating   = EXCLUDED.rating,
+             comments = EXCLUDED.comments,
+             updated_at = NOW()`,
+          [id, a.user_id, status, rating, a.comments || null],
+        );
+      }
+    }
+
+    // Close any still-open stages
+    await pool.query(
+      `UPDATE meeting_stages
+          SET completed_at = COALESCE(completed_at, NOW()),
+              started_at   = COALESCE(started_at, NOW())
+        WHERE meeting_id = $1 AND completed_at IS NULL`,
+      [id],
+    );
+
+    // Overall rating = average of present attendees' ratings (rounded to int).
+    const avg = await pool.query(
+      `SELECT ROUND(AVG(rating))::INT AS avg_rating
+         FROM meeting_attendance
+        WHERE meeting_id = $1 AND status = 'present' AND rating IS NOT NULL`,
+      [id],
+    );
+    const overall = avg.rows[0]?.avg_rating ?? null;
+
+    await pool.query(
+      `UPDATE meetings
+          SET status = 'complete',
+              rating = COALESCE($2, rating),
+              completed_at = COALESCE(completed_at, NOW()),
+              updated_at = NOW()
+        WHERE id = $1`,
+      [id, overall],
+    );
+
+    const updated = (await pool.query('SELECT * FROM meetings WHERE id = $1', [id])).rows[0];
+    const stages = await loadStages(id);
+    const att = await loadAttendance(id);
+    res.json({ meeting: updated, stages, attendance: att });
+  } catch (err) {
     next(err);
   }
 }
