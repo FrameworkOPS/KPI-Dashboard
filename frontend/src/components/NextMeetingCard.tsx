@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import MeetingRunner from './MeetingRunner'
 import { Meeting } from '../types'
+import { parseLocalDate } from '../utils/dates'
 
 interface Props {
   meetings: Meeting[]
@@ -26,12 +27,12 @@ const NextMeetingCard: React.FC<Props> = ({ meetings, onMeetingChanged }) => {
     return meetings
       .filter(m => m.status !== 'complete')
       .filter(m => {
-        const d = new Date(m.meeting_date + 'T00:00:00')
+        const d = parseLocalDate(m.meeting_date)
         return d.getTime() >= today.getTime()
       })
       .sort((a, b) => {
-        const da = new Date(a.meeting_date).getTime()
-        const db = new Date(b.meeting_date).getTime()
+        const da = parseLocalDate(a.meeting_date).getTime()
+        const db = parseLocalDate(b.meeting_date).getTime()
         if (da !== db) return da - db
         // Same day — sort by meeting_time when present
         return (a.meeting_time || '99:99').localeCompare(b.meeting_time || '99:99')
@@ -40,7 +41,7 @@ const NextMeetingCard: React.FC<Props> = ({ meetings, onMeetingChanged }) => {
 
   if (!next) return null
 
-  const meetingDay = new Date(next.meeting_date + 'T00:00:00')
+  const meetingDay = parseLocalDate(next.meeting_date)
   const today = new Date(now); today.setHours(0, 0, 0, 0)
   const daysAway = Math.round((meetingDay.getTime() - today.getTime()) / 86_400_000)
   const isToday = daysAway === 0

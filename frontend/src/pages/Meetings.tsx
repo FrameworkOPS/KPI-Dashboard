@@ -13,15 +13,16 @@ import {
 } from '../services/api'
 import { Meeting, TeamType } from '../types'
 import { useAuthStore } from '../store/authStore'
+import { isoDate, parseLocalDate } from '../utils/dates'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmtDate = (d: string) =>
-  new Date(d + 'T00:00:00').toLocaleDateString('en-US', {
+  new Date(isoDate(d) + 'T00:00:00').toLocaleDateString('en-US', {
     weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
   })
 
 function buildGoogleCalendarUrl(meeting: Meeting): string {
-  const date = meeting.meeting_date.replace(/-/g, '')
+  const date = isoDate(meeting.meeting_date).replace(/-/g, '')
   const time = meeting.meeting_time?.replace(':', '') || '090000'
   const timeStr = time.length === 4 ? time + '00' : time
   // 1-hour event by default
@@ -346,7 +347,7 @@ const Meetings: React.FC = () => {
   }
 
   const sorted = [...meetings].sort(
-    (a, b) => new Date(b.meeting_date).getTime() - new Date(a.meeting_date).getTime()
+    (a, b) => parseLocalDate(b.meeting_date).getTime() - parseLocalDate(a.meeting_date).getTime()
   )
 
   const inputCls = 'bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent'
@@ -448,7 +449,7 @@ const Meetings: React.FC = () => {
         ) : (
           <div className="space-y-2">
             {sorted.map((meeting) => {
-              const isPast = new Date(meeting.meeting_date) < new Date()
+              const isPast = parseLocalDate(meeting.meeting_date) < new Date()
               return (
                 <div
                   key={meeting.id}
