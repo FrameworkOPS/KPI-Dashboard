@@ -39,26 +39,35 @@ function weekDateForDow(reference: Date, targetDow: number): string {
 }
 
 // Lazily ensure the recurring meeting rows exist for the current and next week.
-// Idempotent — uses the (team, meeting_date) unique index. Safe to call on
-// every GET /meetings.
+// Idempotent. Wrapped so a transient DB hiccup (or missing column on an
+// in-flight deploy) can't 500 the meetings list — worst case the recurring
+// rows just appear on the next request.
 async function ensureRecurringMeetings(): Promise<void> {
-  const now = new Date();
-  const nextWeek = new Date(now); nextWeek.setDate(nextWeek.getDate() + 7);
-  for (const rule of RECURRING_RULES) {
-    for (const ref of [now, nextWeek]) {
-      const date = weekDateForDow(ref, rule.dayOfWeek);
-      // EXISTS-check insert: avoids needing a unique constraint on
-      // (team, meeting_date), which we can't add safely if old deploys have
-      // duplicate manual rows for the same team on the same day.
-      await pool.query(
-        `INSERT INTO meetings (team, meeting_date, meeting_time, status, is_recurring)
-         SELECT $1, $2::DATE, $3, 'scheduled', true
-         WHERE NOT EXISTS (
-           SELECT 1 FROM meetings WHERE team = $1 AND meeting_date = $2::DATE
-         )`,
-        [rule.team, date, rule.time],
-      );
+  try {
+    const now = new Date();
+    const nextWeek = new Date(now); nextWeek.setDate(nextWeek.getDate() + 7);
+    for (const rule of RECURRING_RULES) {
+      for (const ref of [now, nextWeek]) {
+        const date = weekDateForDow(ref, rule.dayOfWeek);
+        // First check: does a meeting already exist for this team/date? Skip
+        // the INSERT entirely if so — avoids the only error path that could
+        // 500 the endpoint (e.g. column-not-found mid-migration).
+        const exists = await pool.query(
+          `SELECT 1 FROM meetings WHERE team = $1 AND meeting_date = $2::DATE LIMIT 1`,
+          [rule.team, date],
+        );
+        if (exists.rows.length > 0) continue;
+        await pool.query(
+          `INSERT INTO meetings (team, meeting_date, meeting_time, status, is_recurring)
+           VALUES ($1, $2::DATE, $3, 'scheduled', true)`,
+          [rule.team, date, rule.time],
+        );
+      }
     }
+  } catch (err) {
+    // Log and swallow — we never want this to kill the meetings list. If the
+    // `is_recurring` column doesn't exist yet (mid-deploy), this catches it.
+    console.error('[meetings] ensureRecurringMeetings failed:', (err as Error).message);
   }
 }
 

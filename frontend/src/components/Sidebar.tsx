@@ -104,20 +104,50 @@ interface NavItem {
   roles?: string[]
 }
 
-const navItems: NavItem[] = [
-  { to: '/',               label: 'Dashboard',      icon: <IconDashboard /> },
-  { to: '/scorecard',      label: 'Scorecard',      icon: <IconScorecard /> },
-  { to: '/rocks',          label: 'Rocks',          icon: <IconRocks /> },
-  { to: '/issues',         label: 'Issues',         icon: <IconIssues /> },
-  { to: '/todos',          label: 'To-Dos',         icon: <IconTodos /> },
-  { to: '/vto',            label: 'V/TO',           icon: <IconVTO />,            roles: ['admin', 'leadership'] },
-  { to: '/accountability', label: 'Accountability', icon: <IconAccountability /> },
-  { to: '/learning-den',   label: 'Learning Den',   icon: <IconLearning /> },
-  { to: '/meetings',       label: 'Meetings',       icon: <IconMeetings /> },
-  { to: '/jobnimbus',     label: 'JobNimbus',      icon: <IconJobNimbus />,      roles: ['admin', 'leadership'] },
-  { to: '/people-analyzer', label: 'People Analyzer', icon: <IconPeopleAnalyzer />, roles: ['admin'] },
-  { to: '/users',          label: 'Users',          icon: <IconUsers />,          roles: ['admin'] },
-  { to: '/integrations',  label: 'Integrations',   icon: <IconIntegrations />,   roles: ['admin'] },
+interface NavGroup {
+  label: string
+  items: NavItem[]
+}
+
+const navGroups: NavGroup[] = [
+  {
+    label: 'Run',
+    items: [
+      { to: '/',          label: 'Dashboard', icon: <IconDashboard /> },
+      { to: '/scorecard', label: 'Scorecard', icon: <IconScorecard /> },
+      { to: '/rocks',     label: 'Rocks',     icon: <IconRocks /> },
+      { to: '/issues',    label: 'Issues',    icon: <IconIssues /> },
+      { to: '/todos',     label: 'To-Dos',    icon: <IconTodos /> },
+    ],
+  },
+  {
+    label: 'Meet',
+    items: [
+      { to: '/meetings', label: 'Meetings', icon: <IconMeetings /> },
+    ],
+  },
+  {
+    label: 'Plan',
+    items: [
+      { to: '/vto', label: 'V/TO', icon: <IconVTO />, roles: ['admin', 'leadership'] },
+    ],
+  },
+  {
+    label: 'People',
+    items: [
+      { to: '/accountability',  label: 'Accountability',  icon: <IconAccountability /> },
+      { to: '/learning-den',    label: 'Learning Den',    icon: <IconLearning /> },
+      { to: '/people-analyzer', label: 'People Analyzer', icon: <IconPeopleAnalyzer />, roles: ['admin'] },
+      { to: '/users',           label: 'Users',           icon: <IconUsers />,          roles: ['admin'] },
+    ],
+  },
+  {
+    label: 'System',
+    items: [
+      { to: '/jobnimbus',    label: 'JobNimbus',    icon: <IconJobNimbus />,    roles: ['admin', 'leadership'] },
+      { to: '/integrations', label: 'Integrations', icon: <IconIntegrations />, roles: ['admin'] },
+    ],
+  },
 ]
 
 interface SidebarProps {
@@ -142,10 +172,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
     onClose?.()
   }
 
-  const visibleItems = navItems.filter((item) => {
-    if (!item.roles) return true
-    return user && item.roles.includes(user.role)
-  })
+  const visibleGroups = navGroups
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((item) => !item.roles || (user && item.roles.includes(user.role))),
+    }))
+    .filter((g) => g.items.length > 0)
 
   return (
     <aside className="w-72 md:w-64 bg-slate-900 border-r border-slate-700/50 flex flex-col flex-shrink-0 h-full">
@@ -170,29 +202,34 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
         )}
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-4 px-3">
-        <ul className="space-y-0.5">
-          {visibleItems.map((item) => (
-            <li key={item.to}>
-              <NavLink
-                to={item.to}
-                end={item.to === '/'}
-                onClick={handleNavClick}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-3 md:py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-blue-500/20 text-blue-400 border border-blue-500/20'
-                      : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                  }`
-                }
-              >
-                {item.icon}
-                {item.label}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
+      {/* Nav — grouped to reduce visual noise as the page count grows */}
+      <nav className="flex-1 overflow-y-auto py-3 px-3">
+        {visibleGroups.map((group, gi) => (
+          <div key={group.label} className={gi > 0 ? 'mt-4' : ''}>
+            <p className="px-3 text-[10px] font-semibold text-slate-600 uppercase tracking-widest mb-1.5">{group.label}</p>
+            <ul className="space-y-0.5">
+              {group.items.map((item) => (
+                <li key={item.to}>
+                  <NavLink
+                    to={item.to}
+                    end={item.to === '/'}
+                    onClick={handleNavClick}
+                    className={({ isActive }) =>
+                      `flex items-center gap-3 px-3 py-3 md:py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                        isActive
+                          ? 'bg-blue-500/20 text-blue-400 border border-blue-500/20'
+                          : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                      }`
+                    }
+                  >
+                    {item.icon}
+                    {item.label}
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </nav>
 
       {/* User info */}
