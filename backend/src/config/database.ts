@@ -372,12 +372,12 @@ export async function initializeDatabase(): Promise<void> {
       );
     }
 
-    // Seed known users — only inserts if email doesn't already exist
+    // Seed known users only when explicit passwords are provided.
     const seedUsers = [
-      { email: 'chance@skyright.com', password: process.env.SEED_CHANCE_PW || 'Redroad7318',  first: 'Chance', last: 'Peare',     role: 'admin',      team: 'all'        },
-      { email: 'jorn@skyright.com',   password: process.env.SEED_JORN_PW   || 'Bielefeld1',   first: 'Jorn',   last: 'Bielefeld', role: 'leadership', team: 'leadership' },
-      { email: 'pete@skyright.com',   password: process.env.SEED_PETE_PW   || 'Password',     first: 'Pete',   last: 'Hicks',     role: 'leadership', team: 'leadership' },
-    ];
+      { email: 'chance@skyright.com', password: process.env.SEED_CHANCE_PW, first: 'Chance', last: 'Peare', role: 'admin', team: 'all' },
+      { email: 'jorn@skyright.com', password: process.env.SEED_JORN_PW, first: 'Jorn', last: 'Bielefeld', role: 'leadership', team: 'leadership' },
+      { email: 'pete@skyright.com', password: process.env.SEED_PETE_PW, first: 'Pete', last: 'Hicks', role: 'leadership', team: 'leadership' },
+    ].filter((u): u is typeof u & { password: string } => Boolean(u.password));
 
     for (const u of seedUsers) {
       const exists = await client.query('SELECT id FROM users WHERE email = $1', [u.email]);
@@ -392,10 +392,9 @@ export async function initializeDatabase(): Promise<void> {
       }
     }
 
-    // One-time correction: Pete Hicks should be a leadership user with password "Password"
-    // (he was previously seeded as admin with no last name). Idempotent — only updates if needed.
-    {
-      const peteHash = await bcrypt.hash('Password', 12);
+    // One-time correction: update Pete only when an explicit seed password is provided.
+    if (process.env.SEED_PETE_PW) {
+      const peteHash = await bcrypt.hash(process.env.SEED_PETE_PW, 12);
       await client.query(
         `UPDATE users
             SET first_name = 'Pete',

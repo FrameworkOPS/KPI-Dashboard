@@ -9,14 +9,22 @@ export interface JwtPayload {
   teams?: string[]; // full team membership when the user belongs to >1 team
 }
 
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('JWT_SECRET must be set');
+  }
+  return secret;
+}
+
 export function signToken(payload: JwtPayload): string {
-  const secret = process.env.JWT_SECRET || 'changeme_jwt_secret';
+  const secret = getJwtSecret();
   const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
   return jwt.sign(payload, secret, { expiresIn } as jwt.SignOptions);
 }
 
 export function verifyToken(token: string): JwtPayload {
-  const secret = process.env.JWT_SECRET || 'changeme_jwt_secret';
+  const secret = getJwtSecret();
   return jwt.verify(token, secret) as JwtPayload;
 }
 
