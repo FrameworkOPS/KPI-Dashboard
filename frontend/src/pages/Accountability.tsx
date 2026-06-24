@@ -543,7 +543,8 @@ const Accountability: React.FC = () => {
   const [addParentId, setAddParentId] = useState<string | null | undefined>(undefined)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
-  const canEdit = user?.role === 'admin' || user?.role === 'leadership'
+  // View is universal; editing the org chart is admin-only.
+  const canEdit = user?.role === 'admin'
 
   const loadData = useCallback(async () => {
     setLoading(true); setError(null)

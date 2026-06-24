@@ -10,7 +10,7 @@ import {
   downloadSeatDocument,
   deleteSeatDocument,
 } from '../controllers/accountabilityController';
-import { authenticate, requireLeadershipOrAdmin } from '../middleware/auth';
+import { authenticate, requireAdmin } from '../middleware/auth';
 
 const router = Router();
 
@@ -20,14 +20,16 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 },
 });
 
+// All authenticated users can view the org chart and download attached docs.
+// Mutations (seats + documents) are admin-only.
 router.get('/', authenticate, getAccountabilityChart);
-router.post('/', authenticate, requireLeadershipOrAdmin, createSeat);
-router.put('/:id', authenticate, requireLeadershipOrAdmin, updateSeat);
-router.delete('/:id', authenticate, requireLeadershipOrAdmin, deleteSeat);
+router.post('/', authenticate, requireAdmin, createSeat);
+router.put('/:id', authenticate, requireAdmin, updateSeat);
+router.delete('/:id', authenticate, requireAdmin, deleteSeat);
 
 router.get('/:id/documents', authenticate, listSeatDocuments);
-router.post('/:id/documents', authenticate, requireLeadershipOrAdmin, upload.single('file'), uploadSeatDocument);
+router.post('/:id/documents', authenticate, requireAdmin, upload.single('file'), uploadSeatDocument);
 router.get('/documents/:docId/download', authenticate, downloadSeatDocument);
-router.delete('/documents/:docId', authenticate, requireLeadershipOrAdmin, deleteSeatDocument);
+router.delete('/documents/:docId', authenticate, requireAdmin, deleteSeatDocument);
 
 export default router;
