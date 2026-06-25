@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import QuickAdd from './QuickAdd'
+import SkyChat from './SkyChat'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -94,6 +95,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
       {/* Global quick-add FAB — accessible from every page */}
       <QuickAdd />
+      <SkyChat />
     </div>
   )
 }

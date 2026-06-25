@@ -17,7 +17,7 @@ function getClient(): Anthropic | null {
   return new Anthropic({ apiKey: key });
 }
 
-const SYSTEM_PROMPT = `You are the Forecaster AI for Skyright Roofing's KPI Dashboard.
+const FORECASTER_SYSTEM_PROMPT = `You are the Forecaster AI for Skyright Roofing's KPI Dashboard.
 
 You have tools that can READ live operational data and WRITE certain types of data. Your job is to help leadership project, model scenarios, and update the forecast based on conversations.
 
@@ -60,8 +60,58 @@ When you do call a [CONFIG] tool, pass \`confirmed: true\` so the tool knows the
 - If a change would push lead time over 8 weeks anywhere in the 26-week window, flag it.
 - 1 SQ = 100 sq ft. Materials are 'shingle' or 'metal'.`;
 
+const SKY_SYSTEM_PROMPT = `You are Sky, the AI operating assistant inside Skyright Roofing's KPI Dashboard.
+
+Your job is to help users understand and act on every part of this application: dashboard KPIs, scorecards, rocks, issues, to-dos, meetings, V/TO, accountability, JobNimbus, production pipeline, crews, sales forecasts, production forecasts, metrics, capacity blocks, and Forecaster AI data.
+
+# How to work
+
+- Answer from live app data whenever a tool can answer the question.
+- When forecasting, show the math in plain terms. 1 SQ = 100 sq ft. Shingles are $600/SQ and metal is $1,000/SQ.
+- Be concise and operational. Give next actions when useful.
+- Distinguish observed data from assumptions.
+- If a user asks for a risky/base-function change, explain the impact and ask for a clear yes before using CONFIG tools.
+- You can create routine forecast/pipeline data with DATA tools, but you should summarize exactly what changed.
+- Do not invent customers, jobs, reps, due dates, or financial numbers. Pull them with tools or say what is missing.`;
+
 const TOOLS: Anthropic.Tool[] = [
   // ── READ ────────────────────────────────────────────────────────────────────
+  {
+    name: 'get_app_overview',
+    description: '[READ] High-level operating snapshot across scorecard, rocks, issues, to-dos, meetings, JobNimbus, pipeline, crews, and production forecast.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_scorecard_snapshot',
+    description: '[READ] Current scorecard entries, optionally filtered by team and week_of.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        team: { type: 'string' },
+        week_of: { type: 'string', description: 'ISO date YYYY-MM-DD' },
+      },
+    },
+  },
+  {
+    name: 'get_eos_work',
+    description: '[READ] EOS operating work: rocks, open issues, open to-dos, and upcoming meetings.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        team: { type: 'string', description: 'Optional team filter' },
+      },
+    },
+  },
+  {
+    name: 'get_accountability_snapshot',
+    description: '[READ] Accountability chart seats and owners.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_jobnimbus_snapshot',
+    description: '[READ] JobNimbus summary and live pipeline details including jobs by rep.',
+    input_schema: { type: 'object', properties: {} },
+  },
   {
     name: 'get_pipeline',
     description: '[READ] Current pipeline: manual entries aggregated by material + live JobNimbus summary (contracts_sent, work_orders, weighted SQs per material).',
@@ -305,6 +355,122 @@ async function tool_get_pipeline(): Promise<any> {
   };
 }
 
+async function tool_get_scorecard_snapshot(input: any): Promise<any> {
+  const params: any[] = [];
+  const where: string[] = [];
+  if (input?.team) { params.push(input.team); where.push(`team = $${params.length}`); }
+  if (input?.week_of) { params.push(input.week_of); where.push(`week_of = $${params.length}`); }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const entries = await pool.query(
+    `SELECT team, week_of, metric_name, goal, actual, is_on_track, data_source, notes
+     FROM scorecard_entries
+     ${whereSql}
+     ORDER BY week_of DESC, team, metric_name
+     LIMIT 120`,
+    params,
+  );
+  const totals = await pool.query(
+    `SELECT
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE is_on_track = true) AS on_track,
+       COUNT(*) FILTER (WHERE is_on_track = false) AS off_track
+     FROM scorecard_entries ${whereSql}`,
+    params,
+  );
+  return { totals: totals.rows[0], entries: entries.rows };
+}
+
+async function tool_get_eos_work(input: any): Promise<any> {
+  const team = input?.team ? String(input.team) : null;
+  const teamWhere = team ? 'AND team = $1' : '';
+  const params = team ? [team] : [];
+  const [rocks, issues, todos, meetings] = await Promise.all([
+    pool.query(
+      `SELECT r.id, r.title, r.status, r.completion_percentage, r.due_date, r.team,
+              COALESCE(u.first_name || ' ' || u.last_name, u.email) AS owner
+       FROM rocks r LEFT JOIN users u ON u.id = r.owner_id
+       WHERE COALESCE(r.status, '') <> 'done' ${teamWhere}
+       ORDER BY r.due_date NULLS LAST, r.created_at DESC
+       LIMIT 30`,
+      params,
+    ),
+    pool.query(
+      `SELECT i.id, i.title, i.priority, i.status, i.team,
+              COALESCE(u.first_name || ' ' || u.last_name, u.email) AS owner
+       FROM issues i LEFT JOIN users u ON u.id = i.owner_id
+       WHERE COALESCE(i.status, '') <> 'solved' ${teamWhere}
+       ORDER BY CASE i.priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, i.created_at DESC
+       LIMIT 30`,
+      params,
+    ),
+    pool.query(
+      `SELECT t.id, t.title, t.status, t.due_date, t.team,
+              COALESCE(u.first_name || ' ' || u.last_name, u.email) AS owner
+       FROM todos t LEFT JOIN users u ON u.id = t.owner_id
+       WHERE COALESCE(t.status, '') <> 'complete' ${teamWhere}
+       ORDER BY t.due_date NULLS LAST, t.created_at DESC
+       LIMIT 30`,
+      params,
+    ),
+    pool.query(
+      `SELECT id, team || ' Level 10' AS title, team, meeting_date, meeting_time, status
+       FROM meetings
+       WHERE meeting_date >= CURRENT_DATE ${teamWhere}
+       ORDER BY meeting_date ASC
+       LIMIT 20`,
+      params,
+    ),
+  ]);
+  return { rocks: rocks.rows, issues: issues.rows, todos: todos.rows, upcoming_meetings: meetings.rows };
+}
+
+async function tool_get_accountability_snapshot(): Promise<any> {
+  const r = await pool.query(
+    `SELECT s.id, s.seat_name, s.seat_description, s.owner_name, s.sort_order,
+            parent.seat_name AS parent_seat,
+            COALESCE(u.first_name || ' ' || u.last_name, u.email) AS owner
+     FROM accountability_seats s
+     LEFT JOIN accountability_seats parent ON parent.id = s.parent_seat_id
+     LEFT JOIN users u ON u.id = s.owner_id
+     ORDER BY COALESCE(parent.sort_order, 0), s.sort_order, s.seat_name
+     LIMIT 120`
+  );
+  return { seats: r.rows };
+}
+
+async function tool_get_jobnimbus_snapshot(): Promise<any> {
+  const pipeline = await getJnPipelineSummary();
+  let summary: any = null;
+  try {
+    const r = await pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE status_type <> 1) AS total_jobs,
+         COUNT(*) FILTER (WHERE status_type = 1) AS leads,
+         COUNT(*) FILTER (WHERE status_type = 2) AS open_jobs,
+         COUNT(*) FILTER (WHERE status_type = 4) AS won_jobs,
+         COUNT(*) FILTER (WHERE contract_sent = true) AS contracts_sent,
+         COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 2), 0) AS open_estimate_value,
+         MAX(updated_at) AS last_received
+       FROM jobnimbus_jobs`
+    );
+    summary = r.rows[0];
+  } catch {
+    summary = { unavailable: true };
+  }
+  return { summary, pipeline };
+}
+
+async function tool_get_app_overview(): Promise<any> {
+  const [scorecard, eos, jobnimbus, pipeline, forecast] = await Promise.all([
+    tool_get_scorecard_snapshot({}),
+    tool_get_eos_work({}),
+    tool_get_jobnimbus_snapshot(),
+    tool_get_pipeline(),
+    tool_get_production_forecast({ weeks: 8 }),
+  ]);
+  return { scorecard, eos, jobnimbus, pipeline, production_forecast: forecast };
+}
+
 async function tool_get_crews(): Promise<any> {
   const r = await pool.query(
     `SELECT c.id, c.crew_name, c.crew_type, c.team_members, c.start_date, c.terminate_date,
@@ -482,6 +648,11 @@ async function tool_update_crew_capacity(input: any): Promise<any> {
 async function executeTool(name: string, input: any, userId: string | null): Promise<any> {
   try {
     switch (name) {
+      case 'get_app_overview':               return await tool_get_app_overview();
+      case 'get_scorecard_snapshot':         return await tool_get_scorecard_snapshot(input);
+      case 'get_eos_work':                   return await tool_get_eos_work(input);
+      case 'get_accountability_snapshot':    return await tool_get_accountability_snapshot();
+      case 'get_jobnimbus_snapshot':         return await tool_get_jobnimbus_snapshot();
       case 'get_pipeline':                   return await tool_get_pipeline();
       case 'get_crews':                      return await tool_get_crews();
       case 'get_sales_forecast':             return await tool_get_sales_forecast(input);
@@ -524,11 +695,11 @@ const CONFIG_TOOLS = new Set([
   'update_crew_capacity',
 ]);
 
-export async function chatWithForecaster(history: ChatMessage[], userId: string | null = null): Promise<ChatResult> {
+async function chatWithSystem(systemPrompt: string, disabledName: string, history: ChatMessage[], userId: string | null = null): Promise<ChatResult> {
   const client = getClient();
   if (!client) {
     return {
-      reply: '⚠️ ANTHROPIC_API_KEY is not set on the server. The Forecaster AI is disabled until an admin configures the key.',
+      reply: `ANTHROPIC_API_KEY is not set on the server. ${disabledName} is disabled until an admin configures the key.`,
       tool_calls: [],
     };
   }
@@ -542,7 +713,7 @@ export async function chatWithForecaster(history: ChatMessage[], userId: string 
     const resp = await client.messages.create({
       model: MODEL,
       max_tokens: 4096,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       tools: TOOLS,
       messages,
     });
@@ -574,10 +745,18 @@ export async function chatWithForecaster(history: ChatMessage[], userId: string 
   }
 
   return {
-    reply: '⚠️ The AI took too many tool-use iterations. Try rephrasing your question more specifically.',
+    reply: 'The AI took too many tool-use iterations. Try rephrasing your question more specifically.',
     tool_calls: toolCalls,
     usage,
   };
+}
+
+export async function chatWithForecaster(history: ChatMessage[], userId: string | null = null): Promise<ChatResult> {
+  return chatWithSystem(FORECASTER_SYSTEM_PROMPT, 'The Forecaster AI', history, userId);
+}
+
+export async function chatWithSky(history: ChatMessage[], userId: string | null = null): Promise<ChatResult> {
+  return chatWithSystem(SKY_SYSTEM_PROMPT, 'Sky', history, userId);
 }
 
 export function isForecasterAiConfigured(): boolean {
