@@ -17,6 +17,17 @@ const pageTitles: Record<string, string> = {
   '/accountability': 'Accountability',
   '/meetings':       'Meetings',
   '/users':          'Users',
+  '/jobnimbus':      'JobNimbus',
+  '/integrations':   'Integrations',
+  '/people-analyzer': 'People Analyzer',
+  '/pipeline':       'Pipeline',
+  '/crews':          'Crews',
+  '/sales-forecast': 'Sales Forecast',
+  '/production-forecast': 'Production',
+  '/metrics':        'Metrics',
+  '/capacity-blocks': 'Capacity Blocks',
+  '/forecaster-ai':  'Forecaster AI',
+  '/sales-rep-rates': 'Rep Close Rates',
 }
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {

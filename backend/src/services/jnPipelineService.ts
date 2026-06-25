@@ -7,6 +7,11 @@ const DEFAULTS = {
   avg_sqs_per_contract: 30,
 };
 
+const REVENUE_PER_SQ = {
+  shingle: 600,
+  metal: 1000,
+};
+
 export interface ForecasterSettings {
   material_field_key: string;
   closing_rate: number;
@@ -59,8 +64,8 @@ export async function updateForecasterSettings(patch: Partial<ForecasterSettings
 }
 
 // Material classifier: consult the configured custom-field key on the raw payload first;
-// fall back to a heuristic on record_type_name + name. Returns 'shingle' | 'metal' | null.
-function classifyMaterial(raw: any, recordType: string | null, name: string | null, fieldKey: string): 'shingle' | 'metal' | null {
+// fall back to a heuristic on record_type_name + name.
+function classifyMaterial(raw: any, recordType: string | null, name: string | null, fieldKey: string): 'shingle' | 'metal' | 'gutter' | null {
   const fromField = raw && fieldKey ? raw[fieldKey] : null;
   const candidates: string[] = [];
   if (fromField) candidates.push(String(fromField));
@@ -68,18 +73,46 @@ function classifyMaterial(raw: any, recordType: string | null, name: string | nu
   if (name) candidates.push(name);
   const blob = candidates.join(' ').toLowerCase();
   if (!blob.trim()) return null;
+  if (/\b(gutter|gutters|downspout|downspouts|leaf\s*guard)\b/.test(blob)) return 'gutter';
   if (/\b(metal|standing\s*seam|steel|aluminum|copper)\b/.test(blob)) return 'metal';
   if (/\b(shingle|asphalt|composit|tpo|architectural)\b/.test(blob)) return 'shingle';
   return null; // unknown — caller decides whether to default to shingle
 }
 
 export interface JnPipelineBucket {
+  job_count: number;
   contracts_sent: number;
   work_orders: number;
   weighted_contract_sqs: number; // sum over contracts of avg_sqs × per-rep (or global) close_rate
   work_order_sqs: number;        // work_orders × avg_sqs (already-signed, no weighting)
   total_sqs: number;             // weighted_contract_sqs + work_order_sqs
+  forecast_revenue: number;      // total_sqs × configured material revenue rate when available
+  estimate_value: number;        // raw JobNimbus estimate value for the jobs in this bucket
   effective_close_rate: number;  // contracts_sent > 0 ? weighted_contract_sqs / (contracts_sent × avg_sqs) : global
+}
+
+export interface JnPipelineRepSummary {
+  sales_rep_name: string;
+  job_count: number;
+  contracts_sent: number;
+  work_orders: number;
+  weighted_contract_sqs: number;
+  work_order_sqs: number;
+  total_sqs: number;
+  forecast_revenue: number;
+  estimate_value: number;
+}
+
+export interface JnPipelineJobLink {
+  jnid: string;
+  name: string | null;
+  sales_rep_name: string | null;
+  material: 'shingle' | 'metal' | 'gutter' | 'unknown';
+  bucket: 'contract' | 'work_order';
+  weighted_sqs: number;
+  forecast_revenue: number;
+  estimate_value: number;
+  url: string;
 }
 
 // ── Per-sales-rep close rate overrides ────────────────────────────────────────
@@ -133,7 +166,11 @@ async function getRepRateMap(): Promise<Record<string, number>> {
 export interface JnPipelineSummary {
   shingle: JnPipelineBucket;
   metal:   JnPipelineBucket;
+  gutter:  JnPipelineBucket;
   unknown: JnPipelineBucket;
+  totals:  JnPipelineBucket;
+  by_rep: JnPipelineRepSummary[];
+  jobs: JnPipelineJobLink[];
   settings: ForecasterSettings;
   generated_at: string;
 }
@@ -148,16 +185,19 @@ export interface JnPipelineSummary {
 export async function getJnPipelineSummary(): Promise<JnPipelineSummary> {
   const settings = await getForecasterSettings();
   const repRates = await getRepRateMap();
-  const buckets: Record<'shingle' | 'metal' | 'unknown', JnPipelineBucket> = {
+  const buckets: Record<'shingle' | 'metal' | 'gutter' | 'unknown', JnPipelineBucket> = {
     shingle: emptyBucket(settings.closing_rate),
     metal:   emptyBucket(settings.closing_rate),
+    gutter:  emptyBucket(settings.closing_rate),
     unknown: emptyBucket(settings.closing_rate),
   };
+  const reps: Record<string, JnPipelineRepSummary> = {};
+  const jobs: JnPipelineJobLink[] = [];
 
   // Pull contracts + work orders in one query. Apply per-rep close rate to contracts.
   const result = await query(
     `SELECT
-       jnid, name, record_type_name, raw, sales_rep_name,
+       jnid, name, record_type_name, raw, sales_rep_name, estimate_value,
        CASE
          WHEN contract_sent = true AND status_type = 2 THEN 'contract'
          WHEN status_type = 4 AND invoice_value IS NULL THEN 'work_order'
@@ -172,28 +212,68 @@ export async function getJnPipelineSummary(): Promise<JnPipelineSummary> {
     if (!row.bucket) continue;
     const raw = row.raw && typeof row.raw === 'object' ? row.raw : null;
     const material = classifyMaterial(raw, row.record_type_name, row.name, settings.material_field_key);
-    const key: 'shingle' | 'metal' | 'unknown' = material || 'unknown';
+    const key: 'shingle' | 'metal' | 'gutter' | 'unknown' = material || 'unknown';
+    const repName = String(row.sales_rep_name || '').trim() || 'Unassigned';
+    if (!reps[repName]) reps[repName] = emptyRep(repName);
+    const estimateValue = Number(row.estimate_value || 0);
+    let weightedSqs = 0;
     if (row.bucket === 'contract') {
       buckets[key].contracts_sent += 1;
-      const repKey = String(row.sales_rep_name || '').toLowerCase();
+      reps[repName].contracts_sent += 1;
+      const repKey = repName.toLowerCase();
       const rate = repRates[repKey] ?? settings.closing_rate;
-      buckets[key].weighted_contract_sqs += settings.avg_sqs_per_contract * rate;
+      weightedSqs = settings.avg_sqs_per_contract * rate;
+      buckets[key].weighted_contract_sqs += weightedSqs;
+      reps[repName].weighted_contract_sqs += weightedSqs;
     } else {
       buckets[key].work_orders += 1;
+      reps[repName].work_orders += 1;
+      weightedSqs = settings.avg_sqs_per_contract;
     }
+    buckets[key].job_count += 1;
+    buckets[key].estimate_value += estimateValue;
+    reps[repName].job_count += 1;
+    reps[repName].estimate_value += estimateValue;
+    jobs.push({
+      jnid: row.jnid,
+      name: row.name,
+      sales_rep_name: repName,
+      material: key,
+      bucket: row.bucket,
+      weighted_sqs: weightedSqs,
+      forecast_revenue: forecastRevenue(key, weightedSqs),
+      estimate_value: estimateValue,
+      url: `https://app.jobnimbus.com/job/${row.jnid}`,
+    });
   }
 
-  for (const k of ['shingle', 'metal', 'unknown'] as const) {
+  for (const k of ['shingle', 'metal', 'gutter', 'unknown'] as const) {
     const b = buckets[k];
     b.work_order_sqs        = b.work_orders * settings.avg_sqs_per_contract;
     b.total_sqs             = b.weighted_contract_sqs + b.work_order_sqs;
+    b.forecast_revenue      = forecastRevenue(k, b.total_sqs);
     b.effective_close_rate  = b.contracts_sent > 0
       ? b.weighted_contract_sqs / (b.contracts_sent * settings.avg_sqs_per_contract)
       : settings.closing_rate;
   }
 
+  for (const rep of Object.values(reps)) {
+    rep.work_order_sqs = rep.work_orders * settings.avg_sqs_per_contract;
+    rep.total_sqs = rep.weighted_contract_sqs + rep.work_order_sqs;
+    const repJobs = jobs.filter((j) => j.sales_rep_name === rep.sales_rep_name);
+    rep.forecast_revenue = repJobs.reduce((sum, job) => sum + job.forecast_revenue, 0);
+  }
+
+  const by_rep = Object.values(reps)
+    .sort((a, b) => b.forecast_revenue - a.forecast_revenue || b.total_sqs - a.total_sqs || a.sales_rep_name.localeCompare(b.sales_rep_name));
+  const totals = (['shingle', 'metal', 'gutter', 'unknown'] as const)
+    .reduce((acc, key) => addBuckets(acc, buckets[key]), emptyBucket(settings.closing_rate));
+
   return {
     ...buckets,
+    totals,
+    by_rep,
+    jobs: jobs.sort((a, b) => b.forecast_revenue - a.forecast_revenue).slice(0, 12),
     settings,
     generated_at: new Date().toISOString(),
   };
@@ -201,9 +281,44 @@ export async function getJnPipelineSummary(): Promise<JnPipelineSummary> {
 
 function emptyBucket(defaultRate: number): JnPipelineBucket {
   return {
-    contracts_sent: 0, work_orders: 0,
+    job_count: 0, contracts_sent: 0, work_orders: 0,
     weighted_contract_sqs: 0, work_order_sqs: 0, total_sqs: 0,
+    forecast_revenue: 0, estimate_value: 0,
     effective_close_rate: defaultRate,
+  };
+}
+
+function emptyRep(salesRepName: string): JnPipelineRepSummary {
+  return {
+    sales_rep_name: salesRepName,
+    job_count: 0,
+    contracts_sent: 0,
+    work_orders: 0,
+    weighted_contract_sqs: 0,
+    work_order_sqs: 0,
+    total_sqs: 0,
+    forecast_revenue: 0,
+    estimate_value: 0,
+  };
+}
+
+function forecastRevenue(material: 'shingle' | 'metal' | 'gutter' | 'unknown', sqs: number): number {
+  if (material === 'shingle') return sqs * REVENUE_PER_SQ.shingle;
+  if (material === 'metal') return sqs * REVENUE_PER_SQ.metal;
+  return 0;
+}
+
+function addBuckets(a: JnPipelineBucket, b: JnPipelineBucket): JnPipelineBucket {
+  return {
+    job_count: a.job_count + b.job_count,
+    contracts_sent: a.contracts_sent + b.contracts_sent,
+    work_orders: a.work_orders + b.work_orders,
+    weighted_contract_sqs: a.weighted_contract_sqs + b.weighted_contract_sqs,
+    work_order_sqs: a.work_order_sqs + b.work_order_sqs,
+    total_sqs: a.total_sqs + b.total_sqs,
+    forecast_revenue: a.forecast_revenue + b.forecast_revenue,
+    estimate_value: a.estimate_value + b.estimate_value,
+    effective_close_rate: a.effective_close_rate,
   };
 }
 
