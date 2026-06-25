@@ -76,9 +76,58 @@ function classifyMaterial(raw: any, recordType: string | null, name: string | nu
 export interface JnPipelineBucket {
   contracts_sent: number;
   work_orders: number;
-  weighted_contract_sqs: number; // contracts_sent × close_rate × avg_sqs
+  weighted_contract_sqs: number; // sum over contracts of avg_sqs × per-rep (or global) close_rate
   work_order_sqs: number;        // work_orders × avg_sqs (already-signed, no weighting)
   total_sqs: number;             // weighted_contract_sqs + work_order_sqs
+  effective_close_rate: number;  // contracts_sent > 0 ? weighted_contract_sqs / (contracts_sent × avg_sqs) : global
+}
+
+// ── Per-sales-rep close rate overrides ────────────────────────────────────────
+
+export interface SalesRepCloseRate {
+  sales_rep_name: string;
+  close_rate: number;
+  notes: string | null;
+  updated_at?: string;
+}
+
+export async function listSalesRepCloseRates(): Promise<SalesRepCloseRate[]> {
+  const r = await query(`SELECT sales_rep_name, close_rate, notes, updated_at
+                         FROM sales_rep_close_rates ORDER BY sales_rep_name`);
+  return r.rows.map((row: any) => ({
+    sales_rep_name: row.sales_rep_name,
+    close_rate: Number(row.close_rate),
+    notes: row.notes,
+    updated_at: row.updated_at,
+  }));
+}
+
+export async function upsertSalesRepCloseRate(repName: string, closeRate: number, notes?: string | null, userId?: string | null): Promise<SalesRepCloseRate> {
+  const name = String(repName || '').trim();
+  if (!name) throw new Error('sales_rep_name is required');
+  const v = Number(closeRate);
+  if (!Number.isFinite(v) || v < 0 || v > 1) throw new Error('close_rate must be between 0 and 1');
+  await query(
+    `INSERT INTO sales_rep_close_rates (sales_rep_name, close_rate, notes, updated_by)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (sales_rep_name) DO UPDATE
+       SET close_rate = EXCLUDED.close_rate, notes = EXCLUDED.notes, updated_at = NOW(), updated_by = EXCLUDED.updated_by`,
+    [name, v, notes ?? null, userId ?? null],
+  );
+  const r = await query('SELECT sales_rep_name, close_rate, notes, updated_at FROM sales_rep_close_rates WHERE sales_rep_name = $1', [name]);
+  return { sales_rep_name: r.rows[0].sales_rep_name, close_rate: Number(r.rows[0].close_rate), notes: r.rows[0].notes, updated_at: r.rows[0].updated_at };
+}
+
+export async function deleteSalesRepCloseRate(repName: string): Promise<boolean> {
+  const r = await query('DELETE FROM sales_rep_close_rates WHERE sales_rep_name = $1 RETURNING sales_rep_name', [repName]);
+  return r.rows.length > 0;
+}
+
+async function getRepRateMap(): Promise<Record<string, number>> {
+  const rates = await listSalesRepCloseRates();
+  const map: Record<string, number> = {};
+  for (const r of rates) map[r.sales_rep_name.toLowerCase()] = r.close_rate;
+  return map;
 }
 
 export interface JnPipelineSummary {
@@ -98,16 +147,17 @@ export interface JnPipelineSummary {
  */
 export async function getJnPipelineSummary(): Promise<JnPipelineSummary> {
   const settings = await getForecasterSettings();
+  const repRates = await getRepRateMap();
   const buckets: Record<'shingle' | 'metal' | 'unknown', JnPipelineBucket> = {
-    shingle: emptyBucket(),
-    metal:   emptyBucket(),
-    unknown: emptyBucket(),
+    shingle: emptyBucket(settings.closing_rate),
+    metal:   emptyBucket(settings.closing_rate),
+    unknown: emptyBucket(settings.closing_rate),
   };
 
-  // Pull both buckets in one query — caller-side classification by material.
+  // Pull contracts + work orders in one query. Apply per-rep close rate to contracts.
   const result = await query(
     `SELECT
-       jnid, name, record_type_name, raw,
+       jnid, name, record_type_name, raw, sales_rep_name,
        CASE
          WHEN contract_sent = true AND status_type = 2 THEN 'contract'
          WHEN status_type = 4 AND invoice_value IS NULL THEN 'work_order'
@@ -123,15 +173,23 @@ export async function getJnPipelineSummary(): Promise<JnPipelineSummary> {
     const raw = row.raw && typeof row.raw === 'object' ? row.raw : null;
     const material = classifyMaterial(raw, row.record_type_name, row.name, settings.material_field_key);
     const key: 'shingle' | 'metal' | 'unknown' = material || 'unknown';
-    if (row.bucket === 'contract') buckets[key].contracts_sent += 1;
-    else                            buckets[key].work_orders   += 1;
+    if (row.bucket === 'contract') {
+      buckets[key].contracts_sent += 1;
+      const repKey = String(row.sales_rep_name || '').toLowerCase();
+      const rate = repRates[repKey] ?? settings.closing_rate;
+      buckets[key].weighted_contract_sqs += settings.avg_sqs_per_contract * rate;
+    } else {
+      buckets[key].work_orders += 1;
+    }
   }
 
   for (const k of ['shingle', 'metal', 'unknown'] as const) {
     const b = buckets[k];
-    b.weighted_contract_sqs = b.contracts_sent * settings.closing_rate * settings.avg_sqs_per_contract;
     b.work_order_sqs        = b.work_orders * settings.avg_sqs_per_contract;
     b.total_sqs             = b.weighted_contract_sqs + b.work_order_sqs;
+    b.effective_close_rate  = b.contracts_sent > 0
+      ? b.weighted_contract_sqs / (b.contracts_sent * settings.avg_sqs_per_contract)
+      : settings.closing_rate;
   }
 
   return {
@@ -141,8 +199,12 @@ export async function getJnPipelineSummary(): Promise<JnPipelineSummary> {
   };
 }
 
-function emptyBucket(): JnPipelineBucket {
-  return { contracts_sent: 0, work_orders: 0, weighted_contract_sqs: 0, work_order_sqs: 0, total_sqs: 0 };
+function emptyBucket(defaultRate: number): JnPipelineBucket {
+  return {
+    contracts_sent: 0, work_orders: 0,
+    weighted_contract_sqs: 0, work_order_sqs: 0, total_sqs: 0,
+    effective_close_rate: defaultRate,
+  };
 }
 
 /** Helper for forecast/metrics controllers — returns { shingle, metal } combined totals

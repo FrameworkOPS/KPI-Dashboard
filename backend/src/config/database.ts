@@ -983,6 +983,17 @@ export async function initializeDatabase(): Promise<void> {
       WHERE NOT EXISTS (SELECT 1 FROM production_parameters)
     `);
 
+    // Per-sales-rep closing rate overrides — fall back to global rate when absent
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS sales_rep_close_rates (
+        sales_rep_name TEXT PRIMARY KEY,
+        close_rate DECIMAL(5,4) NOT NULL CHECK (close_rate >= 0 AND close_rate <= 1),
+        notes TEXT,
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_by UUID REFERENCES users(id) ON DELETE SET NULL
+      )
+    `);
+
     console.log('Database initialized successfully');
   } finally {
     client.release();

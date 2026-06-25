@@ -24,20 +24,59 @@ function addDays(d: Date, days: number): Date {
   return result;
 }
 
-/** Pure data function — used by both the HTTP handler and the AI service. */
-export async function getSixMonthForecastData(weeksParam: number = 26): Promise<any> {
+export interface ScenarioOverrides {
+  add_crews?: Array<{
+    crew_name: string;
+    crew_type: 'shingle' | 'metal';
+    start_date: string;
+    weekly_sq_capacity?: number;
+    training_period_days?: number;
+    terminate_date?: string | null;
+  }>;
+  remove_crew_ids?: string[];
+  pipeline_delta?: { shingle?: number; metal?: number };  // additive SQs vs current
+  sales_forecast_override?: Array<{ week: string; job_type: 'shingle' | 'metal'; projected_square_footage: number }>;
+  add_capacity_blocks?: Array<{ crew_id: string; start_date: string; end_date: string }>;
+}
+
+/** Pure data function — used by HTTP handler and AI tools. Pass scenario to run a what-if without persisting. */
+export async function getSixMonthForecastData(weeksParam: number = 26, scenario?: ScenarioOverrides): Promise<any> {
   const weeks = Math.min(Math.max(weeksParam, 1), 52);
 
   const crewsResult = await pool.query(
     `SELECT id, crew_name, crew_type, start_date, terminate_date, training_period_days, weekly_sq_capacity, revenue_per_sq, is_active
      FROM crews WHERE is_active=true ORDER BY start_date`
   );
-  const crews = crewsResult.rows;
+  let crews: any[] = crewsResult.rows;
+  if (scenario?.remove_crew_ids?.length) {
+    const removeSet = new Set(scenario.remove_crew_ids);
+    crews = crews.filter((c) => !removeSet.has(c.id));
+  }
+  if (scenario?.add_crews?.length) {
+    for (const c of scenario.add_crews) {
+      crews.push({
+        id: `scenario-crew-${crews.length}`,
+        crew_name: c.crew_name,
+        crew_type: c.crew_type,
+        start_date: c.start_date,
+        terminate_date: c.terminate_date || null,
+        training_period_days: c.training_period_days ?? 28,
+        weekly_sq_capacity: c.weekly_sq_capacity ?? (c.crew_type === 'shingle' ? 200 : 100),
+        revenue_per_sq: c.crew_type === 'shingle' ? 600 : 1000,
+        is_active: true,
+      });
+    }
+  }
 
   const projResult = await pool.query(
     `SELECT crew_id, project_name, start_date, end_date FROM custom_projects WHERE is_active=true`
   );
-  const customProjects = projResult.rows;
+  const customProjects: any[] = [...projResult.rows];
+  if (scenario?.add_capacity_blocks?.length) {
+    for (const b of scenario.add_capacity_blocks) {
+      customProjects.push({ crew_id: b.crew_id, project_name: 'Scenario block', start_date: b.start_date, end_date: b.end_date });
+    }
+  }
 
   // Manual pipeline + live JobNimbus pipeline — combined per material type
   const pipelineResult = await pool.query(
@@ -51,8 +90,8 @@ export async function getSixMonthForecastData(weeksParam: number = 26): Promise<
   let jn = { shingle: 0, metal: 0 };
   try { jn = await getJnPipelineSqsByType(); } catch { /* JN may not be configured */ }
 
-  let rollingShingle = (manualMap['shingle'] || 0) + jn.shingle;
-  let rollingMetal   = (manualMap['metal']   || 0) + jn.metal;
+  let rollingShingle = (manualMap['shingle'] || 0) + jn.shingle + (scenario?.pipeline_delta?.shingle || 0);
+  let rollingMetal   = (manualMap['metal']   || 0) + jn.metal   + (scenario?.pipeline_delta?.metal   || 0);
 
   const today = new Date();
   const startWeek = getMonday(today);
@@ -68,6 +107,13 @@ export async function getSixMonthForecastData(weeksParam: number = 26): Promise<
     const wk = String(row.forecast_week).slice(0, 10);
     if (!sfMap[wk]) sfMap[wk] = {};
     sfMap[wk][row.job_type] = parseFloat(row.projected_square_footage) || 0;
+  }
+  if (scenario?.sales_forecast_override?.length) {
+    for (const o of scenario.sales_forecast_override) {
+      const wk = String(o.week).slice(0, 10);
+      if (!sfMap[wk]) sfMap[wk] = {};
+      sfMap[wk][o.job_type] = Number(o.projected_square_footage) || 0;
+    }
   }
 
   const weeklyData = [];
