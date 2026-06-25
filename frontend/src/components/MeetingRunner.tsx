@@ -3,6 +3,7 @@ import {
   startMeetingApi,
   advanceMeetingStageApi,
   completeMeetingApi,
+  updateMeetingApi,
 } from '../services/api'
 import { Meeting, MeetingStage, MeetingAttendance } from '../types'
 import { beep, fireMeetingCompleteConfetti } from '../utils/confetti'
@@ -13,14 +14,22 @@ interface Props {
   onComplete: () => void
 }
 
-// Format remaining seconds as M:SS (negative renders as -M:SS — overrun shown
-// in red by the parent).
 function fmtClock(secs: number): string {
   const sign = secs < 0 ? '-' : ''
   const a = Math.abs(secs)
   const m = Math.floor(a / 60)
   const s = a % 60
   return `${sign}${m}:${String(s).padStart(2, '0')}`
+}
+
+const STAGE_DESCRIPTIONS: Record<string, string> = {
+  segue: 'Share good news — personal and professional. Keep it quick and positive.',
+  scorecard_notes: 'Review KPI scorecard. Identify any off-track metrics to move to IDS.',
+  rocks_notes: 'Each rock owner: on track or off track? Off-track rocks go to IDS.',
+  headlines: 'Customer and employee headlines — good news first, then bad.',
+  todos_notes: "Review last week's 7-day to-dos. Done or not done. Not done → IDS.",
+  ids_issues: 'Identify, Discuss, Solve. Work the top issues. One at a time.',
+  conclude_notes: 'Recap new to-dos. Cascade messages. Rate the meeting 1–10.',
 }
 
 const MeetingRunner: React.FC<Props> = ({ meeting, onClose, onComplete }) => {
@@ -32,10 +41,22 @@ const MeetingRunner: React.FC<Props> = ({ meeting, onClose, onComplete }) => {
   const [completing, setCompleting] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const tickRef = useRef<number | null>(null)
+  const saveTimerRef = useRef<number | null>(null)
 
-  // Bootstrap: always call start (it's idempotent — seeds stages + attendance
-  // on first run, no-ops thereafter). Cheaper than branching on status, and
-  // robust to in_progress meetings that never got their stages seeded.
+  // Notes for each stage, initialised from the meeting record
+  const [notes, setNotes] = useState<Record<string, string>>(() => {
+    const m = meeting as any
+    return {
+      segue:           m.segue           || '',
+      scorecard_notes: m.scorecard_notes || '',
+      rocks_notes:     m.rocks_notes     || '',
+      headlines:       m.headlines       || '',
+      todos_notes:     m.todos_notes     || '',
+      ids_issues:      m.ids_issues      || '',
+      conclude_notes:  m.conclude_notes  || '',
+    }
+  })
+
   useEffect(() => {
     let cancelled = false
     const init = async () => {
@@ -54,12 +75,13 @@ const MeetingRunner: React.FC<Props> = ({ meeting, onClose, onComplete }) => {
     return () => { cancelled = true }
   }, [meeting.id])
 
-  // 1-second tick — drives the live timer display only. We avoid polling the
-  // server so the wizard stays cheap even when sitting idle in the IDS hour.
   useEffect(() => {
     tickRef.current = window.setInterval(() => setNow(Date.now()), 1000)
     return () => { if (tickRef.current) window.clearInterval(tickRef.current) }
   }, [])
+
+  // Cleanup debounce on unmount
+  useEffect(() => () => { if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current) }, [])
 
   const currentStage = useMemo(
     () => stages.find(s => s.started_at && !s.completed_at) || stages.find(s => !s.completed_at) || null,
@@ -75,27 +97,38 @@ const MeetingRunner: React.FC<Props> = ({ meeting, onClose, onComplete }) => {
     return currentStage.planned_minutes * 60 - elapsed
   }, [currentStage, now])
 
-  // Beep cues: one warning at exactly 60s remaining, two beeps at 0s. Tracked
-  // per stage via a ref so we don't replay them on every tick.
   const beepedRef = useRef<Record<string, { warned: boolean; ended: boolean }>>({})
   useEffect(() => {
     if (!currentStage) return
     const state = beepedRef.current[currentStage.id] || { warned: false, ended: false }
     if (!state.warned && stageRemaining <= 60 && stageRemaining > 0) {
-      beep(660, 180)
-      state.warned = true
+      beep(660, 180); state.warned = true
     }
     if (!state.ended && stageRemaining <= 0) {
-      beep(523, 240)
-      window.setTimeout(() => beep(523, 240), 280)
-      state.ended = true
+      beep(523, 240); window.setTimeout(() => beep(523, 240), 280); state.ended = true
     }
     beepedRef.current[currentStage.id] = state
   }, [currentStage, stageRemaining])
 
+  const saveNotes = useCallback(async (patch: Record<string, string>) => {
+    try { await updateMeetingApi(meeting.id, patch) } catch { /* silent */ }
+  }, [meeting.id])
+
+  const handleNotesChange = (key: string, value: string) => {
+    setNotes(prev => ({ ...prev, [key]: value }))
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = window.setTimeout(() => saveNotes({ [key]: value }), 700)
+  }
+
   const handleAdvance = useCallback(async () => {
     if (!currentStage) return
     setAdvancing(true)
+    // Flush pending note save immediately before advancing
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+      await saveNotes({ [currentStage.stage_key]: notes[currentStage.stage_key] || '' })
+    }
     try {
       const res = await advanceMeetingStageApi(meeting.id, currentStage.stage_key)
       setStages(res.data.stages || [])
@@ -104,7 +137,7 @@ const MeetingRunner: React.FC<Props> = ({ meeting, onClose, onComplete }) => {
     } finally {
       setAdvancing(false)
     }
-  }, [meeting.id, currentStage])
+  }, [meeting.id, currentStage, notes, saveNotes])
 
   const updateAttendee = (userId: string, patch: Partial<MeetingAttendance>) => {
     setAttendance(prev => prev.map(a => a.user_id === userId ? { ...a, ...patch } : a))
@@ -114,10 +147,7 @@ const MeetingRunner: React.FC<Props> = ({ meeting, onClose, onComplete }) => {
     setCompleting(true)
     try {
       await completeMeetingApi(meeting.id, attendance.map(a => ({
-        user_id: a.user_id,
-        status: a.status,
-        rating: a.rating,
-        comments: a.comments,
+        user_id: a.user_id, status: a.status, rating: a.rating, comments: a.comments,
       })))
       fireMeetingCompleteConfetti()
       onComplete()
@@ -137,10 +167,11 @@ const MeetingRunner: React.FC<Props> = ({ meeting, onClose, onComplete }) => {
   }
 
   const overrun = stageRemaining < 0
+  const doneCount = stages.filter(s => s.completed_at).length
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center sm:p-4">
-      <div className="bg-slate-900 sm:rounded-2xl border border-slate-700 w-full max-w-4xl flex flex-col max-h-[100vh] sm:max-h-[95vh]">
+      <div className="bg-slate-900 sm:rounded-2xl border border-slate-700 w-full max-w-2xl flex flex-col max-h-[100vh] sm:max-h-[95vh]">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 flex-shrink-0">
@@ -148,7 +179,9 @@ const MeetingRunner: React.FC<Props> = ({ meeting, onClose, onComplete }) => {
             <h2 className="text-white font-semibold text-base capitalize">
               {meeting.team} Level 10 Meeting
             </h2>
-            <p className="text-xs text-slate-400 mt-0.5">In progress · {stages.filter(s => s.completed_at).length}/{stages.length} stages done</p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {allStagesDone ? 'All stages complete' : `Stage ${doneCount + 1} of ${stages.length}`}
+            </p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white p-1">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -161,48 +194,85 @@ const MeetingRunner: React.FC<Props> = ({ meeting, onClose, onComplete }) => {
           <div className="mx-5 mt-3 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-red-400 text-sm">{error}</div>
         )}
 
-        <div className="overflow-y-auto flex-1 p-5 space-y-5">
+        <div className="overflow-y-auto flex-1 p-5 space-y-4">
 
-          {/* Stage progress */}
+          {/* Stage progress bar */}
           <div className="flex items-center gap-1 overflow-x-auto pb-1">
             {stages.map((s) => {
               const done = !!s.completed_at
               const active = currentStage?.id === s.id
               return (
                 <div key={s.id}
-                  className={`flex-1 min-w-[80px] rounded px-2 py-2 text-center transition-colors ${
+                  className={`flex-1 min-w-[72px] rounded px-2 py-1.5 text-center transition-colors ${
                     done ? 'bg-green-500/15 border border-green-500/30 text-green-400'
                       : active ? 'bg-blue-500/15 border border-blue-500/40 text-blue-300'
                       : 'bg-slate-800 border border-slate-700 text-slate-500'
                   }`}
                 >
-                  <p className="text-[10px] uppercase tracking-wide font-semibold truncate">{s.label}</p>
-                  <p className="text-[10px] mt-0.5">{s.planned_minutes}m</p>
+                  <p className="text-[9px] uppercase tracking-wide font-semibold truncate leading-tight">{s.label}</p>
+                  <p className="text-[9px] mt-0.5 opacity-70">{s.planned_minutes}m</p>
                 </div>
               )
             })}
           </div>
 
-          {/* Current stage + timer */}
+          {/* Current stage */}
           {currentStage && !allStagesDone && (
-            <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 text-center">
-              <p className="text-xs text-slate-400 uppercase tracking-wide">Now</p>
-              <h3 className="text-white font-semibold text-xl mt-1">{currentStage.label}</h3>
-              <p className={`mt-3 font-mono text-5xl font-bold tabular-nums ${overrun ? 'text-red-400' : 'text-blue-400'}`}>
-                {fmtClock(stageRemaining)}
-              </p>
-              <p className="text-xs text-slate-500 mt-1">Planned: {currentStage.planned_minutes}m{overrun ? ' · over time' : ''}</p>
+            <div className="space-y-3">
+              {/* Timer card */}
+              <div className="bg-slate-800 border border-slate-700 rounded-xl p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-slate-400 uppercase tracking-wide">Now</p>
+                    <h3 className="text-white font-semibold text-lg">{currentStage.label}</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {STAGE_DESCRIPTIONS[currentStage.stage_key] || ''}
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0 ml-4">
+                    <p className={`font-mono text-4xl font-bold tabular-nums ${overrun ? 'text-red-400' : 'text-blue-400'}`}>
+                      {fmtClock(stageRemaining)}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {overrun ? `${currentStage.planned_minutes}m · over` : `of ${currentStage.planned_minutes}m`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Notes for this stage */}
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">
+                  {currentStage.label} notes
+                  <span className="ml-1.5 text-slate-600 font-normal">auto-saved</span>
+                </label>
+                <textarea
+                  rows={currentStage.stage_key === 'ids_issues' ? 7 : 4}
+                  value={notes[currentStage.stage_key] ?? ''}
+                  onChange={(e) => handleNotesChange(currentStage.stage_key, e.target.value)}
+                  placeholder={`Notes for ${currentStage.label}…`}
+                  className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-600"
+                />
+              </div>
+
+              {/* Next button */}
               <button
                 onClick={handleAdvance}
                 disabled={advancing}
-                className="mt-5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors disabled:opacity-60"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-6 py-3 rounded-lg transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
               >
-                {advancing ? '…' : currentStage.sort_order === stages.length - 1 ? 'Finish Conclude' : 'Next Stage →'}
+                {advancing ? (
+                  <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</>
+                ) : currentStage.sort_order === stages.length - 1 ? (
+                  'Finish Conclude →'
+                ) : (
+                  `Next: ${stages[currentStage.sort_order + 1]?.label ?? 'Done'} →`
+                )}
               </button>
             </div>
           )}
 
-          {/* Conclude — attendance + ratings */}
+          {/* Wrap-up — attendance + ratings */}
           {allStagesDone && (
             <div className="space-y-3">
               <div>
@@ -222,8 +292,6 @@ const MeetingRunner: React.FC<Props> = ({ meeting, onClose, onComplete }) => {
                       <p className="text-sm text-white font-medium">{a.first_name} {a.last_name}</p>
                       {a.email && <p className="text-xs text-slate-500 truncate">{a.email}</p>}
                     </div>
-
-                    {/* Present / Absent toggle */}
                     <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden text-xs">
                       <button
                         onClick={() => updateAttendee(a.user_id, { status: 'present' })}
@@ -234,22 +302,15 @@ const MeetingRunner: React.FC<Props> = ({ meeting, onClose, onComplete }) => {
                         className={`px-3 py-1.5 transition-colors ${a.status === 'absent' ? 'bg-red-500/20 text-red-400' : 'text-slate-500 hover:text-white'}`}
                       >Absent</button>
                     </div>
-
-                    {/* Rating 1–10 */}
                     {a.status === 'present' && (
                       <div className="flex items-center gap-1 flex-wrap">
                         {[1,2,3,4,5,6,7,8,9,10].map(n => (
-                          <button
-                            key={n}
-                            onClick={() => updateAttendee(a.user_id, { rating: n })}
+                          <button key={n} onClick={() => updateAttendee(a.user_id, { rating: n })}
                             className={`w-7 h-7 text-xs font-medium rounded transition-colors ${
                               a.rating === n
-                                ? n >= 8 ? 'bg-green-500 text-white'
-                                  : n >= 6 ? 'bg-yellow-500 text-white'
-                                  : 'bg-red-500 text-white'
+                                ? n >= 8 ? 'bg-green-500 text-white' : n >= 6 ? 'bg-yellow-500 text-white' : 'bg-red-500 text-white'
                                 : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
-                            }`}
-                          >{n}</button>
+                            }`}>{n}</button>
                         ))}
                       </div>
                     )}
@@ -257,11 +318,8 @@ const MeetingRunner: React.FC<Props> = ({ meeting, onClose, onComplete }) => {
                 ))}
               </div>
 
-              <button
-                onClick={handleComplete}
-                disabled={completing}
-                className="w-full bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-3 rounded-lg transition-colors disabled:opacity-60"
-              >
+              <button onClick={handleComplete} disabled={completing}
+                className="w-full bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-3 rounded-lg transition-colors disabled:opacity-60">
                 {completing ? 'Saving…' : 'Complete Meeting'}
               </button>
             </div>
