@@ -708,6 +708,281 @@ export async function initializeDatabase(): Promise<void> {
       WHERE NOT EXISTS (SELECT 1 FROM core_values)
     `);
 
+    // ── Production Forecaster tables ────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS crews (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        crew_name VARCHAR(255) NOT NULL,
+        crew_type VARCHAR(50) NOT NULL,
+        team_members INTEGER NOT NULL,
+        training_period_days INTEGER NOT NULL,
+        start_date DATE NOT NULL,
+        terminate_date DATE,
+        revenue_per_sq DECIMAL(10,2),
+        weekly_sq_capacity DECIMAL(10,2),
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        created_by UUID REFERENCES users(id) ON DELETE SET NULL
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_crews_type ON crews(crew_type)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_crews_active ON crews(is_active)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS crew_staff (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        crew_id UUID NOT NULL REFERENCES crews(id) ON DELETE CASCADE,
+        lead_count INTEGER NOT NULL DEFAULT 0,
+        super_count INTEGER NOT NULL DEFAULT 0,
+        added_date DATE NOT NULL,
+        notes TEXT,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        created_by UUID REFERENCES users(id) ON DELETE SET NULL
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_crew_staff_crew_id ON crew_staff(crew_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS custom_projects (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        crew_id UUID NOT NULL REFERENCES crews(id) ON DELETE CASCADE,
+        project_name VARCHAR(255) NOT NULL,
+        start_date DATE NOT NULL,
+        end_date DATE NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        notes TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        created_by UUID REFERENCES users(id) ON DELETE SET NULL
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_custom_projects_crew_id ON custom_projects(crew_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_custom_projects_dates ON custom_projects(start_date, end_date)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS production_parameters (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        current_production_rate DECIMAL(10,2) NOT NULL,
+        ramp_up_time_days INTEGER NOT NULL,
+        crew_capacity INTEGER NOT NULL,
+        max_concurrent_jobs INTEGER NOT NULL,
+        seasonal_adjustment DECIMAL(5,2) DEFAULT 1.0,
+        notes TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_by UUID REFERENCES users(id) ON DELETE SET NULL
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pipeline_items (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        job_type VARCHAR(50) NOT NULL,
+        square_footage DECIMAL(10,2) NOT NULL,
+        estimated_days_to_completion INTEGER NOT NULL,
+        revenue_per_sq DECIMAL(10,2) NOT NULL,
+        total_revenue DECIMAL(12,2) NOT NULL,
+        status VARCHAR(50) NOT NULL DEFAULT 'pending',
+        added_date DATE NOT NULL,
+        target_start_date DATE,
+        notes TEXT,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        created_by UUID REFERENCES users(id) ON DELETE SET NULL
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_pipeline_type ON pipeline_items(job_type)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_pipeline_status ON pipeline_items(status)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_pipeline_dates ON pipeline_items(added_date, target_start_date)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS sales_forecast (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        forecast_week DATE NOT NULL,
+        job_type VARCHAR(50) NOT NULL,
+        projected_square_footage DECIMAL(10,2) NOT NULL,
+        projected_job_count INTEGER DEFAULT 0,
+        notes TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+        UNIQUE(forecast_week, job_type)
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_sales_forecast_week_type ON sales_forecast(forecast_week, job_type)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS production_actuals (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        production_week DATE NOT NULL,
+        job_type VARCHAR(50) NOT NULL,
+        crew_id UUID REFERENCES crews(id) ON DELETE SET NULL,
+        square_footage_completed DECIMAL(10,2) NOT NULL,
+        jobs_completed INTEGER NOT NULL DEFAULT 0,
+        hours_worked DECIMAL(8,2),
+        notes TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        created_by UUID REFERENCES users(id) ON DELETE SET NULL
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_production_actuals_week_type ON production_actuals(production_week, job_type)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS metrics_snapshots (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        metric_week DATE NOT NULL,
+        job_type VARCHAR(50) NOT NULL,
+        pipeline_sqs DECIMAL(12,2) NOT NULL,
+        pipeline_jobs INTEGER NOT NULL DEFAULT 0,
+        sales_forecast_sqs DECIMAL(12,2) NOT NULL,
+        production_rate_sqs DECIMAL(12,2) NOT NULL,
+        revenue_projected DECIMAL(14,2) NOT NULL,
+        revenue_produced DECIMAL(14,2) NOT NULL,
+        queue_growth DECIMAL(12,2) NOT NULL,
+        avg_lead_time_days INTEGER NOT NULL,
+        capacity_utilization DECIMAL(5,4) NOT NULL,
+        bottleneck_detected BOOLEAN DEFAULT false,
+        bottleneck_reason TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_metrics_snapshots_week_type ON metrics_snapshots(metric_week, job_type)`);
+
+    // Estimating tool tables
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS estimate_projects (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        name VARCHAR(255) NOT NULL,
+        project_address VARCHAR(500),
+        gc_name VARCHAR(255),
+        bid_date DATE,
+        project_type VARCHAR(50) DEFAULT 'roofing',
+        status VARCHAR(50) DEFAULT 'draft',
+        stage VARCHAR(50) DEFAULT 'new',
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS estimate_documents (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        project_id UUID REFERENCES estimate_projects(id) ON DELETE CASCADE,
+        file_name VARCHAR(500) NOT NULL,
+        file_path VARCHAR(1000) NOT NULL DEFAULT '',
+        doc_type VARCHAR(50),
+        parsed BOOLEAN DEFAULT false,
+        parsed_data JSONB,
+        parsed_at TIMESTAMP,
+        file_bytes BYTEA,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_estimate_docs_project ON estimate_documents(project_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS estimate_specs (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        project_id UUID REFERENCES estimate_projects(id) ON DELETE CASCADE,
+        section VARCHAR(255),
+        spec_type VARCHAR(100),
+        description TEXT,
+        value TEXT,
+        source_doc_id UUID REFERENCES estimate_documents(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_estimate_specs_project ON estimate_specs(project_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS estimate_line_items (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        project_id UUID REFERENCES estimate_projects(id) ON DELETE CASCADE,
+        category VARCHAR(100),
+        description VARCHAR(500) NOT NULL,
+        quantity DECIMAL(12,2),
+        unit VARCHAR(50),
+        unit_price DECIMAL(10,2),
+        waste_factor DECIMAL(5,2) DEFAULT 0,
+        notes TEXT,
+        sort_order INTEGER DEFAULT 0,
+        material_key VARCHAR(150),
+        price_flagged BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_estimate_line_items_project ON estimate_line_items(project_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS material_prices (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        material_key VARCHAR(150) NOT NULL UNIQUE,
+        category VARCHAR(100) NOT NULL,
+        description VARCHAR(500) NOT NULL,
+        unit VARCHAR(50) NOT NULL,
+        unit_cost DECIMAL(10,2) NOT NULL,
+        vendor VARCHAR(255),
+        notes TEXT,
+        last_updated TIMESTAMP DEFAULT NOW(),
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_material_prices_key ON material_prices(material_key)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS labor_prices (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        material_key VARCHAR(150) NOT NULL UNIQUE,
+        category VARCHAR(100) NOT NULL,
+        description VARCHAR(500) NOT NULL,
+        unit VARCHAR(50) NOT NULL,
+        unit_cost DECIMAL(10,2) NOT NULL,
+        notes TEXT,
+        last_updated TIMESTAMP DEFAULT NOW(),
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_labor_prices_key ON labor_prices(material_key)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS estimate_concerns (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        project_id UUID REFERENCES estimate_projects(id) ON DELETE CASCADE,
+        description TEXT NOT NULL,
+        severity VARCHAR(50) DEFAULT 'medium',
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_estimate_concerns_project ON estimate_concerns(project_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS estimate_takeoffs (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        project_id UUID REFERENCES estimate_projects(id) ON DELETE CASCADE,
+        label VARCHAR(255) NOT NULL,
+        value DECIMAL(12,2),
+        unit VARCHAR(50),
+        category VARCHAR(100),
+        source VARCHAR(100),
+        sort_order INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_estimate_takeoffs_project ON estimate_takeoffs(project_id)`);
+
+    // Seed default production parameters if none exist
+    await client.query(`
+      INSERT INTO production_parameters (current_production_rate, ramp_up_time_days, crew_capacity, max_concurrent_jobs, seasonal_adjustment, notes)
+      SELECT 100, 30, 5, 10, 1.0, 'Default parameters — update as needed'
+      WHERE NOT EXISTS (SELECT 1 FROM production_parameters)
+    `);
+
     console.log('Database initialized successfully');
   } finally {
     client.release();

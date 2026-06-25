@@ -23,6 +23,12 @@ import UserManagement from './pages/UserManagement'
 import Integrations from './pages/Integrations'
 import JobNimbusDashboard from './pages/JobNimbusDashboard'
 import PeopleAnalyzer from './pages/PeopleAnalyzer'
+import Pipeline from './pages/Pipeline'
+import Crews from './pages/Crews'
+import SalesForecast from './pages/SalesForecast'
+import ProductionForecast from './pages/ProductionForecast'
+import Metrics from './pages/Metrics'
+import CustomProjects from './pages/CustomProjects'
 
 const App: React.FC = () => {
   const { loadUser } = useAuthStore()
@@ -173,6 +179,14 @@ const App: React.FC = () => {
             </ProtectedRoute>
           }
         />
+
+        {/* Forecaster */}
+        <Route path="/pipeline" element={<ProtectedRoute><Layout><Pipeline /></Layout></ProtectedRoute>} />
+        <Route path="/crews" element={<ProtectedRoute><Layout><Crews /></Layout></ProtectedRoute>} />
+        <Route path="/sales-forecast" element={<ProtectedRoute><Layout><SalesForecast /></Layout></ProtectedRoute>} />
+        <Route path="/production-forecast" element={<ProtectedRoute><Layout><ProductionForecast /></Layout></ProtectedRoute>} />
+        <Route path="/metrics" element={<ProtectedRoute><Layout><Metrics /></Layout></ProtectedRoute>} />
+        <Route path="/capacity-blocks" element={<ProtectedRoute><Layout><CustomProjects /></Layout></ProtectedRoute>} />
 
         {/* Public legal pages */}
         <Route path="/eula" element={<EULA />} />

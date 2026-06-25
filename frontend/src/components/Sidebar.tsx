@@ -85,6 +85,36 @@ const IconIntegrations = () => (
       d="M13 10V3L4 14h7v7l9-11h-7z" />
   </svg>
 )
+const IconPipeline = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75}
+      d="M3 7h18M3 12h18M3 17h18" />
+  </svg>
+)
+const IconForecast = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75}
+      d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18v12a2 2 0 01-2 2H5a2 2 0 01-2-2V4z" />
+  </svg>
+)
+const IconCrews = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75}
+      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+  </svg>
+)
+const IconMetrics = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75}
+      d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+  </svg>
+)
+const IconBlock = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75}
+      d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+  </svg>
+)
 const IconLogout = () => (
   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75}
@@ -139,6 +169,17 @@ const navGroups: NavGroup[] = [
       { to: '/learning-den',    label: 'Learning Den',    icon: <IconLearning /> },
       { to: '/people-analyzer', label: 'People Analyzer', icon: <IconPeopleAnalyzer />, roles: ['admin'] },
       { to: '/users',           label: 'Users',           icon: <IconUsers />,          roles: ['admin'] },
+    ],
+  },
+  {
+    label: 'Forecaster',
+    items: [
+      { to: '/pipeline',          label: 'Pipeline',         icon: <IconPipeline /> },
+      { to: '/crews',             label: 'Crews',            icon: <IconCrews /> },
+      { to: '/sales-forecast',    label: 'Sales Forecast',   icon: <IconForecast /> },
+      { to: '/production-forecast', label: 'Production',     icon: <IconForecast /> },
+      { to: '/metrics',           label: 'Metrics',          icon: <IconMetrics /> },
+      { to: '/capacity-blocks',   label: 'Capacity Blocks',  icon: <IconBlock /> },
     ],
   },
   {
