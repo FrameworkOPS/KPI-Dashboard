@@ -18,6 +18,22 @@ interface PipelineSummary {
   combined: { total_sqs: number; total_revenue: number; job_count: number }
 }
 
+interface JnBucket {
+  contracts_sent: number
+  work_orders: number
+  weighted_contract_sqs: number
+  work_order_sqs: number
+  total_sqs: number
+}
+
+interface JnSummary {
+  shingle: JnBucket
+  metal: JnBucket
+  unknown: JnBucket
+  settings: { material_field_key: string; closing_rate: number; avg_sqs_per_contract: number }
+  generated_at: string
+}
+
 interface Crew {
   id: string
   crew_name: string
@@ -42,6 +58,7 @@ const emptyForm = {
 export default function Pipeline() {
   const { token } = useAuthStore()
   const [summary, setSummary] = useState<PipelineSummary | null>(null)
+  const [jn, setJn] = useState<JnSummary | null>(null)
   const [items, setItems] = useState<PipelineItem[]>([])
   const [crews, setCrews] = useState<Crew[]>([])
   const [loading, setLoading] = useState(false)
@@ -56,14 +73,16 @@ export default function Pipeline() {
   const loadAll = async () => {
     setLoading(true)
     try {
-      const [summaryRes, itemsRes, crewsRes] = await Promise.all([
+      const [summaryRes, itemsRes, crewsRes, jnRes] = await Promise.all([
         fetch('/api/pipeline/summary', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/pipeline', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/crews?active=true', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/forecaster-ai/jn-pipeline', { headers: { Authorization: `Bearer ${token}` } }),
       ])
       if (summaryRes.ok) { const d = await summaryRes.json(); setSummary(d.data) }
       if (itemsRes.ok) { const d = await itemsRes.json(); setItems(d.data || []) }
       if (crewsRes.ok) { const d = await crewsRes.json(); setCrews(d.data || []) }
+      if (jnRes.ok) { const d = await jnRes.json(); setJn(d.data) }
     } catch (err) { console.error(err) } finally { setLoading(false) }
   }
 
@@ -157,6 +176,49 @@ export default function Pipeline() {
           </div>
         ))}
       </div>
+
+      {/* JobNimbus live pipeline */}
+      {jn && (jn.shingle.contracts_sent + jn.metal.contracts_sent + jn.unknown.contracts_sent
+              + jn.shingle.work_orders + jn.metal.work_orders + jn.unknown.work_orders) > 0 && (
+        <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              <h3 className="text-sm font-semibold text-slate-300">Live from JobNimbus</h3>
+            </div>
+            <span className="text-xs text-slate-500">
+              Close rate {(jn.settings.closing_rate * 100).toFixed(0)}% · Avg {jn.settings.avg_sqs_per_contract} SQs/contract
+            </span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {(['shingle', 'metal', 'unknown'] as const).map((mat) => {
+              const b = jn[mat]
+              if (b.contracts_sent === 0 && b.work_orders === 0) return null
+              const color = mat === 'shingle' ? 'text-cyan-400' : mat === 'metal' ? 'text-pink-400' : 'text-slate-400'
+              return (
+                <div key={mat} className="bg-slate-700/40 rounded-lg p-3 border border-slate-700">
+                  <p className={`text-xs uppercase tracking-wide mb-1 ${color}`}>
+                    {mat === 'unknown' ? 'Unknown material' : mat}
+                  </p>
+                  <p className="text-xl font-bold text-white">{Math.round(b.total_sqs)} SQs</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {b.contracts_sent} contracts × {(jn.settings.closing_rate * 100).toFixed(0)}% × {jn.settings.avg_sqs_per_contract} = {Math.round(b.weighted_contract_sqs)} SQs
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {b.work_orders} open work orders × {jn.settings.avg_sqs_per_contract} = {Math.round(b.work_order_sqs)} SQs
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+          <p className="text-xs text-slate-500 mt-3">
+            Live pipeline is added to manual pipeline in the production forecast.
+            {jn.unknown.contracts_sent + jn.unknown.work_orders > 0 && (
+              <span className="text-yellow-400/80"> Unknown-material jobs are split 50/50 between shingle and metal.</span>
+            )}
+          </p>
+        </div>
+      )}
 
       {/* Crew capacity */}
       {crews.length > 0 && (

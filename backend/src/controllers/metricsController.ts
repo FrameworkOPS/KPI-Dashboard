@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { pool } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
+import { getJnPipelineSqsByType } from '../services/jnPipelineService';
 
 function getMonday(date: Date): Date {
   const d = new Date(date);
@@ -20,10 +21,9 @@ function formatDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-export async function getMetricsDashboard(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-  try {
+export async function getMetricsDashboardData(startWeek?: string): Promise<any> {
     const today    = new Date();
-    const start    = req.query.startWeek ? new Date(req.query.startWeek as string) : getMonday(today);
+    const start    = startWeek ? new Date(startWeek) : getMonday(today);
     const numWeeks = 12;
     const end      = addDays(start, numWeeks * 7);
 
@@ -60,6 +60,23 @@ export async function getMetricsDashboard(req: AuthRequest, res: Response, next:
         count: parseInt(row.job_count) || 0,
       };
     }
+    // Merge live JobNimbus pipeline into starting totals
+    let jn = { shingle: 0, metal: 0 };
+    try { jn = await getJnPipelineSqsByType(); } catch { /* JN may not be configured */ }
+    pipelineMap['shingle'] = {
+      sqs:     (pipelineMap['shingle']?.sqs     || 0) + jn.shingle,
+      revenue: (pipelineMap['shingle']?.revenue || 0),
+      count:   (pipelineMap['shingle']?.count   || 0),
+      manual_sqs:    pipelineMap['shingle']?.sqs || 0,
+      jobnimbus_sqs: jn.shingle,
+    };
+    pipelineMap['metal'] = {
+      sqs:     (pipelineMap['metal']?.sqs     || 0) + jn.metal,
+      revenue: (pipelineMap['metal']?.revenue || 0),
+      count:   (pipelineMap['metal']?.count   || 0),
+      manual_sqs:    pipelineMap['metal']?.sqs || 0,
+      jobnimbus_sqs: jn.metal,
+    };
 
     // Sales forecasts in window
     const sfResult = await pool.query(
@@ -161,25 +178,32 @@ export async function getMetricsDashboard(req: AuthRequest, res: Response, next:
     const totalLeads  = crews.reduce((s: number, c: any) => s + (parseInt(c.lead_count)  || 0), 0);
     const totalSupers = crews.reduce((s: number, c: any) => s + (parseInt(c.super_count) || 0), 0);
 
-    res.json({
-      success: true,
-      data: {
-        current: {
-          pipeline_shingle:    pipelineMap['shingle']?.sqs     || 0,
-          pipeline_metal:      pipelineMap['metal']?.sqs       || 0,
-          production_shingle:  current.production_rate_shingle || 0,
-          production_metal:    current.production_rate_metal   || 0,
-          lead_time_shingle:   current.lead_time_days_shingle  || 0,
-          lead_time_metal:     current.lead_time_days_metal    || 0,
-          active_crews:        crews.length,
-          total_leads:         totalLeads,
-          total_supers:        totalSupers,
-          revenue_shingle:     current.revenue_shingle         || 0,
-          revenue_metal:       current.revenue_metal           || 0,
-        },
-        weeks: weeklyMetrics,
-        crew_details: weeklyMetrics[0]?.crew_details || [],
+    return {
+      current: {
+        pipeline_shingle:    pipelineMap['shingle']?.sqs     || 0,
+        pipeline_metal:      pipelineMap['metal']?.sqs       || 0,
+        pipeline_shingle_manual:    pipelineMap['shingle']?.manual_sqs    || 0,
+        pipeline_shingle_jobnimbus: pipelineMap['shingle']?.jobnimbus_sqs || 0,
+        pipeline_metal_manual:      pipelineMap['metal']?.manual_sqs      || 0,
+        pipeline_metal_jobnimbus:   pipelineMap['metal']?.jobnimbus_sqs   || 0,
+        production_shingle:  current.production_rate_shingle || 0,
+        production_metal:    current.production_rate_metal   || 0,
+        lead_time_shingle:   current.lead_time_days_shingle  || 0,
+        lead_time_metal:     current.lead_time_days_metal    || 0,
+        active_crews:        crews.length,
+        total_leads:         totalLeads,
+        total_supers:        totalSupers,
+        revenue_shingle:     current.revenue_shingle         || 0,
+        revenue_metal:       current.revenue_metal           || 0,
       },
-    });
+      weeks: weeklyMetrics,
+      crew_details: weeklyMetrics[0]?.crew_details || [],
+    };
+}
+
+export async function getMetricsDashboard(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const data = await getMetricsDashboardData(req.query.startWeek as string | undefined);
+    res.json({ success: true, data });
   } catch (err) { next(err); }
 }
