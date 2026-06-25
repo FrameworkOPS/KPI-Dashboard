@@ -1,7 +1,14 @@
 import { Router, Response, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { chatWithForecaster, isForecasterAiConfigured, ChatMessage } from '../services/forecasterAiService';
-import { getJnPipelineSummary, getForecasterSettings, updateForecasterSettings } from '../services/jnPipelineService';
+import {
+  getJnPipelineSummary,
+  getForecasterSettings,
+  updateForecasterSettings,
+  listSalesRepCloseRates,
+  upsertSalesRepCloseRate,
+  deleteSalesRepCloseRate,
+} from '../services/jnPipelineService';
 
 const router = Router();
 
@@ -50,7 +57,7 @@ router.post('/chat', authenticate, async (req: AuthRequest, res: Response, next:
       role: m.role === 'assistant' ? ('assistant' as const) : ('user' as const),
       content: String(m.content || '').slice(0, 8000),
     }));
-    const result = await chatWithForecaster(trimmed);
+    const result = await chatWithForecaster(trimmed, req.user?.id || null);
     res.json({ success: true, data: result });
   } catch (err) {
     const e = err as any;
@@ -60,6 +67,46 @@ router.post('/chat', authenticate, async (req: AuthRequest, res: Response, next:
     }
     next(err);
   }
+});
+
+// ── Sales-rep close-rate overrides ────────────────────────────────────────────
+
+router.get('/sales-rep-rates', authenticate, async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const rates = await listSalesRepCloseRates();
+    res.json({ success: true, data: rates });
+  } catch (err) { next(err); }
+});
+
+router.put('/sales-rep-rates', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const role = req.user?.role;
+    if (role !== 'admin' && role !== 'leadership') {
+      res.status(403).json({ error: 'Admin or leadership only' });
+      return;
+    }
+    const { sales_rep_name, close_rate, notes } = req.body || {};
+    if (!sales_rep_name || close_rate === undefined) {
+      res.status(400).json({ error: 'sales_rep_name and close_rate are required' });
+      return;
+    }
+    const result = await upsertSalesRepCloseRate(sales_rep_name, Number(close_rate), notes ?? null, req.user?.id || null);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+router.delete('/sales-rep-rates/:repName', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const role = req.user?.role;
+    if (role !== 'admin' && role !== 'leadership') {
+      res.status(403).json({ error: 'Admin or leadership only' });
+      return;
+    }
+    const ok = await deleteSalesRepCloseRate(String(req.params.repName));
+    res.json({ success: ok });
+  } catch (err) { next(err); }
 });
 
 export default router;

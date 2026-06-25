@@ -4,8 +4,28 @@ import { useAuthStore } from '../store/authStore'
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
-  tool_calls?: Array<{ name: string; input: any }>
+  tool_calls?: Array<{ name: string; input: any; warning?: string }>
   timestamp: number
+}
+
+const CONFIG_TOOLS = new Set([
+  'update_forecaster_settings',
+  'set_sales_rep_close_rate',
+  'delete_sales_rep_close_rate',
+  'update_crew_capacity',
+])
+const SCENARIO_TOOLS = new Set(['simulate_production_forecast'])
+const WRITE_TOOLS = new Set([
+  'set_sales_forecast',
+  'add_capacity_block',
+  'add_pipeline_item',
+])
+
+function toolBadge(name: string): { label: string; cls: string } {
+  if (CONFIG_TOOLS.has(name))   return { label: 'CONFIG',   cls: 'bg-red-900/40 text-red-300 border border-red-500/40' }
+  if (WRITE_TOOLS.has(name))    return { label: 'WRITE',    cls: 'bg-yellow-900/40 text-yellow-300 border border-yellow-500/40' }
+  if (SCENARIO_TOOLS.has(name)) return { label: 'SCENARIO', cls: 'bg-purple-900/40 text-purple-300 border border-purple-500/40' }
+  return                              { label: 'READ',     cls: 'bg-slate-800 text-cyan-300 border border-slate-600' }
 }
 
 const SUGGESTIONS = [
@@ -222,11 +242,21 @@ export default function ForecasterAI() {
                 }`}
               >
                 {m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0 && (
-                  <div className="mb-2 pb-2 border-b border-slate-600/50 flex flex-wrap gap-1">
-                    {m.tool_calls.map((tc, j) => (
-                      <span key={j} className="px-1.5 py-0.5 bg-slate-800 text-cyan-300 text-[10px] rounded font-mono">
-                        ⚙ {tc.name}
-                      </span>
+                  <div className="mb-2 pb-2 border-b border-slate-600/50 space-y-1">
+                    <div className="flex flex-wrap gap-1">
+                      {m.tool_calls.map((tc, j) => {
+                        const b = toolBadge(tc.name)
+                        return (
+                          <span key={j} className={`px-1.5 py-0.5 text-[10px] rounded font-mono ${b.cls}`}>
+                            <span className="opacity-70">[{b.label}]</span> {tc.name}
+                          </span>
+                        )
+                      })}
+                    </div>
+                    {m.tool_calls.filter((tc) => tc.warning).map((tc, j) => (
+                      <div key={`w${j}`} className="text-[11px] text-red-300 bg-red-900/30 border border-red-500/40 rounded px-2 py-1">
+                        ⚠️ <strong className="font-semibold">{tc.name}</strong>: {tc.warning}
+                      </div>
                     ))}
                   </div>
                 )}

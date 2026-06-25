@@ -187,6 +187,7 @@ const navGroups: NavGroup[] = [
       { to: '/metrics',           label: 'Metrics',          icon: <IconMetrics /> },
       { to: '/capacity-blocks',   label: 'Capacity Blocks',  icon: <IconBlock /> },
       { to: '/forecaster-ai',     label: 'Forecaster AI',    icon: <IconAI /> },
+      { to: '/sales-rep-rates',   label: 'Rep Close Rates',  icon: <IconScorecard /> },
     ],
   },
   {
