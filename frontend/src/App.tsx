@@ -29,6 +29,8 @@ import SalesForecast from './pages/SalesForecast'
 import ProductionForecast from './pages/ProductionForecast'
 import Metrics from './pages/Metrics'
 import CustomProjects from './pages/CustomProjects'
+import ForecasterAI from './pages/ForecasterAI'
+import SalesRepRates from './pages/SalesRepRates'
 
 const App: React.FC = () => {
   const { loadUser } = useAuthStore()
@@ -187,6 +189,8 @@ const App: React.FC = () => {
         <Route path="/production-forecast" element={<ProtectedRoute><Layout><ProductionForecast /></Layout></ProtectedRoute>} />
         <Route path="/metrics" element={<ProtectedRoute><Layout><Metrics /></Layout></ProtectedRoute>} />
         <Route path="/capacity-blocks" element={<ProtectedRoute><Layout><CustomProjects /></Layout></ProtectedRoute>} />
+        <Route path="/forecaster-ai" element={<ProtectedRoute><Layout><ForecasterAI /></Layout></ProtectedRoute>} />
+        <Route path="/sales-rep-rates" element={<ProtectedRoute><Layout><SalesRepRates /></Layout></ProtectedRoute>} />
 
         {/* Public legal pages */}
         <Route path="/eula" element={<EULA />} />

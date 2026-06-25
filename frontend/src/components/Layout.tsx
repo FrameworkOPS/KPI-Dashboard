@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
+import QuickAdd from './QuickAdd'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -79,6 +80,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           {children}
         </main>
       </div>
+
+      {/* Global quick-add FAB — accessible from every page */}
+      <QuickAdd />
     </div>
   )
 }
