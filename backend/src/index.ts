@@ -19,6 +19,14 @@ import accountabilityRoutes from './routes/accountabilityRoutes';
 import meetingsRoutes from './routes/meetingsRoutes';
 import integrationRoutes from './routes/integrationRoutes';
 import peopleAnalyzerRoutes from './routes/peopleAnalyzerRoutes';
+import crewsRoutes from './routes/crewsRoutes';
+import crewStaffRoutes from './routes/crewStaffRoutes';
+import customProjectsRoutes from './routes/customProjectsRoutes';
+import forecastRoutes from './routes/forecastRoutes';
+import salesForecastRoutes from './routes/salesForecastRoutes';
+import pipelineRoutes from './routes/pipelineRoutes';
+import metricsRoutes from './routes/metricsRoutes';
+import estimatingRoutes from './routes/estimatingRoutes';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '5001', 10);
@@ -63,6 +71,14 @@ app.use('/api/accountability', accountabilityRoutes);
 app.use('/api/meetings', meetingsRoutes);
 app.use('/api/integrations', integrationRoutes);
 app.use('/api/people-analyzer', peopleAnalyzerRoutes);
+app.use('/api/crews', crewsRoutes);
+app.use('/api/crew-staff', crewStaffRoutes);
+app.use('/api/custom-projects', customProjectsRoutes);
+app.use('/api/forecasts', forecastRoutes);
+app.use('/api/sales-forecast', salesForecastRoutes);
+app.use('/api/pipeline', pipelineRoutes);
+app.use('/api/metrics', metricsRoutes);
+app.use('/api/estimating', estimatingRoutes);
 
 // Serve frontend static files
 const frontendDist = path.join(__dirname, '../../frontend/dist');
