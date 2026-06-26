@@ -79,7 +79,8 @@ function classifyMaterial(raw: any, recordType: string | null, name: string | nu
   if (!blob.trim()) return null;
   if (/\b(gutter|gutters|downspout|downspouts|leaf\s*guard)\b/.test(blob)) return 'gutter';
   if (/\b(metal|standing\s*seam|steel|aluminum|copper)\b/.test(blob)) return 'metal';
-  if (/\b(shingle|asphalt|composit|tpo|architectural)\b/.test(blob)) return 'shingle';
+  // shingles? matches both "shingle" and "shingles" (JN stores the plural form)
+  if (/\b(shingles?|asphalt|composit|tpo|architectural)\b/.test(blob)) return 'shingle';
   return null; // unknown — caller decides whether to default to shingle
 }
 
@@ -307,7 +308,11 @@ export async function getJnPipelineSummary(): Promise<JnPipelineSummary> {
       reps[repName].contracts_sent += 1;
       const repKey = repName.toLowerCase();
       const rate = repRates[repKey] ?? settings.closing_rate;
-      weightedSqs = settings.avg_sqs_per_contract * rate;
+      // Use actual # of SQS from the job field when available (observed on 42/50
+      // live JN jobs); fall back to the configured avg_sqs_per_contract estimate.
+      const jobSqs = extractWorkOrderSqs(raw);
+      const baseSqs = jobSqs !== null ? jobSqs : settings.avg_sqs_per_contract;
+      weightedSqs = baseSqs * rate;
       buckets[key].weighted_contract_sqs += weightedSqs;
       reps[repName].weighted_contract_sqs += weightedSqs;
     } else {
