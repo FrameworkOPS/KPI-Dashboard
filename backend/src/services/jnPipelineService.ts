@@ -2,7 +2,7 @@ import { query } from '../config/database';
 
 // Defaults — overridable via app_settings keys
 const DEFAULTS = {
-  material_field_key: 'material_type',   // raw->>material_type (case-insensitive scan)
+  material_field_key: 'What Material?',  // JobNimbus custom field indicating shingle/metal/gutter
   closing_rate: 0.35,
   avg_sqs_per_contract: 30,
 };
