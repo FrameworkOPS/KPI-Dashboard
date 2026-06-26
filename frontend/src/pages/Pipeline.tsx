@@ -19,17 +19,42 @@ interface PipelineSummary {
 }
 
 interface JnBucket {
+  job_count: number
   contracts_sent: number
   work_orders: number
   weighted_contract_sqs: number
   work_order_sqs: number
   total_sqs: number
+  forecast_revenue: number
+  estimate_value: number
 }
 
 interface JnSummary {
   shingle: JnBucket
   metal: JnBucket
+  gutter: JnBucket
   unknown: JnBucket
+  totals: JnBucket
+  by_rep: Array<{
+    sales_rep_name: string
+    job_count: number
+    contracts_sent: number
+    work_orders: number
+    total_sqs: number
+    forecast_revenue: number
+    estimate_value: number
+  }>
+  jobs: Array<{
+    jnid: string
+    name: string | null
+    sales_rep_name: string | null
+    material: 'shingle' | 'metal' | 'gutter' | 'unknown'
+    bucket: 'contract' | 'work_order'
+    weighted_sqs: number
+    forecast_revenue: number
+    estimate_value: number
+    url: string
+  }>
   settings: { material_field_key: string; closing_rate: number; avg_sqs_per_contract: number }
   generated_at: string
 }
@@ -142,6 +167,21 @@ export default function Pipeline() {
     .reduce((s, c) => s + (c.weekly_sq_capacity || 0), 0)
 
   const getByType = (type: string) => summary?.byType.find((b) => b.job_type === type)
+  const manualShingle = getByType('shingle')
+  const manualMetal = getByType('metal')
+  const jnShingleSqs = (jn?.shingle.total_sqs || 0) + (jn?.unknown.total_sqs || 0) / 2
+  const jnMetalSqs = (jn?.metal.total_sqs || 0) + (jn?.unknown.total_sqs || 0) / 2
+  const shingleTotalSqs = (manualShingle?.total_sqs || 0) + jnShingleSqs
+  const metalTotalSqs = (manualMetal?.total_sqs || 0) + jnMetalSqs
+  const shingleForecastRevenue = shingleTotalSqs * 600
+  const metalForecastRevenue = metalTotalSqs * 1000
+  const totalForecastRevenue = shingleForecastRevenue + metalForecastRevenue
+  const totalForecastSqs = shingleTotalSqs + metalTotalSqs
+  const jnJobCount = jn?.totals.job_count || 0
+  const hasJnPipeline = jn && jnJobCount > 0
+  const money = (value: number) => `$${Math.round(value).toLocaleString()}`
+  const compactMoney = (value: number) => `$${(value / 1000).toFixed(0)}k`
+  const sqs = (value: number) => `${Math.round(value).toLocaleString()} SQs`
 
   return (
     <div className="space-y-6">
@@ -162,63 +202,155 @@ export default function Pipeline() {
         </div>
       )}
 
-      {/* Summary cards */}
+      {/* Forecast cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
-          { label: 'Shingle Pipeline', value: getByType('shingle')?.total_sqs || 0, sub: `${getByType('shingle')?.job_count || 0} jobs`, color: 'text-cyan-400', rev: getByType('shingle')?.total_revenue || 0 },
-          { label: 'Metal Pipeline', value: getByType('metal')?.total_sqs || 0, sub: `${getByType('metal')?.job_count || 0} jobs`, color: 'text-pink-400', rev: getByType('metal')?.total_revenue || 0 },
-          { label: 'Total Pipeline', value: summary?.combined.total_sqs || 0, sub: `${summary?.combined.job_count || 0} jobs`, color: 'text-white', rev: summary?.combined.total_revenue || 0 },
+          {
+            label: 'Shingle Forecast',
+            value: shingleTotalSqs,
+            sub: `${manualShingle?.job_count || 0} manual · ${Math.round(jnShingleSqs)} JN SQs · $600/SQ`,
+            color: 'text-cyan-400',
+            rev: shingleForecastRevenue,
+          },
+          {
+            label: 'Metal Forecast',
+            value: metalTotalSqs,
+            sub: `${manualMetal?.job_count || 0} manual · ${Math.round(jnMetalSqs)} JN SQs · $1,000/SQ`,
+            color: 'text-pink-400',
+            rev: metalForecastRevenue,
+          },
+          {
+            label: 'Total Forecast',
+            value: totalForecastSqs,
+            sub: `${summary?.combined.job_count || 0} manual jobs · ${jnJobCount} JobNimbus jobs`,
+            color: 'text-white',
+            rev: totalForecastRevenue,
+          },
         ].map(({ label, value, sub, color, rev }) => (
           <div key={label} className="bg-slate-800 rounded-lg p-4 border border-slate-700">
             <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">{label}</p>
-            <p className={`text-2xl font-bold ${color}`}>{value.toFixed(0)} SQs</p>
-            <p className="text-xs text-slate-500 mt-0.5">{sub} · ${(rev / 1000).toFixed(0)}k revenue</p>
+            <p className={`text-2xl font-bold ${color}`}>{sqs(value)}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{sub} · {compactMoney(rev)} forecast</p>
           </div>
         ))}
       </div>
 
       {/* JobNimbus live pipeline */}
-      {jn && (jn.shingle.contracts_sent + jn.metal.contracts_sent + jn.unknown.contracts_sent
-              + jn.shingle.work_orders + jn.metal.work_orders + jn.unknown.work_orders) > 0 && (
+      {hasJnPipeline && (
         <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
               <h3 className="text-sm font-semibold text-slate-300">Live from JobNimbus</h3>
             </div>
             <span className="text-xs text-slate-500">
-              Close rate {(jn.settings.closing_rate * 100).toFixed(0)}% · Avg {jn.settings.avg_sqs_per_contract} SQs/contract
+              {jn.totals.job_count} jobs · Close rate {(jn.settings.closing_rate * 100).toFixed(0)}% · Avg {jn.settings.avg_sqs_per_contract} SQs/contract
             </span>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {(['shingle', 'metal', 'unknown'] as const).map((mat) => {
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            {(['shingle', 'metal', 'gutter', 'unknown'] as const).map((mat) => {
               const b = jn[mat]
-              if (b.contracts_sent === 0 && b.work_orders === 0) return null
-              const color = mat === 'shingle' ? 'text-cyan-400' : mat === 'metal' ? 'text-pink-400' : 'text-slate-400'
+              const color = mat === 'shingle' ? 'text-cyan-400' : mat === 'metal' ? 'text-pink-400' : mat === 'gutter' ? 'text-emerald-400' : 'text-slate-400'
               return (
                 <div key={mat} className="bg-slate-700/40 rounded-lg p-3 border border-slate-700">
                   <p className={`text-xs uppercase tracking-wide mb-1 ${color}`}>
-                    {mat === 'unknown' ? 'Unknown material' : mat}
+                    {mat === 'unknown' ? 'Unknown' : mat}
                   </p>
-                  <p className="text-xl font-bold text-white">{Math.round(b.total_sqs)} SQs</p>
+                  <p className="text-xl font-bold text-white">{mat === 'gutter' ? b.job_count : sqs(b.total_sqs)}</p>
                   <p className="text-xs text-slate-400 mt-1">
-                    {b.contracts_sent} contracts × {(jn.settings.closing_rate * 100).toFixed(0)}% × {jn.settings.avg_sqs_per_contract} = {Math.round(b.weighted_contract_sqs)} SQs
+                    {b.job_count} jobs · {b.contracts_sent} contracts · {b.work_orders} WOs
                   </p>
                   <p className="text-xs text-slate-400">
-                    {b.work_orders} open work orders × {jn.settings.avg_sqs_per_contract} = {Math.round(b.work_order_sqs)} SQs
+                    {mat === 'gutter' || mat === 'unknown' ? `${money(b.estimate_value)} JN estimate` : `${money(b.forecast_revenue)} forecast`}
                   </p>
                 </div>
               )
             })}
+            <div className="bg-blue-900/20 rounded-lg p-3 border border-blue-800/60">
+              <p className="text-xs uppercase tracking-wide mb-1 text-blue-300">Push to JN #</p>
+              <p className="text-xl font-bold text-white">{jn.totals.job_count}</p>
+              <p className="text-xs text-slate-400 mt-1">{jn.totals.contracts_sent} contracts · {jn.totals.work_orders} work orders</p>
+              <p className="text-xs text-slate-400">{money(jn.totals.estimate_value)} JobNimbus estimate</p>
+            </div>
           </div>
+          {jn.by_rep.length > 0 && (
+            <div className="mt-4 grid grid-cols-1 xl:grid-cols-[1.2fr_1fr] gap-4">
+              <div>
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Jobs by Rep</h4>
+                <div className="overflow-x-auto rounded-lg border border-slate-700">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-900/40 text-slate-400">
+                      <tr>
+                        {['Rep', 'Jobs', 'Contracts', 'WOs', 'SQs', 'Forecast'].map((h) => (
+                          <th key={h} className="px-3 py-2 text-left font-medium">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-700">
+                      {jn.by_rep.slice(0, 8).map((rep) => (
+                        <tr key={rep.sales_rep_name}>
+                          <td className="px-3 py-2 text-white">{rep.sales_rep_name}</td>
+                          <td className="px-3 py-2 text-slate-300">{rep.job_count}</td>
+                          <td className="px-3 py-2 text-slate-300">{rep.contracts_sent}</td>
+                          <td className="px-3 py-2 text-slate-300">{rep.work_orders}</td>
+                          <td className="px-3 py-2 text-slate-300">{Math.round(rep.total_sqs)}</td>
+                          <td className="px-3 py-2 text-slate-300">{money(rep.forecast_revenue || rep.estimate_value)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Top JobNimbus Jobs</h4>
+                <div className="space-y-2">
+                  {jn.jobs.slice(0, 5).map((job) => (
+                    <a
+                      key={job.jnid}
+                      href={job.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block rounded-lg border border-slate-700 bg-slate-900/30 px-3 py-2 hover:border-blue-500/70"
+                    >
+                      <div className="flex justify-between gap-3">
+                        <p className="text-xs font-medium text-white truncate">{job.name || job.jnid}</p>
+                        <span className="text-[11px] text-blue-300 shrink-0">#{job.jnid}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        {job.sales_rep_name || 'Unassigned'} · {job.material} · {job.bucket === 'work_order' ? 'work order' : 'contract'} · {money(job.forecast_revenue || job.estimate_value)}
+                      </p>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
           <p className="text-xs text-slate-500 mt-3">
-            Live pipeline is added to manual pipeline in the production forecast.
+            Live shingle and metal pipeline is added to manual pipeline in the production forecast.
             {jn.unknown.contracts_sent + jn.unknown.work_orders > 0 && (
               <span className="text-yellow-400/80"> Unknown-material jobs are split 50/50 between shingle and metal.</span>
+            )}
+            {jn.gutter.job_count > 0 && (
+              <span className="text-emerald-400/80"> Gutter jobs are shown separately and do not add to shingle/metal production SQs.</span>
             )}
           </p>
         </div>
       )}
+
+      {/* Manual pipeline cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {[
+          { label: 'Manual Shingle', value: manualShingle?.total_sqs || 0, sub: `${manualShingle?.job_count || 0} jobs`, color: 'text-cyan-400', rev: manualShingle?.total_revenue || 0 },
+          { label: 'Manual Metal', value: manualMetal?.total_sqs || 0, sub: `${manualMetal?.job_count || 0} jobs`, color: 'text-pink-400', rev: manualMetal?.total_revenue || 0 },
+          { label: 'Manual Total', value: summary?.combined.total_sqs || 0, sub: `${summary?.combined.job_count || 0} jobs`, color: 'text-white', rev: summary?.combined.total_revenue || 0 },
+        ].map(({ label, value, sub, color, rev }) => (
+          <div key={label} className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+            <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">{label}</p>
+            <p className={`text-2xl font-bold ${color}`}>{sqs(value)}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{sub} · {compactMoney(rev)} revenue</p>
+          </div>
+        ))}
+      </div>
 
       {/* Crew capacity */}
       {crews.length > 0 && (
@@ -242,14 +374,14 @@ export default function Pipeline() {
               <p className="text-lg font-bold text-pink-400">{metalCapacity.toFixed(0)}</p>
             </div>
           </div>
-          {shingleCapacity > 0 && (getByType('shingle')?.total_sqs || 0) > 0 && (
+          {shingleCapacity > 0 && shingleTotalSqs > 0 && (
             <p className="text-xs text-slate-500 mt-2">
-              Shingle lead time: ~{((getByType('shingle')?.total_sqs || 0) / shingleCapacity).toFixed(1)} weeks at current capacity
+              Shingle lead time: ~{(shingleTotalSqs / shingleCapacity).toFixed(1)} weeks at current capacity
             </p>
           )}
-          {metalCapacity > 0 && (getByType('metal')?.total_sqs || 0) > 0 && (
+          {metalCapacity > 0 && metalTotalSqs > 0 && (
             <p className="text-xs text-slate-500">
-              Metal lead time: ~{((getByType('metal')?.total_sqs || 0) / metalCapacity).toFixed(1)} weeks at current capacity
+              Metal lead time: ~{(metalTotalSqs / metalCapacity).toFixed(1)} weeks at current capacity
             </p>
           )}
         </div>
