@@ -1,8 +1,9 @@
 import { query } from '../config/database';
+import { JOB_MATERIAL_FIELD_CANDIDATES, WORK_ORDER_SQS_FIELD_CANDIDATES } from './jobNimbusSchemaContext';
 
 // Defaults — overridable via app_settings keys
 const DEFAULTS = {
-  material_field_key: 'What Material?',  // JobNimbus custom field indicating shingle/metal/gutter
+  material_field_key: JOB_MATERIAL_FIELD_CANDIDATES[0],  // JobNimbus custom field indicating shingle/metal/gutter
   closing_rate: 0.35,
   avg_sqs_per_contract: 30,
 };
@@ -66,9 +67,12 @@ export async function updateForecasterSettings(patch: Partial<ForecasterSettings
 // Material classifier: consult the configured custom-field key on the raw payload first;
 // fall back to a heuristic on record_type_name + name.
 function classifyMaterial(raw: any, recordType: string | null, name: string | null, fieldKey: string): 'shingle' | 'metal' | 'gutter' | null {
-  const fromField = raw && fieldKey ? raw[fieldKey] : null;
   const candidates: string[] = [];
-  if (fromField) candidates.push(String(fromField));
+  const fieldKeys = Array.from(new Set([fieldKey, ...JOB_MATERIAL_FIELD_CANDIDATES])).filter(Boolean);
+  for (const key of fieldKeys) {
+    const fromField = raw && key ? raw[key] : null;
+    if (fromField) candidates.push(String(fromField));
+  }
   if (recordType) candidates.push(recordType);
   if (name) candidates.push(name);
   const blob = candidates.join(' ').toLowerCase();
@@ -97,6 +101,7 @@ function parseSqsValue(value: unknown): number | null {
 function isSqsFieldName(fieldName: string): boolean {
   const normalized = normalizeFieldName(fieldName);
   return [
+    ...WORK_ORDER_SQS_FIELD_CANDIDATES.map(normalizeFieldName),
     'ofsqs',
     'sqs',
     'sq',
