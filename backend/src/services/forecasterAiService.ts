@@ -43,7 +43,7 @@ When you do call a [CONFIG] tool, pass \`confirmed: true\` so the tool knows the
 
 # Data sources
 
-- Manual pipeline_items + live JobNimbus pipeline (contracts × close-rate, open work orders × avg SQ)
+- Manual pipeline_items + live JobNimbus pipeline (contracts × close-rate × avg SQ; work orders use their JobNimbus # of sqs field)
 - Active crews with ramp-up + capacity
 - Sales forecast (projected weekly square footage by job type)
 - 6-month rolling production forecast
@@ -114,7 +114,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'get_pipeline',
-    description: '[READ] Current pipeline: manual entries aggregated by material + live JobNimbus summary (contracts_sent, work_orders, weighted SQs per material).',
+    description: '[READ] Current pipeline: manual entries aggregated by material + live JobNimbus summary. Contracts are weighted by close rate; work orders use the JobNimbus # of sqs field.',
     input_schema: { type: 'object', properties: {} },
   },
   {

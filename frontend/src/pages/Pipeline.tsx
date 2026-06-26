@@ -22,6 +22,7 @@ interface JnBucket {
   job_count: number
   contracts_sent: number
   work_orders: number
+  work_orders_missing_sqs: number
   weighted_contract_sqs: number
   work_order_sqs: number
   total_sqs: number
@@ -51,6 +52,7 @@ interface JnSummary {
     material: 'shingle' | 'metal' | 'gutter' | 'unknown'
     bucket: 'contract' | 'work_order'
     weighted_sqs: number
+    sqs_source: 'avg_contract' | 'work_order_field' | 'missing_work_order_field'
     forecast_revenue: number
     estimate_value: number
     url: string
@@ -244,7 +246,7 @@ export default function Pipeline() {
               <h3 className="text-sm font-semibold text-slate-300">Live from JobNimbus</h3>
             </div>
             <span className="text-xs text-slate-500">
-              {jn.totals.job_count} jobs · Close rate {(jn.settings.closing_rate * 100).toFixed(0)}% · Avg {jn.settings.avg_sqs_per_contract} SQs/contract
+              {jn.totals.job_count} jobs · Close rate {(jn.settings.closing_rate * 100).toFixed(0)}% · Contracts use avg {jn.settings.avg_sqs_per_contract} SQs
             </span>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -263,6 +265,9 @@ export default function Pipeline() {
                   <p className="text-xs text-slate-400">
                     {mat === 'gutter' || mat === 'unknown' ? `${money(b.estimate_value)} JN estimate` : `${money(b.forecast_revenue)} forecast`}
                   </p>
+                  {b.work_orders_missing_sqs > 0 && (
+                    <p className="text-[11px] text-yellow-300 mt-1">{b.work_orders_missing_sqs} WOs missing # of sqs</p>
+                  )}
                 </div>
               )
             })}
@@ -317,7 +322,7 @@ export default function Pipeline() {
                         <span className="text-[11px] text-blue-300 shrink-0">#{job.jnid}</span>
                       </div>
                       <p className="text-[11px] text-slate-500 mt-0.5">
-                        {job.sales_rep_name || 'Unassigned'} · {job.material} · {job.bucket === 'work_order' ? 'work order' : 'contract'} · {money(job.forecast_revenue || job.estimate_value)}
+                        {job.sales_rep_name || 'Unassigned'} · {job.material} · {job.bucket === 'work_order' ? 'work order' : 'contract'} · {job.sqs_source === 'missing_work_order_field' ? 'missing # of sqs' : money(job.forecast_revenue || job.estimate_value)}
                       </p>
                     </a>
                   ))}
@@ -332,6 +337,9 @@ export default function Pipeline() {
             )}
             {jn.gutter.job_count > 0 && (
               <span className="text-emerald-400/80"> Gutter jobs are shown separately and do not add to shingle/metal production SQs.</span>
+            )}
+            {jn.totals.work_orders_missing_sqs > 0 && (
+              <span className="text-yellow-400/80"> {jn.totals.work_orders_missing_sqs} work orders are missing the # of sqs field and are counted as 0 SQs until JobNimbus has that value.</span>
             )}
           </p>
         </div>

@@ -79,12 +79,88 @@ function classifyMaterial(raw: any, recordType: string | null, name: string | nu
   return null; // unknown — caller decides whether to default to shingle
 }
 
+function normalizeFieldName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function parseSqsValue(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? value : null;
+  if (typeof value !== 'string') return null;
+  const cleaned = value.replace(/,/g, '').trim();
+  const match = cleaned.match(/-?\d+(\.\d+)?/);
+  if (!match) return null;
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function isSqsFieldName(fieldName: string): boolean {
+  const normalized = normalizeFieldName(fieldName);
+  return [
+    'ofsqs',
+    'sqs',
+    'sq',
+    'numberofsqs',
+    'numberofsq',
+    'sqcount',
+    'squarecount',
+    'squares',
+    'totalsqs',
+    'totalsquares',
+    'workorderofsqs',
+    'workordernumberofsqs',
+    'workordersqs',
+    'workordersquares',
+  ].includes(normalized);
+}
+
+function extractWorkOrderSqs(raw: unknown): number | null {
+  const seen = new Set<unknown>();
+
+  const visit = (value: unknown): number | null => {
+    if (!value || typeof value !== 'object') return null;
+    if (seen.has(value)) return null;
+    seen.add(value);
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = visit(item);
+        if (found !== null) return found;
+      }
+      return null;
+    }
+
+    const obj = value as Record<string, unknown>;
+    const label = obj.name ?? obj.label ?? obj.field_name ?? obj.fieldName ?? obj.title ?? obj.key;
+    if (typeof label === 'string' && isSqsFieldName(label)) {
+      const direct = parseSqsValue(obj.value ?? obj.display_value ?? obj.displayValue ?? obj.text ?? obj.answer);
+      if (direct !== null) return direct;
+    }
+
+    for (const [key, child] of Object.entries(obj)) {
+      if (isSqsFieldName(key)) {
+        const direct = parseSqsValue(child);
+        if (direct !== null) return direct;
+      }
+    }
+
+    for (const child of Object.values(obj)) {
+      const found = visit(child);
+      if (found !== null) return found;
+    }
+    return null;
+  };
+
+  return visit(raw);
+}
+
 export interface JnPipelineBucket {
   job_count: number;
   contracts_sent: number;
   work_orders: number;
+  work_orders_missing_sqs: number;
   weighted_contract_sqs: number; // sum over contracts of avg_sqs × per-rep (or global) close_rate
-  work_order_sqs: number;        // work_orders × avg_sqs (already-signed, no weighting)
+  work_order_sqs: number;        // sum of actual Work Order "# of sqs" fields
   total_sqs: number;             // weighted_contract_sqs + work_order_sqs
   forecast_revenue: number;      // total_sqs × configured material revenue rate when available
   estimate_value: number;        // raw JobNimbus estimate value for the jobs in this bucket
@@ -96,6 +172,7 @@ export interface JnPipelineRepSummary {
   job_count: number;
   contracts_sent: number;
   work_orders: number;
+  work_orders_missing_sqs: number;
   weighted_contract_sqs: number;
   work_order_sqs: number;
   total_sqs: number;
@@ -110,6 +187,7 @@ export interface JnPipelineJobLink {
   material: 'shingle' | 'metal' | 'gutter' | 'unknown';
   bucket: 'contract' | 'work_order';
   weighted_sqs: number;
+  sqs_source: 'avg_contract' | 'work_order_field' | 'missing_work_order_field';
   forecast_revenue: number;
   estimate_value: number;
   url: string;
@@ -180,7 +258,8 @@ export interface JnPipelineSummary {
  *  - "Contracts sent" = open jobs (status_type=2) with contract_sent=true.
  *    Weighted by closing_rate × avg_sqs_per_contract.
  *  - "Work orders" = signed jobs (status_type=4) where invoice_value IS NULL.
- *    Counted at full avg_sqs (already-signed work in the production queue).
+ *    Counted from the JobNimbus Work Order "# of sqs" field, which is the
+ *    source of truth once the job has a work order.
  */
 export async function getJnPipelineSummary(): Promise<JnPipelineSummary> {
   const settings = await getForecasterSettings();
@@ -217,6 +296,7 @@ export async function getJnPipelineSummary(): Promise<JnPipelineSummary> {
     if (!reps[repName]) reps[repName] = emptyRep(repName);
     const estimateValue = Number(row.estimate_value || 0);
     let weightedSqs = 0;
+    let sqsSource: JnPipelineJobLink['sqs_source'] = 'avg_contract';
     if (row.bucket === 'contract') {
       buckets[key].contracts_sent += 1;
       reps[repName].contracts_sent += 1;
@@ -228,7 +308,18 @@ export async function getJnPipelineSummary(): Promise<JnPipelineSummary> {
     } else {
       buckets[key].work_orders += 1;
       reps[repName].work_orders += 1;
-      weightedSqs = settings.avg_sqs_per_contract;
+      const workOrderSqs = extractWorkOrderSqs(raw);
+      if (workOrderSqs === null) {
+        buckets[key].work_orders_missing_sqs += 1;
+        reps[repName].work_orders_missing_sqs += 1;
+        weightedSqs = 0;
+        sqsSource = 'missing_work_order_field';
+      } else {
+        weightedSqs = workOrderSqs;
+        buckets[key].work_order_sqs += weightedSqs;
+        reps[repName].work_order_sqs += weightedSqs;
+        sqsSource = 'work_order_field';
+      }
     }
     buckets[key].job_count += 1;
     buckets[key].estimate_value += estimateValue;
@@ -241,6 +332,7 @@ export async function getJnPipelineSummary(): Promise<JnPipelineSummary> {
       material: key,
       bucket: row.bucket,
       weighted_sqs: weightedSqs,
+      sqs_source: sqsSource,
       forecast_revenue: forecastRevenue(key, weightedSqs),
       estimate_value: estimateValue,
       url: `https://app.jobnimbus.com/job/${row.jnid}`,
@@ -249,7 +341,6 @@ export async function getJnPipelineSummary(): Promise<JnPipelineSummary> {
 
   for (const k of ['shingle', 'metal', 'gutter', 'unknown'] as const) {
     const b = buckets[k];
-    b.work_order_sqs        = b.work_orders * settings.avg_sqs_per_contract;
     b.total_sqs             = b.weighted_contract_sqs + b.work_order_sqs;
     b.forecast_revenue      = forecastRevenue(k, b.total_sqs);
     b.effective_close_rate  = b.contracts_sent > 0
@@ -258,7 +349,6 @@ export async function getJnPipelineSummary(): Promise<JnPipelineSummary> {
   }
 
   for (const rep of Object.values(reps)) {
-    rep.work_order_sqs = rep.work_orders * settings.avg_sqs_per_contract;
     rep.total_sqs = rep.weighted_contract_sqs + rep.work_order_sqs;
     const repJobs = jobs.filter((j) => j.sales_rep_name === rep.sales_rep_name);
     rep.forecast_revenue = repJobs.reduce((sum, job) => sum + job.forecast_revenue, 0);
@@ -281,7 +371,7 @@ export async function getJnPipelineSummary(): Promise<JnPipelineSummary> {
 
 function emptyBucket(defaultRate: number): JnPipelineBucket {
   return {
-    job_count: 0, contracts_sent: 0, work_orders: 0,
+    job_count: 0, contracts_sent: 0, work_orders: 0, work_orders_missing_sqs: 0,
     weighted_contract_sqs: 0, work_order_sqs: 0, total_sqs: 0,
     forecast_revenue: 0, estimate_value: 0,
     effective_close_rate: defaultRate,
@@ -294,6 +384,7 @@ function emptyRep(salesRepName: string): JnPipelineRepSummary {
     job_count: 0,
     contracts_sent: 0,
     work_orders: 0,
+    work_orders_missing_sqs: 0,
     weighted_contract_sqs: 0,
     work_order_sqs: 0,
     total_sqs: 0,
@@ -313,6 +404,7 @@ function addBuckets(a: JnPipelineBucket, b: JnPipelineBucket): JnPipelineBucket 
     job_count: a.job_count + b.job_count,
     contracts_sent: a.contracts_sent + b.contracts_sent,
     work_orders: a.work_orders + b.work_orders,
+    work_orders_missing_sqs: a.work_orders_missing_sqs + b.work_orders_missing_sqs,
     weighted_contract_sqs: a.weighted_contract_sqs + b.weighted_contract_sqs,
     work_order_sqs: a.work_order_sqs + b.work_order_sqs,
     total_sqs: a.total_sqs + b.total_sqs,
