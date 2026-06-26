@@ -180,6 +180,17 @@ const TOOLS: Anthropic.Tool[] = [
     input_schema: { type: 'object', properties: {} },
   },
 
+  {
+    name: 'list_users',
+    description: '[READ] List all users on the roster — name, email, id, team, role. Use to resolve names to UUIDs when creating or updating rocks, issues, or to-dos.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        include_roster_only: { type: 'boolean', description: 'Include roster-only people who cannot log in (default true)' },
+      },
+    },
+  },
+
   // ── SCENARIO ────────────────────────────────────────────────────────────────
   {
     name: 'simulate_production_forecast',
@@ -281,6 +292,165 @@ const TOOLS: Anthropic.Tool[] = [
         notes:                        { type: 'string' },
       },
       required: ['job_type', 'square_footage', 'revenue_per_sq', 'estimated_days_to_completion', 'added_date'],
+    },
+  },
+
+  // ── EOS DATA writes ──────────────────────────────────────────────────────────
+  {
+    name: 'create_rock',
+    description: '[DATA] Create a new quarterly rock.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        team:        { type: 'string' },
+        title:       { type: 'string' },
+        description: { type: 'string' },
+        quarter:     { type: 'integer', description: '1–4' },
+        year:        { type: 'integer' },
+        owner_id:    { type: 'string', description: 'UUID from list_users' },
+        due_date:    { type: 'string', description: 'ISO YYYY-MM-DD' },
+      },
+      required: ['team', 'title'],
+    },
+  },
+  {
+    name: 'update_rock',
+    description: '[DATA] Update an existing rock — status, completion %, title, description, or due date.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id:                    { type: 'string', description: 'Rock UUID' },
+        title:                 { type: 'string' },
+        description:           { type: 'string' },
+        status:                { type: 'string', enum: ['on_track', 'off_track', 'done', 'at_risk'] },
+        completion_percentage: { type: 'integer', description: '0–100' },
+        due_date:              { type: 'string' },
+        owner_id:              { type: 'string' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'create_issue',
+    description: '[DATA] Create a new IDS issue.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        team:        { type: 'string' },
+        title:       { type: 'string' },
+        description: { type: 'string' },
+        priority:    { type: 'string', enum: ['high', 'medium', 'low'] },
+        owner_id:    { type: 'string' },
+      },
+      required: ['team', 'title'],
+    },
+  },
+  {
+    name: 'update_issue',
+    description: '[DATA] Update an existing issue — status (open/solved/dropped), priority, title, or description.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id:          { type: 'string' },
+        title:       { type: 'string' },
+        description: { type: 'string' },
+        status:      { type: 'string', enum: ['open', 'solved', 'dropped'] },
+        priority:    { type: 'string', enum: ['high', 'medium', 'low'] },
+        owner_id:    { type: 'string' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'create_todo',
+    description: '[DATA] Create a new to-do.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        team:        { type: 'string' },
+        title:       { type: 'string' },
+        description: { type: 'string' },
+        owner_id:    { type: 'string' },
+        due_date:    { type: 'string', description: 'ISO YYYY-MM-DD' },
+      },
+      required: ['team', 'title'],
+    },
+  },
+  {
+    name: 'update_todo',
+    description: '[DATA] Update an existing to-do — status (pending/in_progress/complete), due date, or title.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id:       { type: 'string' },
+        title:    { type: 'string' },
+        status:   { type: 'string', enum: ['pending', 'in_progress', 'complete'] },
+        due_date: { type: 'string' },
+        owner_id: { type: 'string' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'set_scorecard_actual',
+    description: '[DATA] Set the actual value for a scorecard metric for a given team + week. Upserts on conflict.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        team:        { type: 'string' },
+        week_of:     { type: 'string', description: 'ISO Monday date YYYY-MM-DD' },
+        metric_name: { type: 'string' },
+        actual:      { type: 'number' },
+        is_on_track: { type: 'boolean' },
+        notes:       { type: 'string' },
+      },
+      required: ['team', 'week_of', 'metric_name', 'actual'],
+    },
+  },
+  {
+    name: 'update_meeting_notes',
+    description: '[DATA] Update agenda notes, status, or rating on a Level 10 meeting.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id:               { type: 'string', description: 'Meeting UUID' },
+        status:           { type: 'string', enum: ['scheduled', 'in_progress', 'completed'] },
+        segue:            { type: 'string' },
+        scorecard_notes:  { type: 'string' },
+        rocks_notes:      { type: 'string' },
+        headlines:        { type: 'string' },
+        todos_notes:      { type: 'string' },
+        ids_issues:       { type: 'string' },
+        conclude_notes:   { type: 'string' },
+        rating:           { type: 'integer', description: '1–10' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'update_vto_section',
+    description: '[DATA] Update a V/TO section\'s content. section_key must be one of: core_values, core_focus, ten_year_target, marketing_strategy, three_year_picture, one_year_plan.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        section_key: { type: 'string', enum: ['core_values','core_focus','ten_year_target','marketing_strategy','three_year_picture','one_year_plan'] },
+        content:     { type: 'object', description: 'JSON object with the section\'s data fields — merged with existing content' },
+      },
+      required: ['section_key', 'content'],
+    },
+  },
+  {
+    name: 'update_accountability_seat',
+    description: '[DATA] Update the owner or description of an accountability chart seat. Set owner_id (UUID) for a system user or owner_name (free text) for someone not in the roster.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id:               { type: 'string', description: 'Seat UUID from get_accountability_snapshot' },
+        owner_id:         { type: 'string', description: 'UUID from list_users — clears owner_name' },
+        owner_name:       { type: 'string', description: 'Free-text name — clears owner_id' },
+        seat_description: { type: 'string' },
+      },
+      required: ['id'],
     },
   },
 
@@ -663,6 +833,192 @@ async function tool_update_crew_capacity(input: any): Promise<any> {
   return { ok: true, warning: `Capacity change for ${r.rows[0].crew_name} reshapes every weekly forecast.`, updated: r.rows[0] };
 }
 
+// ── EOS READ ──────────────────────────────────────────────────────────────────
+
+async function tool_list_users(input: any): Promise<any> {
+  const includeRosterOnly = input?.include_roster_only !== false;
+  const r = await pool.query(
+    `SELECT id, email, first_name, last_name, role, team, roster_only,
+            COALESCE(first_name || ' ' || last_name, email) AS name
+     FROM users
+     WHERE active = true ${includeRosterOnly ? '' : 'AND roster_only = false'}
+     ORDER BY last_name, first_name`,
+  );
+  return { users: r.rows };
+}
+
+// ── EOS DATA writes ───────────────────────────────────────────────────────────
+
+async function tool_create_rock(input: any, userId: string | null): Promise<any> {
+  const { team, title, description, quarter, year, owner_id, due_date } = input || {};
+  if (!team || !title) return { error: 'team and title required' };
+  const r = await pool.query(
+    `INSERT INTO rocks (team, title, description, quarter, year, owner_id, due_date, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, title, team, status`,
+    [team, title, description || null, quarter || null, year || null, owner_id || null, due_date || null, userId],
+  );
+  return { ok: true, created: r.rows[0] };
+}
+
+async function tool_update_rock(input: any): Promise<any> {
+  const { id, ...fields } = input || {};
+  if (!id) return { error: 'id required' };
+  const allowed = ['title', 'description', 'status', 'completion_percentage', 'due_date', 'owner_id'];
+  const updates: string[] = [];
+  const values: any[] = [];
+  let p = 1;
+  for (const key of allowed) {
+    if (fields[key] !== undefined) { updates.push(`${key}=$${p++}`); values.push(fields[key]); }
+  }
+  if (!updates.length) return { error: 'No fields to update' };
+  updates.push('updated_at=NOW()');
+  values.push(id);
+  const r = await pool.query(
+    `UPDATE rocks SET ${updates.join(',')} WHERE id=$${p} RETURNING id, title, status, completion_percentage`,
+    values,
+  );
+  if (!r.rows.length) return { error: 'Rock not found' };
+  return { ok: true, updated: r.rows[0] };
+}
+
+async function tool_create_issue(input: any, userId: string | null): Promise<any> {
+  const { team, title, description, priority, owner_id } = input || {};
+  if (!team || !title) return { error: 'team and title required' };
+  const r = await pool.query(
+    `INSERT INTO issues (team, title, description, priority, owner_id, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, title, team, priority, status`,
+    [team, title, description || null, priority || 'medium', owner_id || null, userId],
+  );
+  return { ok: true, created: r.rows[0] };
+}
+
+async function tool_update_issue(input: any): Promise<any> {
+  const { id, ...fields } = input || {};
+  if (!id) return { error: 'id required' };
+  const allowed = ['title', 'description', 'status', 'priority', 'owner_id'];
+  const updates: string[] = [];
+  const values: any[] = [];
+  let p = 1;
+  for (const key of allowed) {
+    if (fields[key] !== undefined) { updates.push(`${key}=$${p++}`); values.push(fields[key]); }
+  }
+  if (!updates.length) return { error: 'No fields to update' };
+  updates.push('updated_at=NOW()');
+  values.push(id);
+  const r = await pool.query(
+    `UPDATE issues SET ${updates.join(',')} WHERE id=$${p} RETURNING id, title, status, priority`,
+    values,
+  );
+  if (!r.rows.length) return { error: 'Issue not found' };
+  return { ok: true, updated: r.rows[0] };
+}
+
+async function tool_create_todo(input: any, userId: string | null): Promise<any> {
+  const { team, title, description, owner_id, due_date } = input || {};
+  if (!team || !title) return { error: 'team and title required' };
+  const r = await pool.query(
+    `INSERT INTO todos (team, title, description, owner_id, due_date, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, title, team, status, due_date`,
+    [team, title, description || null, owner_id || null, due_date || null, userId],
+  );
+  return { ok: true, created: r.rows[0] };
+}
+
+async function tool_update_todo(input: any): Promise<any> {
+  const { id, ...fields } = input || {};
+  if (!id) return { error: 'id required' };
+  const allowed = ['title', 'description', 'status', 'due_date', 'owner_id'];
+  const updates: string[] = [];
+  const values: any[] = [];
+  let p = 1;
+  for (const key of allowed) {
+    if (fields[key] !== undefined) { updates.push(`${key}=$${p++}`); values.push(fields[key]); }
+  }
+  if (!updates.length) return { error: 'No fields to update' };
+  updates.push('updated_at=NOW()');
+  values.push(id);
+  const r = await pool.query(
+    `UPDATE todos SET ${updates.join(',')} WHERE id=$${p} RETURNING id, title, status, due_date`,
+    values,
+  );
+  if (!r.rows.length) return { error: 'To-do not found' };
+  return { ok: true, updated: r.rows[0] };
+}
+
+async function tool_set_scorecard_actual(input: any, userId: string | null): Promise<any> {
+  const { team, week_of, metric_name, actual, is_on_track, notes } = input || {};
+  if (!team || !week_of || !metric_name || actual === undefined) {
+    return { error: 'team, week_of, metric_name, actual required' };
+  }
+  await pool.query(
+    `INSERT INTO scorecard_entries (team, week_of, metric_name, actual, is_on_track, notes, data_source, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,'manual',$7)
+     ON CONFLICT (team, week_of, metric_name) DO UPDATE
+       SET actual=$4, is_on_track=$5, notes=COALESCE($6, scorecard_entries.notes), updated_at=NOW()`,
+    [team, week_of, metric_name, actual, is_on_track ?? null, notes || null, userId],
+  );
+  return { ok: true, written: { team, week_of, metric_name, actual, is_on_track } };
+}
+
+async function tool_update_meeting_notes(input: any): Promise<any> {
+  const { id, ...fields } = input || {};
+  if (!id) return { error: 'id required' };
+  const allowed = ['status', 'segue', 'scorecard_notes', 'rocks_notes', 'headlines', 'todos_notes', 'ids_issues', 'conclude_notes', 'rating'];
+  const updates: string[] = [];
+  const values: any[] = [];
+  let p = 1;
+  for (const key of allowed) {
+    if (fields[key] !== undefined) { updates.push(`${key}=$${p++}`); values.push(fields[key]); }
+  }
+  if (!updates.length) return { error: 'No fields to update' };
+  updates.push('updated_at=NOW()');
+  values.push(id);
+  const r = await pool.query(
+    `UPDATE meetings SET ${updates.join(',')} WHERE id=$${p} RETURNING id, team, meeting_date, status, rating`,
+    values,
+  );
+  if (!r.rows.length) return { error: 'Meeting not found' };
+  return { ok: true, updated: r.rows[0] };
+}
+
+async function tool_update_vto_section(input: any, userId: string | null): Promise<any> {
+  const { section_key, content } = input || {};
+  if (!section_key || !content) return { error: 'section_key and content required' };
+  const r = await pool.query(
+    `UPDATE vto_sections SET content=$1, updated_by=$2, updated_at=NOW()
+     WHERE section_key=$3 RETURNING section_key, title`,
+    [JSON.stringify(content), userId, section_key],
+  );
+  if (!r.rows.length) return { error: `VTO section '${section_key}' not found` };
+  return { ok: true, updated: r.rows[0] };
+}
+
+async function tool_update_accountability_seat(input: any): Promise<any> {
+  const { id, owner_id, owner_name, seat_description } = input || {};
+  if (!id) return { error: 'id required' };
+  const setClauses: string[] = [];
+  const values: any[] = [];
+  let p = 1;
+  if (owner_id !== undefined) {
+    setClauses.push(`owner_id=$${p++}`, `owner_name=NULL`);
+    values.push(owner_id);
+  } else if (owner_name !== undefined) {
+    setClauses.push(`owner_name=$${p++}`, `owner_id=NULL`);
+    values.push(owner_name);
+  }
+  if (seat_description !== undefined) { setClauses.push(`seat_description=$${p++}`); values.push(seat_description); }
+  if (!setClauses.length) return { error: 'No fields to update' };
+  setClauses.push('updated_at=NOW()');
+  values.push(id);
+  const r = await pool.query(
+    `UPDATE accountability_seats SET ${setClauses.join(',')} WHERE id=$${p}
+     RETURNING id, seat_name, owner_name, owner_id`,
+    values,
+  );
+  if (!r.rows.length) return { error: 'Seat not found' };
+  return { ok: true, updated: r.rows[0] };
+}
+
 async function executeTool(name: string, input: any, userId: string | null): Promise<any> {
   try {
     switch (name) {
@@ -687,6 +1043,19 @@ async function executeTool(name: string, input: any, userId: string | null): Pro
       case 'set_sales_rep_close_rate':       return await tool_set_sales_rep_close_rate(input, userId);
       case 'delete_sales_rep_close_rate':    return await tool_delete_sales_rep_close_rate(input);
       case 'update_crew_capacity':           return await tool_update_crew_capacity(input);
+      // EOS READ
+      case 'list_users':                    return await tool_list_users(input);
+      // EOS DATA
+      case 'create_rock':                   return await tool_create_rock(input, userId);
+      case 'update_rock':                   return await tool_update_rock(input);
+      case 'create_issue':                  return await tool_create_issue(input, userId);
+      case 'update_issue':                  return await tool_update_issue(input);
+      case 'create_todo':                   return await tool_create_todo(input, userId);
+      case 'update_todo':                   return await tool_update_todo(input);
+      case 'set_scorecard_actual':          return await tool_set_scorecard_actual(input, userId);
+      case 'update_meeting_notes':          return await tool_update_meeting_notes(input);
+      case 'update_vto_section':            return await tool_update_vto_section(input, userId);
+      case 'update_accountability_seat':    return await tool_update_accountability_seat(input);
       default: return { error: `Unknown tool: ${name}` };
     }
   } catch (err) {
