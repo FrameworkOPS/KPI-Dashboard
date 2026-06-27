@@ -295,6 +295,19 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
 
+  {
+    name: 'delete_sales_forecast',
+    description: '[DATA] Delete sales forecast entries. Omit job_type to delete both shingle and metal for the given week range. Omit start_week/end_week to delete ALL entries (use carefully).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        start_week: { type: 'string', description: 'ISO Monday date YYYY-MM-DD — delete entries on or after this week' },
+        end_week:   { type: 'string', description: 'ISO Monday date YYYY-MM-DD — delete entries on or before this week' },
+        job_type:   { type: 'string', enum: ['shingle', 'metal'], description: 'Omit to delete both types' },
+      },
+    },
+  },
+
   // ── EOS DATA writes ──────────────────────────────────────────────────────────
   {
     name: 'create_rock',
@@ -882,6 +895,19 @@ async function tool_set_sales_forecast(input: any, userId: string | null): Promi
   return { ok: true, written: { week, job_type, projected_square_footage } };
 }
 
+async function tool_delete_sales_forecast(input: any): Promise<any> {
+  const { start_week, end_week, job_type } = input || {};
+  const conditions: string[] = [];
+  const values: any[] = [];
+  let p = 1;
+  if (start_week) { conditions.push(`forecast_week >= $${p++}`); values.push(start_week); }
+  if (end_week)   { conditions.push(`forecast_week <= $${p++}`); values.push(end_week); }
+  if (job_type)   { conditions.push(`job_type = $${p++}`);       values.push(job_type); }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const r = await pool.query(`DELETE FROM sales_forecast ${where} RETURNING forecast_week, job_type`, values);
+  return { ok: true, deleted_count: r.rowCount, deleted: r.rows };
+}
+
 async function tool_add_capacity_block(input: any, userId: string | null): Promise<any> {
   const { crew_id, project_name, start_date, end_date, notes } = input || {};
   if (!crew_id || !project_name || !start_date || !end_date) {
@@ -1329,6 +1355,7 @@ async function executeTool(name: string, input: any, userId: string | null): Pro
       case 'get_sales_rep_close_rates':      return await tool_get_sales_rep_close_rates();
       case 'simulate_production_forecast':   return await tool_simulate_production_forecast(input);
       case 'set_sales_forecast':             return await tool_set_sales_forecast(input, userId);
+      case 'delete_sales_forecast':          return await tool_delete_sales_forecast(input);
       case 'add_capacity_block':             return await tool_add_capacity_block(input, userId);
       case 'add_pipeline_item':              return await tool_add_pipeline_item(input, userId);
       case 'update_forecaster_settings':     return await tool_update_forecaster_settings(input);
