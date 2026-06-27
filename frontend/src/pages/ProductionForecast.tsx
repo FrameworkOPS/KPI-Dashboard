@@ -129,14 +129,14 @@ export default function ProductionForecast() {
                   <tr key={week.week} className="hover:bg-slate-700/50">
                     <td className="px-4 py-3 font-medium text-slate-200">{getWeekLabel(week.week)}</td>
                     {(selectedType === 'all' || selectedType === 'shingle') && <>
-                      <td className="px-4 py-3 text-right text-slate-300">{week.pipeline_sqs_shingles.toFixed(0)}</td>
-                      <td className="px-4 py-3 text-right text-slate-300">{week.production_rate_shingles.toFixed(0)}</td>
-                      <td className="px-4 py-3 text-right text-slate-300">{week.sales_forecast_shingles.toFixed(0)}</td>
+                      <td className="px-4 py-3 text-right text-slate-300">{(week.pipeline_sqs_shingles ?? 0).toFixed(0)}</td>
+                      <td className="px-4 py-3 text-right text-slate-300">{(week.production_rate_shingles ?? 0).toFixed(0)}</td>
+                      <td className="px-4 py-3 text-right text-slate-300">{(week.sales_forecast_shingles ?? 0).toFixed(0)}</td>
                     </>}
                     {(selectedType === 'all' || selectedType === 'metal') && <>
-                      <td className="px-4 py-3 text-right text-slate-300">{week.pipeline_sqs_metal.toFixed(0)}</td>
-                      <td className="px-4 py-3 text-right text-slate-300">{week.production_rate_metal.toFixed(0)}</td>
-                      <td className="px-4 py-3 text-right text-slate-300">{week.sales_forecast_metal.toFixed(0)}</td>
+                      <td className="px-4 py-3 text-right text-slate-300">{(week.pipeline_sqs_metal ?? 0).toFixed(0)}</td>
+                      <td className="px-4 py-3 text-right text-slate-300">{(week.production_rate_metal ?? 0).toFixed(0)}</td>
+                      <td className="px-4 py-3 text-right text-slate-300">{(week.sales_forecast_metal ?? 0).toFixed(0)}</td>
                     </>}
                     <td className="px-4 py-3">
                       <span className={`px-2 py-1 rounded text-xs font-semibold text-center block ${getLeadTimeColorClass(getLeadTimeStatus(week.lead_time_weeks_shingle))}`}>
