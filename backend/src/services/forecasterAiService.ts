@@ -181,6 +181,11 @@ const TOOLS: Anthropic.Tool[] = [
   },
 
   {
+    name: 'get_current_date',
+    description: '[READ] Returns today\'s date, day of week, and the Monday anchor for the current week plus the next 8 Mondays. Call this before any date-dependent write so you can resolve phrases like "starting today" or "next week" into exact ISO dates.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
     name: 'list_users',
     description: '[READ] List all users on the roster — name, email, id, team, role. Use to resolve names to UUIDs when creating or updating rocks, issues, or to-dos.',
     input_schema: {
@@ -305,6 +310,21 @@ const TOOLS: Anthropic.Tool[] = [
         end_week:   { type: 'string', description: 'ISO Monday date YYYY-MM-DD — delete entries on or before this week' },
         job_type:   { type: 'string', enum: ['shingle', 'metal'], description: 'Omit to delete both types' },
       },
+    },
+  },
+
+  {
+    name: 'set_sales_forecast_range',
+    description: '[DATA] Bulk-upsert the same projected SQ count across consecutive weeks. Use when the user says something like "add 8 weeks at 100 SQs of shingle starting today". Call get_current_date first to resolve "today" to the correct Monday anchor.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        start_week:               { type: 'string', description: 'ISO Monday date YYYY-MM-DD for the first week' },
+        job_type:                 { type: 'string', enum: ['shingle', 'metal'] },
+        projected_square_footage: { type: 'number', description: 'SQs to forecast for EACH week in the range' },
+        weeks_count:              { type: 'integer', description: 'Number of consecutive weeks to set (default 8, max 52)' },
+      },
+      required: ['start_week', 'job_type', 'projected_square_footage'],
     },
   },
 
@@ -483,7 +503,7 @@ const TOOLS: Anthropic.Tool[] = [
         weekly_sq_capacity:   { type: 'number', description: 'Default: 200 (shingle) or 100 (metal)' },
         terminate_date:       { type: 'string', description: 'ISO YYYY-MM-DD — omit for ongoing crews' },
       },
-      required: ['crew_name', 'crew_type', 'team_members', 'training_period_days', 'start_date'],
+      required: ['crew_name', 'crew_type'],
     },
   },
   {
@@ -577,7 +597,7 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
 
-  // ── PEOPLE ANALYZER DATA writes ───────────────────────────────────────────────
+  // ── PEOPLE ANALYZER DATA writes (tool def) ───────────────────────────────────────────────
   {
     name: 'set_people_analyzer_entry',
     description: '[DATA] Create or update a quarterly People Analyzer evaluation. value_scores is an object of core-value-name → "plus", "plus_minus", or "minus".',
@@ -1185,18 +1205,19 @@ async function tool_update_accountability_seat(input: any): Promise<any> {
 
 async function tool_add_crew(input: any, userId: string | null): Promise<any> {
   const { crew_name, crew_type, team_members, training_period_days, start_date, revenue_per_sq, weekly_sq_capacity, terminate_date } = input || {};
-  if (!crew_name || !crew_type || !team_members || !training_period_days || !start_date) {
-    return { error: 'crew_name, crew_type, team_members, training_period_days, start_date required' };
+  if (!crew_name || !crew_type) {
+    return { error: 'crew_name and crew_type required' };
   }
   if (!['shingle', 'metal'].includes(crew_type)) return { error: 'crew_type must be "shingle" or "metal"' };
   const defaultRevenue  = crew_type === 'shingle' ? 600  : 1000;
   const defaultCapacity = crew_type === 'shingle' ? 200  : 100;
+  const effectiveStartDate = start_date || new Date().toISOString().slice(0, 10);
   const r = await pool.query(
     `INSERT INTO crews (crew_name, crew_type, team_members, training_period_days, start_date,
        terminate_date, revenue_per_sq, weekly_sq_capacity, is_active, created_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,$9)
      RETURNING id, crew_name, crew_type, weekly_sq_capacity, revenue_per_sq`,
-    [crew_name, crew_type, team_members, training_period_days, start_date,
+    [crew_name, crew_type, team_members ?? 0, training_period_days ?? 0, effectiveStartDate,
      terminate_date || null, revenue_per_sq ?? defaultRevenue, weekly_sq_capacity ?? defaultCapacity, userId],
   );
   return { ok: true, created: r.rows[0] };
@@ -1310,6 +1331,58 @@ async function tool_delete_pipeline_item(input: any): Promise<any> {
   return { ok: true, deleted_id: r.rows[0].id };
 }
 
+// ── DATE READ ─────────────────────────────────────────────────────────────────
+
+function tool_get_current_date(): any {
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const dayOfWeek = dayNames[now.getUTCDay()];
+  const dayIndex = now.getUTCDay();
+  const daysBack = dayIndex === 0 ? 6 : dayIndex - 1;
+  const thisMonday = new Date(now);
+  thisMonday.setUTCDate(now.getUTCDate() - daysBack);
+  const upcomingMondays: string[] = [];
+  for (let i = 0; i <= 8; i++) {
+    const d = new Date(thisMonday);
+    d.setUTCDate(thisMonday.getUTCDate() + i * 7);
+    upcomingMondays.push(d.toISOString().slice(0, 10));
+  }
+  return {
+    today,
+    day_of_week: dayOfWeek,
+    current_week_monday: upcomingMondays[0],
+    next_week_monday: upcomingMondays[1],
+    upcoming_mondays: upcomingMondays,
+  };
+}
+
+async function tool_set_sales_forecast_range(input: any, userId: string | null): Promise<any> {
+  const { start_week, job_type, projected_square_footage, weeks_count } = input || {};
+  if (!start_week || !job_type || projected_square_footage === undefined) {
+    return { error: 'start_week, job_type, projected_square_footage required' };
+  }
+  const n = Math.min(Math.max(Number(weeks_count) || 8, 1), 52);
+  const start = new Date(start_week);
+  const written: Array<{ week: string; job_type: string; projected_square_footage: number }> = [];
+  for (let i = 0; i < n; i++) {
+    const d = new Date(start);
+    d.setUTCDate(start.getUTCDate() + i * 7);
+    const week = d.toISOString().slice(0, 10);
+    await pool.query(
+      `INSERT INTO sales_forecast (forecast_week, job_type, projected_square_footage, updated_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (forecast_week, job_type) DO UPDATE
+         SET projected_square_footage = EXCLUDED.projected_square_footage,
+             updated_by = EXCLUDED.updated_by,
+             updated_at = NOW()`,
+      [week, job_type, projected_square_footage, userId],
+    );
+    written.push({ week, job_type, projected_square_footage: Number(projected_square_footage) });
+  }
+  return { ok: true, weeks_written: written.length, written };
+}
+
 // ── PEOPLE ANALYZER DATA writes ───────────────────────────────────────────────
 
 async function tool_set_people_analyzer_entry(input: any, userId: string | null): Promise<any> {
@@ -1347,6 +1420,7 @@ async function executeTool(name: string, input: any, userId: string | null): Pro
       case 'get_jobnimbus_snapshot':         return await tool_get_jobnimbus_snapshot();
       case 'get_pipeline':                   return await tool_get_pipeline();
       case 'get_crews':                      return await tool_get_crews();
+      case 'get_current_date':               return tool_get_current_date();
       case 'get_sales_forecast':             return await tool_get_sales_forecast(input);
       case 'get_production_forecast':        return await tool_get_production_forecast(input);
       case 'get_metrics_dashboard':          return await tool_get_metrics_dashboard();
@@ -1355,6 +1429,7 @@ async function executeTool(name: string, input: any, userId: string | null): Pro
       case 'get_sales_rep_close_rates':      return await tool_get_sales_rep_close_rates();
       case 'simulate_production_forecast':   return await tool_simulate_production_forecast(input);
       case 'set_sales_forecast':             return await tool_set_sales_forecast(input, userId);
+      case 'set_sales_forecast_range':       return await tool_set_sales_forecast_range(input, userId);
       case 'delete_sales_forecast':          return await tool_delete_sales_forecast(input);
       case 'add_capacity_block':             return await tool_add_capacity_block(input, userId);
       case 'add_pipeline_item':              return await tool_add_pipeline_item(input, userId);
