@@ -488,9 +488,9 @@ export default function Pipeline() {
                       {item.job_type}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-slate-300">{(item.square_footage ?? 0).toFixed(0)}</td>
-                  <td className="px-4 py-3 text-slate-300">${(item.revenue_per_sq ?? 0).toFixed(0)}</td>
-                  <td className="px-4 py-3 text-slate-300">${(item.total_revenue ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                  <td className="px-4 py-3 text-slate-300">{Number(item.square_footage ?? 0).toFixed(0)}</td>
+                  <td className="px-4 py-3 text-slate-300">${Number(item.revenue_per_sq ?? 0).toFixed(0)}</td>
+                  <td className="px-4 py-3 text-slate-300">${Number(item.total_revenue ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                   <td className="px-4 py-3 text-slate-400 capitalize">{item.status}</td>
                   <td className="px-4 py-3 text-slate-400">{String(item.added_date).slice(0, 10)}</td>
                   <td className="px-4 py-3 text-slate-400">{item.target_start_date ? String(item.target_start_date).slice(0, 10) : '—'}</td>

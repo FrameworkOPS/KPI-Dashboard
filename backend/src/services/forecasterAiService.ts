@@ -871,10 +871,12 @@ async function tool_set_sales_forecast(input: any, userId: string | null): Promi
     return { error: 'week, job_type, projected_square_footage required' };
   }
   await pool.query(
-    `INSERT INTO sales_forecast (forecast_week, job_type, projected_square_footage, created_by)
+    `INSERT INTO sales_forecast (forecast_week, job_type, projected_square_footage, updated_by)
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (forecast_week, job_type) DO UPDATE
-       SET projected_square_footage = EXCLUDED.projected_square_footage, updated_at = NOW()`,
+       SET projected_square_footage = EXCLUDED.projected_square_footage,
+           updated_by = EXCLUDED.updated_by,
+           updated_at = NOW()`,
     [week, job_type, projected_square_footage, userId],
   );
   return { ok: true, written: { week, job_type, projected_square_footage } };
