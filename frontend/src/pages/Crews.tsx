@@ -199,8 +199,8 @@ export default function Crews() {
                   <td className="px-4 py-3 text-slate-300">{crew.training_period_days}d</td>
                   <td className="px-4 py-3 text-slate-300">{String(crew.start_date).slice(0, 10)}</td>
                   <td className="px-4 py-3 text-slate-300">{crew.terminate_date ? String(crew.terminate_date).slice(0, 10) : '—'}</td>
-                  <td className="px-4 py-3 text-slate-300">${crew.revenue_per_sq?.toFixed(0) || '—'}</td>
-                  <td className="px-4 py-3 text-slate-300">{crew.weekly_sq_capacity != null ? crew.weekly_sq_capacity.toFixed(0) : '—'}</td>
+                  <td className="px-4 py-3 text-slate-300">${crew.revenue_per_sq != null ? Number(crew.revenue_per_sq).toFixed(0) : '—'}</td>
+                  <td className="px-4 py-3 text-slate-300">{crew.weekly_sq_capacity != null ? Number(crew.weekly_sq_capacity).toFixed(0) : '—'}</td>
                   <td className="px-4 py-3 min-w-40">
                     {editingStaffId === crew.id ? (
                       <div className="space-y-1">

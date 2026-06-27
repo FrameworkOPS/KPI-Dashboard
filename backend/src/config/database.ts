@@ -1,8 +1,12 @@
-import { Pool } from 'pg';
+import { Pool, types } from 'pg';
 import bcrypt from 'bcrypt';
 import dotenv from 'dotenv';
 
 dotenv.config();
+
+// pg returns NUMERIC/DECIMAL as strings by default; parse them as JS numbers
+// so callers don't have to wrap every value in Number().
+types.setTypeParser(1700, parseFloat); // NUMERIC / DECIMAL
 
 export const pool = process.env.DATABASE_URL
   ? new Pool({
