@@ -9,7 +9,8 @@ import {
   deleteSalesRepCloseRate,
 } from './jnPipelineService';
 
-const MODEL = process.env.FORECASTER_AI_MODEL || 'claude-sonnet-4-5';
+const FORECASTER_MODEL = process.env.FORECASTER_AI_MODEL || 'claude-sonnet-4-6';
+const SKY_MODEL        = process.env.SKY_AI_MODEL        || 'claude-haiku-4-5-20251001';
 
 function getClient(): Anthropic | null {
   const key = process.env.ANTHROPIC_API_KEY;
@@ -1082,7 +1083,14 @@ const CONFIG_TOOLS = new Set([
   'update_crew_capacity',
 ]);
 
-async function chatWithSystem(systemPrompt: string, disabledName: string, history: ChatMessage[], userId: string | null = null): Promise<ChatResult> {
+async function chatWithSystem(
+  systemPrompt: string,
+  disabledName: string,
+  history: ChatMessage[],
+  userId: string | null = null,
+  model: string = FORECASTER_MODEL,
+  maxTokens: number = 4096,
+): Promise<ChatResult> {
   const client = getClient();
   if (!client) {
     return {
@@ -1098,8 +1106,8 @@ async function chatWithSystem(systemPrompt: string, disabledName: string, histor
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const resp = await client.messages.create({
-      model: MODEL,
-      max_tokens: 4096,
+      model,
+      max_tokens: maxTokens,
       system: systemPrompt,
       tools: TOOLS,
       messages,
@@ -1139,11 +1147,11 @@ async function chatWithSystem(systemPrompt: string, disabledName: string, histor
 }
 
 export async function chatWithForecaster(history: ChatMessage[], userId: string | null = null): Promise<ChatResult> {
-  return chatWithSystem(FORECASTER_SYSTEM_PROMPT, 'The Forecaster AI', history, userId);
+  return chatWithSystem(FORECASTER_SYSTEM_PROMPT, 'The Forecaster AI', history, userId, FORECASTER_MODEL, 4096);
 }
 
 export async function chatWithSky(history: ChatMessage[], userId: string | null = null): Promise<ChatResult> {
-  return chatWithSystem(SKY_SYSTEM_PROMPT, 'Sky', history, userId);
+  return chatWithSystem(SKY_SYSTEM_PROMPT, 'Sky', history, userId, SKY_MODEL, 1024);
 }
 
 export function isForecasterAiConfigured(): boolean {
