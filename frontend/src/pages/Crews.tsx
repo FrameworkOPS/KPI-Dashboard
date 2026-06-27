@@ -16,7 +16,6 @@ interface Crew {
 
 const emptyForm = {
   crew_name: '', crew_type: 'shingle' as 'shingle' | 'metal',
-  team_members: 1, training_period_days: 28,
   start_date: new Date().toISOString().split('T')[0],
   terminate_date: '', revenue_per_sq: 600, weekly_sq_capacity: 200,
 }
@@ -85,7 +84,6 @@ export default function Crews() {
   const handleEdit = (crew: Crew) => {
     setForm({
       crew_name: crew.crew_name, crew_type: crew.crew_type,
-      team_members: crew.team_members, training_period_days: crew.training_period_days,
       start_date: String(crew.start_date).slice(0, 10),
       terminate_date: crew.terminate_date ? String(crew.terminate_date).slice(0, 10) : '',
       revenue_per_sq: crew.revenue_per_sq,
@@ -137,9 +135,7 @@ export default function Crews() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {[
               { label: 'Crew Name *', key: 'crew_name', type: 'text', placeholder: 'e.g. Shingle Team A' },
-              { label: 'Team Members *', key: 'team_members', type: 'number' },
-              { label: 'Training Period (days) *', key: 'training_period_days', type: 'number' },
-              { label: 'Start Date *', key: 'start_date', type: 'date' },
+              { label: 'Start Date', key: 'start_date', type: 'date' },
               { label: 'Terminate Date', key: 'terminate_date', type: 'date' },
               { label: 'Revenue / SQ ($) *', key: 'revenue_per_sq', type: 'number' },
               { label: 'Weekly SQ Capacity *', key: 'weekly_sq_capacity', type: 'number' },
