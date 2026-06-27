@@ -69,9 +69,8 @@ Your job is to help users understand and act on every part of this application: 
 
 Tools are tagged as one of:
 
-- **[READ]** — pull live data. Use freely.
 - **[READ]** — pull live data. Use freely and proactively.
-- **[DATA]** — write a routine record: rocks, issues, to-dos, scorecard actuals, meeting notes, V/TO sections, accountability seats, sales forecast weeks, pipeline items, capacity blocks. **Call the tool immediately — no confirmation, no "would you like me to", no asking permission. Execute, then confirm what changed.**
+- **[DATA]** — write a routine record: rocks, issues, to-dos, scorecard actuals, meetings (create or update notes), V/TO sections, accountability seats, sales forecast weeks, pipeline items (add, update, or delete), capacity blocks, crews (add, update, or deactivate), crew staffing counts, and people-analyzer entries. **Call the tool immediately — no confirmation, no "would you like me to", no asking permission. Execute, then confirm what changed.**
 - **[CONFIG]** — change a global setting that reshapes ALL downstream forecasts and KPIs (closing rate, avg SQs, material field key, sales-rep rates, crew capacity). Requires explicit user confirmation before executing.
 - **[SCENARIO]** — what-if projection without persisting. Use freely.
 
@@ -452,6 +451,140 @@ const TOOLS: Anthropic.Tool[] = [
         seat_description: { type: 'string' },
       },
       required: ['id'],
+    },
+  },
+
+  // ── CREW DATA writes ─────────────────────────────────────────────────────────
+  {
+    name: 'add_crew',
+    description: '[DATA] Create a new crew. crew_type must be "shingle" or "metal". Defaults: shingle=600/SQ revenue, 200 SQ/week capacity; metal=1000/SQ, 100 SQ/week.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        crew_name:            { type: 'string' },
+        crew_type:            { type: 'string', enum: ['shingle', 'metal'] },
+        team_members:         { type: 'integer', description: 'Number of people on the crew' },
+        training_period_days: { type: 'integer', description: 'Days before crew is at full capacity' },
+        start_date:           { type: 'string', description: 'ISO YYYY-MM-DD' },
+        revenue_per_sq:       { type: 'number', description: 'Default: 600 (shingle) or 1000 (metal)' },
+        weekly_sq_capacity:   { type: 'number', description: 'Default: 200 (shingle) or 100 (metal)' },
+        terminate_date:       { type: 'string', description: 'ISO YYYY-MM-DD — omit for ongoing crews' },
+      },
+      required: ['crew_name', 'crew_type', 'team_members', 'training_period_days', 'start_date'],
+    },
+  },
+  {
+    name: 'update_crew',
+    description: '[DATA] Update a crew\'s name, team size, dates, or active status. To change weekly SQ capacity or training days, use update_crew_capacity [CONFIG].',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id:             { type: 'string', description: 'Crew UUID from get_crews' },
+        crew_name:      { type: 'string' },
+        team_members:   { type: 'integer' },
+        start_date:     { type: 'string', description: 'ISO YYYY-MM-DD' },
+        terminate_date: { type: 'string', description: 'ISO YYYY-MM-DD — pass null to clear' },
+        is_active:      { type: 'boolean' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'deactivate_crew',
+    description: '[DATA] Soft-delete a crew — sets is_active=false. The crew will no longer appear in forecasts.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Crew UUID from get_crews' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'set_crew_staff',
+    description: '[DATA] Record the current lead/supervisor headcount for a crew. Deactivates the prior staffing record and inserts a new one.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        crew_id:     { type: 'string', description: 'Crew UUID' },
+        lead_count:  { type: 'integer', description: 'Number of leads (default 0)' },
+        super_count: { type: 'integer', description: 'Number of supervisors (default 0)' },
+        added_date:  { type: 'string', description: 'ISO YYYY-MM-DD — effective date of this staffing change' },
+        notes:       { type: 'string' },
+      },
+      required: ['crew_id', 'added_date'],
+    },
+  },
+
+  // ── MEETING DATA writes ───────────────────────────────────────────────────────
+  {
+    name: 'create_meeting',
+    description: '[DATA] Schedule a new Level 10 meeting. team must be one of: leadership, sales, production.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        team:         { type: 'string', enum: ['leadership', 'sales', 'production'] },
+        meeting_date: { type: 'string', description: 'ISO YYYY-MM-DD' },
+        meeting_time: { type: 'string', description: 'HH:MM (24-hour) — defaults to 08:30' },
+        meeting_link: { type: 'string', description: 'Zoom/Meet URL' },
+        status:       { type: 'string', enum: ['scheduled', 'in_progress', 'complete'] },
+      },
+      required: ['team', 'meeting_date'],
+    },
+  },
+
+  // ── PIPELINE DATA writes ──────────────────────────────────────────────────────
+  {
+    name: 'update_pipeline_item',
+    description: '[DATA] Update an existing manual pipeline item. Automatically recalculates total_revenue when square_footage or revenue_per_sq changes.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id:                           { type: 'string', description: 'Pipeline item UUID' },
+        job_type:                     { type: 'string', enum: ['shingle', 'metal'] },
+        square_footage:               { type: 'number' },
+        revenue_per_sq:               { type: 'number' },
+        estimated_days_to_completion: { type: 'integer' },
+        status:                       { type: 'string', enum: ['pending', 'in_progress', 'complete'] },
+        target_start_date:            { type: 'string', description: 'ISO YYYY-MM-DD' },
+        notes:                        { type: 'string' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'delete_pipeline_item',
+    description: '[DATA] Soft-delete a manual pipeline item — removes it from production forecasts.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Pipeline item UUID' },
+      },
+      required: ['id'],
+    },
+  },
+
+  // ── PEOPLE ANALYZER DATA writes ───────────────────────────────────────────────
+  {
+    name: 'set_people_analyzer_entry',
+    description: '[DATA] Create or update a quarterly People Analyzer evaluation. value_scores is an object of core-value-name → "plus", "plus_minus", or "minus".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        subject_user_id: { type: 'string', description: 'User UUID from list_users' },
+        quarter:         { type: 'integer', description: '1–4' },
+        year:            { type: 'integer' },
+        value_scores:    {
+          type: 'object',
+          description: 'e.g. {"Integrity": "plus", "Grit": "plus_minus"}',
+          additionalProperties: { type: 'string' },
+        },
+        gwc_get:      { type: 'boolean', description: 'Gets it — understands their role' },
+        gwc_want:     { type: 'boolean', description: 'Wants it — motivated in their role' },
+        gwc_capacity: { type: 'boolean', description: 'Capacity to do it — skills and bandwidth' },
+        notes:        { type: 'string' },
+      },
+      required: ['subject_user_id', 'quarter', 'year'],
     },
   },
 
@@ -1020,6 +1153,162 @@ async function tool_update_accountability_seat(input: any): Promise<any> {
   return { ok: true, updated: r.rows[0] };
 }
 
+// ── CREW DATA writes ──────────────────────────────────────────────────────────
+
+async function tool_add_crew(input: any, userId: string | null): Promise<any> {
+  const { crew_name, crew_type, team_members, training_period_days, start_date, revenue_per_sq, weekly_sq_capacity, terminate_date } = input || {};
+  if (!crew_name || !crew_type || !team_members || !training_period_days || !start_date) {
+    return { error: 'crew_name, crew_type, team_members, training_period_days, start_date required' };
+  }
+  if (!['shingle', 'metal'].includes(crew_type)) return { error: 'crew_type must be "shingle" or "metal"' };
+  const defaultRevenue  = crew_type === 'shingle' ? 600  : 1000;
+  const defaultCapacity = crew_type === 'shingle' ? 200  : 100;
+  const r = await pool.query(
+    `INSERT INTO crews (crew_name, crew_type, team_members, training_period_days, start_date,
+       terminate_date, revenue_per_sq, weekly_sq_capacity, is_active, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,$9)
+     RETURNING id, crew_name, crew_type, weekly_sq_capacity, revenue_per_sq`,
+    [crew_name, crew_type, team_members, training_period_days, start_date,
+     terminate_date || null, revenue_per_sq ?? defaultRevenue, weekly_sq_capacity ?? defaultCapacity, userId],
+  );
+  return { ok: true, created: r.rows[0] };
+}
+
+async function tool_update_crew(input: any): Promise<any> {
+  const { id, crew_name, team_members, start_date, terminate_date, is_active } = input || {};
+  if (!id) return { error: 'id required' };
+  const updates: string[] = [];
+  const values: any[] = [];
+  let p = 1;
+  if (crew_name      !== undefined) { updates.push(`crew_name=$${p++}`);      values.push(crew_name); }
+  if (team_members   !== undefined) { updates.push(`team_members=$${p++}`);   values.push(team_members); }
+  if (start_date     !== undefined) { updates.push(`start_date=$${p++}`);     values.push(start_date); }
+  if (terminate_date !== undefined) { updates.push(`terminate_date=$${p++}`); values.push(terminate_date || null); }
+  if (is_active      !== undefined) { updates.push(`is_active=$${p++}`);      values.push(is_active); }
+  if (!updates.length) return { error: 'No fields to update' };
+  updates.push('updated_at=NOW()');
+  values.push(id);
+  const r = await pool.query(
+    `UPDATE crews SET ${updates.join(',')} WHERE id=$${p} RETURNING id, crew_name, is_active`,
+    values,
+  );
+  if (!r.rows.length) return { error: 'Crew not found' };
+  return { ok: true, updated: r.rows[0] };
+}
+
+async function tool_deactivate_crew(input: any): Promise<any> {
+  const { id } = input || {};
+  if (!id) return { error: 'id required' };
+  const r = await pool.query(
+    `UPDATE crews SET is_active=false, updated_at=NOW() WHERE id=$1 RETURNING id, crew_name`,
+    [id],
+  );
+  if (!r.rows.length) return { error: 'Crew not found' };
+  return { ok: true, deactivated: r.rows[0] };
+}
+
+async function tool_set_crew_staff(input: any, userId: string | null): Promise<any> {
+  const { crew_id, lead_count, super_count, added_date, notes } = input || {};
+  if (!crew_id || !added_date) return { error: 'crew_id and added_date required' };
+  await pool.query(
+    'UPDATE crew_staff SET is_active=false, updated_at=NOW() WHERE crew_id=$1 AND is_active=true',
+    [crew_id],
+  );
+  const r = await pool.query(
+    `INSERT INTO crew_staff (crew_id, lead_count, super_count, added_date, notes, is_active, created_by)
+     VALUES ($1,$2,$3,$4,$5,true,$6) RETURNING id, crew_id, lead_count, super_count, added_date`,
+    [crew_id, lead_count ?? 0, super_count ?? 0, added_date, notes || null, userId],
+  );
+  return { ok: true, created: r.rows[0] };
+}
+
+// ── MEETING DATA writes ───────────────────────────────────────────────────────
+
+async function tool_create_meeting(input: any, userId: string | null): Promise<any> {
+  const { team, meeting_date, meeting_time, meeting_link, status } = input || {};
+  if (!team || !meeting_date) return { error: 'team and meeting_date required' };
+  const r = await pool.query(
+    `INSERT INTO meetings (team, meeting_date, meeting_time, meeting_link, status, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, team, meeting_date, meeting_time, status`,
+    [team, meeting_date, meeting_time || '08:30', meeting_link || null, status || 'scheduled', userId],
+  );
+  return { ok: true, created: r.rows[0] };
+}
+
+// ── PIPELINE DATA writes ──────────────────────────────────────────────────────
+
+async function tool_update_pipeline_item(input: any): Promise<any> {
+  const { id, job_type, square_footage, revenue_per_sq, estimated_days_to_completion, status, target_start_date, notes } = input || {};
+  if (!id) return { error: 'id required' };
+  const updates: string[] = [];
+  const values: any[] = [];
+  let p = 1;
+  const newSq  = square_footage  !== undefined ? Number(square_footage)  : null;
+  const newRev = revenue_per_sq  !== undefined ? Number(revenue_per_sq)  : null;
+  if (job_type  !== undefined) { updates.push(`job_type=$${p++}`);  values.push(job_type); }
+  if (newSq     !== null)      { updates.push(`square_footage=$${p++}`);  values.push(newSq); }
+  if (newRev    !== null)      { updates.push(`revenue_per_sq=$${p++}`);  values.push(newRev); }
+  if (estimated_days_to_completion !== undefined) { updates.push(`estimated_days_to_completion=$${p++}`); values.push(estimated_days_to_completion); }
+  if (status    !== undefined) { updates.push(`status=$${p++}`);    values.push(status); }
+  if (target_start_date !== undefined) { updates.push(`target_start_date=$${p++}`); values.push(target_start_date || null); }
+  if (notes     !== undefined) { updates.push(`notes=$${p++}`);     values.push(notes || null); }
+  if (!updates.length) return { error: 'No fields to update' };
+  if (newSq !== null && newRev !== null) {
+    updates.push(`total_revenue=$${p++}`); values.push(newSq * newRev);
+  } else if (newSq !== null) {
+    updates.push(`total_revenue=$${p++} * revenue_per_sq`); values.push(newSq);
+  } else if (newRev !== null) {
+    updates.push(`total_revenue=square_footage * $${p++}`); values.push(newRev);
+  }
+  updates.push('updated_at=NOW()');
+  values.push(id);
+  const r = await pool.query(
+    `UPDATE pipeline_items SET ${updates.join(',')} WHERE id=$${p} AND is_active=true
+     RETURNING id, job_type, square_footage, revenue_per_sq, total_revenue, status`,
+    values,
+  );
+  if (!r.rows.length) return { error: 'Pipeline item not found' };
+  return { ok: true, updated: r.rows[0] };
+}
+
+async function tool_delete_pipeline_item(input: any): Promise<any> {
+  const { id } = input || {};
+  if (!id) return { error: 'id required' };
+  const r = await pool.query(
+    `UPDATE pipeline_items SET is_active=false, updated_at=NOW() WHERE id=$1 AND is_active=true RETURNING id`,
+    [id],
+  );
+  if (!r.rows.length) return { error: 'Pipeline item not found' };
+  return { ok: true, deleted_id: r.rows[0].id };
+}
+
+// ── PEOPLE ANALYZER DATA writes ───────────────────────────────────────────────
+
+async function tool_set_people_analyzer_entry(input: any, userId: string | null): Promise<any> {
+  const { subject_user_id, quarter, year, value_scores, gwc_get, gwc_want, gwc_capacity, notes } = input || {};
+  if (!subject_user_id || !quarter || !year) {
+    return { error: 'subject_user_id, quarter, year required' };
+  }
+  const r = await pool.query(
+    `INSERT INTO people_analyzer_entries
+       (subject_user_id, quarter, year, value_scores, gwc_get, gwc_want, gwc_capacity, notes, evaluated_by)
+     VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9)
+     ON CONFLICT (subject_user_id, quarter, year) DO UPDATE SET
+       value_scores = EXCLUDED.value_scores,
+       gwc_get      = EXCLUDED.gwc_get,
+       gwc_want     = EXCLUDED.gwc_want,
+       gwc_capacity = EXCLUDED.gwc_capacity,
+       notes        = EXCLUDED.notes,
+       evaluated_by = EXCLUDED.evaluated_by,
+       updated_at   = NOW()
+     RETURNING id, subject_user_id, quarter, year, gwc_get, gwc_want, gwc_capacity`,
+    [subject_user_id, quarter, year, JSON.stringify(value_scores || {}),
+     gwc_get ?? null, gwc_want ?? null, gwc_capacity ?? null,
+     notes?.trim() || null, userId],
+  );
+  return { ok: true, upserted: r.rows[0] };
+}
+
 async function executeTool(name: string, input: any, userId: string | null): Promise<any> {
   try {
     switch (name) {
@@ -1057,6 +1346,18 @@ async function executeTool(name: string, input: any, userId: string | null): Pro
       case 'update_meeting_notes':          return await tool_update_meeting_notes(input);
       case 'update_vto_section':            return await tool_update_vto_section(input, userId);
       case 'update_accountability_seat':    return await tool_update_accountability_seat(input);
+      // Crew DATA
+      case 'add_crew':                  return await tool_add_crew(input, userId);
+      case 'update_crew':               return await tool_update_crew(input);
+      case 'deactivate_crew':           return await tool_deactivate_crew(input);
+      case 'set_crew_staff':            return await tool_set_crew_staff(input, userId);
+      // Meeting DATA
+      case 'create_meeting':            return await tool_create_meeting(input, userId);
+      // Pipeline DATA
+      case 'update_pipeline_item':      return await tool_update_pipeline_item(input);
+      case 'delete_pipeline_item':      return await tool_delete_pipeline_item(input);
+      // People Analyzer DATA
+      case 'set_people_analyzer_entry': return await tool_set_people_analyzer_entry(input, userId);
       default: return { error: `Unknown tool: ${name}` };
     }
   } catch (err) {
