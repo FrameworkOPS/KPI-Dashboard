@@ -234,8 +234,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
       {/* Logo + close button */}
       <div className="h-20 flex items-center justify-between px-4 border-b border-slate-700/50 flex-shrink-0 gap-2">
         <img
-          src="/skyright-web_logotype-color.jpg"
-          alt="Skyright Roofing &amp; Gutters"
+          src="/frameworkops-logo.svg"
+          alt="FrameworkOPS"
           className="h-12 w-auto object-contain"
         />
 

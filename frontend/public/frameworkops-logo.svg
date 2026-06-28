@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="60" viewBox="0 0 320 60">
+  <!-- Logo mark -->
+  <rect x="0" y="4" width="52" height="52" rx="10" fill="#2563eb"/>
+  <text x="26" y="30" font-family="ui-monospace, 'Courier New', monospace" font-size="19" font-weight="800" fill="white" text-anchor="middle" dominant-baseline="middle">FO</text>
+  <!-- Wordmark -->
+  <text x="66" y="27" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="20" font-weight="700" fill="#f1f5f9" letter-spacing="-0.3">Framework</text>
+  <text x="66" y="49" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="15" font-weight="600" fill="#60a5fa" letter-spacing="3">OPS</text>
+</svg>

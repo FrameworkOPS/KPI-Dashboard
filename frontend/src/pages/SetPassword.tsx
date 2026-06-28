@@ -50,8 +50,8 @@ const SetPassword: React.FC = () => {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <img
-            src="/skyright-web_logotype-color.jpg"
-            alt="Skyright Roofing &amp; Gutters"
+            src="/frameworkops-logo.svg"
+            alt="FrameworkOPS"
             className="mx-auto h-20 sm:h-24 w-auto object-contain mb-4"
           />
           <h1 className="text-2xl sm:text-3xl font-bold text-white">Set Your Password</h1>

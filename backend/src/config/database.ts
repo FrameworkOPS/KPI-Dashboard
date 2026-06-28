@@ -378,9 +378,9 @@ export async function initializeDatabase(): Promise<void> {
 
     // Seed known users — only inserts if email doesn't already exist
     const seedUsers = [
-      { email: 'chance@skyright.com', password: process.env.SEED_CHANCE_PW || 'Redroad7318',  first: 'Chance', last: 'Peare',     role: 'admin',      team: 'all'        },
-      { email: 'jorn@skyright.com',   password: process.env.SEED_JORN_PW   || 'Bielefeld1',   first: 'Jorn',   last: 'Bielefeld', role: 'leadership', team: 'leadership' },
-      { email: 'pete@skyright.com',   password: process.env.SEED_PETE_PW   || 'Password',     first: 'Pete',   last: 'Hicks',     role: 'leadership', team: 'leadership' },
+      { email: 'admin@demo.frameworkops.com',      password: process.env.SEED_ADMIN_PW   || 'Demo1234!', first: 'Alex',   last: 'Demo',    role: 'admin',      team: 'all'        },
+      { email: 'sales@demo.frameworkops.com',      password: process.env.SEED_SALES_PW   || 'Demo1234!', first: 'Sarah',  last: 'Rivera',  role: 'leadership', team: 'sales'      },
+      { email: 'production@demo.frameworkops.com', password: process.env.SEED_PROD_PW    || 'Demo1234!', first: 'Marcus', last: 'Chen',    role: 'leadership', team: 'production' },
     ];
 
     for (const u of seedUsers) {
@@ -396,23 +396,6 @@ export async function initializeDatabase(): Promise<void> {
       }
     }
 
-    // One-time correction: Pete Hicks should be a leadership user with password "Password"
-    // (he was previously seeded as admin with no last name). Idempotent — only updates if needed.
-    {
-      const peteHash = await bcrypt.hash('Password', 12);
-      await client.query(
-        `UPDATE users
-            SET first_name = 'Pete',
-                last_name  = 'Hicks',
-                role       = 'leadership',
-                team       = 'leadership',
-                password_hash = $1,
-                active     = true,
-                updated_at = NOW()
-          WHERE LOWER(email) = 'pete@skyright.com'`,
-        [peteHash]
-      );
-    }
 
     // oauth_tokens table
     await client.query(`
@@ -707,8 +690,7 @@ export async function initializeDatabase(): Promise<void> {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_pae_subject ON people_analyzer_entries(subject_user_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_pae_quarter_year ON people_analyzer_entries(quarter, year)`);
 
-    // Seed default SkyRight core values (idempotent — only adds them if the
-    // table is empty so admins can edit/replace without them coming back).
+    // Seed default core values (idempotent — only adds if table is empty).
     await client.query(`
       INSERT INTO core_values (name, description, sort_order)
       SELECT * FROM (VALUES
@@ -1006,6 +988,77 @@ export async function initializeDatabase(): Promise<void> {
         updated_by UUID REFERENCES users(id) ON DELETE SET NULL
       )
     `);
+
+    // ── Demo / sandbox seed data ─────────────────────────────────────────────────
+    // Seeded only on a fresh database (no crews yet). Gives the demo portal
+    // realistic data without touching any existing production records.
+    const crewCount = await client.query('SELECT COUNT(*) FROM crews');
+    if (Number(crewCount.rows[0].count) === 0) {
+      // Demo crews
+      await client.query(`
+        INSERT INTO crews (crew_name, crew_type, team_members, training_period_days, start_date, revenue_per_sq, weekly_sq_capacity, is_active)
+        VALUES
+          ('Alpha Shingle Crew', 'shingle', 6, 28, CURRENT_DATE - INTERVAL '180 days', 600,  200, true),
+          ('Beta Shingle Crew',  'shingle', 5, 28, CURRENT_DATE - INTERVAL '90 days',  615,  180, true),
+          ('Metal Pro Crew',     'metal',   4, 28, CURRENT_DATE - INTERVAL '180 days', 1000, 100, true)
+      `);
+
+      // Demo pipeline jobs
+      await client.query(`
+        INSERT INTO pipeline_items
+          (job_type, square_footage, estimated_days_to_completion, revenue_per_sq, total_revenue, status, added_date, notes)
+        VALUES
+          ('shingle', 180, 5, 600,   108000, 'pending',     CURRENT_DATE - 14, 'Residential reroof — storm damage'),
+          ('shingle', 240, 6, 615,   147600, 'pending',     CURRENT_DATE - 10, 'Large residential — multi-family'),
+          ('shingle', 120, 4, 600,    72000, 'in_progress', CURRENT_DATE - 21, 'Insurance claim — hail damage'),
+          ('shingle',  95, 3, 625,    59375, 'pending',     CURRENT_DATE - 7,  'Repair + partial reroof'),
+          ('metal',    85, 5, 1050,   89250, 'pending',     CURRENT_DATE - 18, 'Standing seam — custom home'),
+          ('metal',   140, 7, 1000,  140000, 'pending',     CURRENT_DATE - 5,  'Commercial metal conversion')
+      `);
+
+      // 26 weeks of sales forecast starting this week's Monday
+      const shingleSqs = [110, 95, 120, 100, 90, 115, 105, 130, 100,  95, 110, 120, 100, 115,  90, 105, 125, 100, 110,  95, 120, 100, 115, 105,  90, 110];
+      const metalSqs   = [ 40, 35,  45,  40, 30,  50,  40,  45,  35,  40,  45,  40,  35,  50,  40,  45,  40,  35,  50,  40,  45,  35,  40,  45,  40,  35];
+      for (let i = 0; i < 26; i++) {
+        await client.query(
+          `INSERT INTO sales_forecast (forecast_week, job_type, projected_square_footage)
+           VALUES
+             (DATE_TRUNC('week', CURRENT_DATE)::DATE + $1, 'shingle', $2),
+             (DATE_TRUNC('week', CURRENT_DATE)::DATE + $1, 'metal',   $3)
+           ON CONFLICT (forecast_week, job_type) DO NOTHING`,
+          [i * 7, shingleSqs[i], metalSqs[i]],
+        );
+      }
+
+      // Demo quarterly rocks
+      await client.query(`
+        INSERT INTO rocks (team, title, description, quarter, year, status, completion_percentage)
+        VALUES
+          ('leadership', 'Expand to 4 active crews by Q3',      'Add one shingle crew to meet backlog demand',   3, EXTRACT(YEAR FROM CURRENT_DATE)::int, 'on_track', 40),
+          ('sales',      'Close 15 new contracts this quarter',  'Focus on insurance referrals and storm work',   3, EXTRACT(YEAR FROM CURRENT_DATE)::int, 'at_risk',  60),
+          ('production', 'Reduce average lead time to 5 weeks',  'Improve scheduling and crew ramp-up speed',    3, EXTRACT(YEAR FROM CURRENT_DATE)::int, 'on_track', 25),
+          ('leadership', 'Weekly KPI review cadence live',        'Leadership L10 every Monday at 8am',           2, EXTRACT(YEAR FROM CURRENT_DATE)::int, 'done',    100)
+      `);
+
+      // Demo open issues
+      await client.query(`
+        INSERT INTO issues (team, title, description, priority, status)
+        VALUES
+          ('leadership', 'Material costs up 8% — pricing review needed', 'Asphalt shingle costs have risen. Evaluate price per SQ.', 'high',   'open'),
+          ('production', 'Beta crew needs experienced supervisor',         'Crew 2 should not scale until a seasoned super is on-site.', 'medium', 'open')
+      `);
+
+      // Demo upcoming meetings
+      await client.query(`
+        INSERT INTO meetings (team, meeting_date, meeting_time, status)
+        VALUES
+          ('leadership', CURRENT_DATE + 2, '08:00', 'scheduled'),
+          ('sales',      CURRENT_DATE + 3, '09:00', 'scheduled'),
+          ('production', CURRENT_DATE + 4, '07:30', 'scheduled')
+      `);
+
+      console.log('Demo sandbox data seeded');
+    }
 
     console.log('Database initialized successfully');
   } finally {

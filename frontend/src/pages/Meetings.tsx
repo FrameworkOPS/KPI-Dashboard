@@ -179,7 +179,7 @@ const MeetingDetail: React.FC<MeetingDetailProps> = ({ meeting, onUpdate, onClos
               <input
                 type="text"
                 className={inputCls}
-                placeholder="chance@skyright.com, jorn@skyright.com"
+                placeholder="sales@demo.frameworkops.com, production@demo.frameworkops.com"
                 value={attendeesInput}
                 onChange={(e) => setAttendeesInput(e.target.value)}
               />
@@ -432,7 +432,7 @@ const Meetings: React.FC = () => {
               <input
                 type="text"
                 className={`${inputCls} w-full`}
-                placeholder="chance@skyright.com, jorn@skyright.com"
+                placeholder="sales@demo.frameworkops.com, production@demo.frameworkops.com"
                 value={createForm.attendee_emails}
                 onChange={(e) => setCreateForm({ ...createForm, attendee_emails: e.target.value })}
               />
