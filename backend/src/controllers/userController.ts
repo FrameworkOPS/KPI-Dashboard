@@ -46,6 +46,23 @@ export async function getUsers(req: AuthRequest, res: Response, next: NextFuncti
   }
 }
 
+// Minimal user list for "assign to" pickers — any authenticated user can call
+// this (unlike GET /users, which is admin-only and returns email/role/etc).
+// Active users only; no PII beyond name.
+export async function getUsersRoster(_req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const result = await pool.query(
+      `SELECT id, first_name, last_name, team, teams, active
+       FROM users
+       WHERE active = true
+       ORDER BY first_name, last_name`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function createUser(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { email, password, first_name, last_name, role, team, teams, active, invite, roster_only, job_duties } = req.body;

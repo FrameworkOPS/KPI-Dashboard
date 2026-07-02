@@ -645,18 +645,32 @@ export async function initializeDatabase(): Promise<void> {
         )
     `);
 
-    // Seed recurring IDS issues for leadership
-    await client.query(`
-      INSERT INTO issues (team, title, description, priority, status)
-      SELECT * FROM (VALUES
-        ('leadership', 'People',                 'Weekly people update: hiring, performance, org changes', 'medium', 'open'),
-        ('leadership', 'Cash Flow',              'Weekly cash flow review: AR, AP, runway',                'medium', 'open'),
-        ('leadership', 'Capital Purchases',      'Equipment, vehicles, and capital expenditure decisions', 'medium', 'open'),
-        ('leadership', 'Marketing / Comm. Eng.', 'Marketing campaigns, truck wraps, community engagement', 'medium', 'open'),
-        ('leadership', 'Sales',                  'Sales team updates, pipeline, new business development', 'medium', 'open')
-      ) AS v(team, title, description, priority, status)
-      WHERE NOT EXISTS (SELECT 1 FROM issues WHERE team='leadership' AND title='People')
-    `);
+    // One-time cleanup: recurring IDS issues used to be reseeded on every boot
+    // whenever 'People' was missing, so deleting any of the five brought all
+    // five back on the next restart. Remove the exact seeded rows once, then
+    // never touch this table again — guarded by app_settings so a leadership
+    // user is free to create a new issue titled e.g. "Sales" afterward
+    // without it being swept up by this migration on a later boot.
+    const recurringIssuesCleaned = await client.query(
+      `SELECT 1 FROM app_settings WHERE key = 'recurring_ids_issues_cleanup_done'`
+    );
+    if (recurringIssuesCleaned.rows.length === 0) {
+      await client.query(`
+        DELETE FROM issues
+        WHERE team = 'leadership'
+          AND (title, description) IN (
+            ('People',                 'Weekly people update: hiring, performance, org changes'),
+            ('Cash Flow',              'Weekly cash flow review: AR, AP, runway'),
+            ('Capital Purchases',      'Equipment, vehicles, and capital expenditure decisions'),
+            ('Marketing / Comm. Eng.', 'Marketing campaigns, truck wraps, community engagement'),
+            ('Sales',                  'Sales team updates, pipeline, new business development')
+          )
+      `);
+      await client.query(
+        `INSERT INTO app_settings (key, value) VALUES ('recurring_ids_issues_cleanup_done', 'true')
+         ON CONFLICT (key) DO NOTHING`
+      );
+    }
 
     // ── People Analyzer (EOS quarterly review) ────────────────────────────────
     // core_values: the company-wide values each person is scored against.

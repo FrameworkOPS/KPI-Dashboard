@@ -1,8 +1,11 @@
 import { Router } from 'express';
-import { getUsers, createUser, updateUser, deleteUser, resendInvite } from '../controllers/userController';
+import { getUsers, getUsersRoster, createUser, updateUser, deleteUser, resendInvite } from '../controllers/userController';
 import { authenticate, requireAdmin } from '../middleware/auth';
 
 const router = Router();
+
+// Any authenticated user can look up teammates to assign issues/todos to.
+router.get('/roster', authenticate, getUsersRoster);
 
 router.get('/',     authenticate, requireAdmin, getUsers);
 router.post('/',    authenticate, requireAdmin, createUser);

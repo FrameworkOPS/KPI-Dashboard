@@ -1,20 +1,27 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { createIssueApi, createTodoApi, getUsersApi } from '../services/api'
+import { createIssueApi, createTodoApi, getUsersRosterApi } from '../services/api'
 import { useAuthStore } from '../store/authStore'
-import { User } from '../types'
+import { RosterUser } from '../types'
 
 type Mode = 'issue' | 'todo'
 
 const TEAMS = ['leadership', 'sales', 'production', 'office'] as const
 
+// The logged-in user's team can be 'all' (admin) or blank, neither of which is
+// a valid team to file an issue/todo under — fall back to a real team so
+// submissions don't silently get created under an unfilterable team.
+function defaultTeam(userTeam: string | undefined): string {
+  return userTeam && (TEAMS as readonly string[]).includes(userTeam) ? userTeam : 'sales'
+}
+
 export default function QuickAdd() {
   const { user } = useAuthStore()
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<Mode>('issue')
-  const [users, setUsers] = useState<User[]>([])
+  const [users, setUsers] = useState<RosterUser[]>([])
   const [title, setTitle] = useState('')
   const [ownerId, setOwnerId] = useState('')
-  const [team, setTeam] = useState<string>(user?.team || 'leadership')
+  const [team, setTeam] = useState<string>(defaultTeam(user?.team))
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium')
   const [saving, setSaving] = useState(false)
   const [flash, setFlash] = useState<string | null>(null)
@@ -24,7 +31,7 @@ export default function QuickAdd() {
   // Load users once when first opened
   useEffect(() => {
     if (open && users.length === 0) {
-      getUsersApi().then(r => setUsers(r.data || [])).catch(() => {})
+      getUsersRosterApi().then(r => setUsers(r.data || [])).catch(() => {})
     }
   }, [open])
 

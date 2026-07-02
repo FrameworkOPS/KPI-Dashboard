@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import Header from '../components/Header'
 import TeamFilter from '../components/TeamFilter'
-import { getTodosApi, createTodoApi, updateTodoApi, deleteTodoApi, getUsersApi } from '../services/api'
-import { Todo, TeamType, User } from '../types'
+import { getTodosApi, createTodoApi, updateTodoApi, deleteTodoApi, getUsersRosterApi } from '../services/api'
+import { Todo, TeamType, RosterUser } from '../types'
 import { useAuthStore } from '../store/authStore'
 
 const fmtDate = (d: string) =>
@@ -15,7 +15,7 @@ const isOverdue = (todo: Todo) => {
 
 interface AddTodoFormProps {
   team: string
-  users: User[]
+  users: RosterUser[]
   onSave: () => void
   onCancel: () => void
 }
@@ -69,7 +69,7 @@ const AddTodoForm: React.FC<AddTodoFormProps> = ({ team, users, onSave, onCancel
 
 interface TodoCardProps {
   todo: Todo
-  users: User[]
+  users: RosterUser[]
   onToggle: (id: string, status: 'pending' | 'complete') => void
   onDelete: (id: string) => void
 }
@@ -134,7 +134,7 @@ const Todos: React.FC = () => {
     user?.role === 'manager' ? user.team as TeamType : 'all'
   )
   const [todos, setTodos] = useState<Todo[]>([])
-  const [users, setUsers] = useState<User[]>([])
+  const [users, setUsers] = useState<RosterUser[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showAddPending, setShowAddPending] = useState(false)
@@ -155,7 +155,7 @@ const Todos: React.FC = () => {
   }, [team])
 
   useEffect(() => { loadTodos() }, [loadTodos])
-  useEffect(() => { getUsersApi().then((r) => setUsers(r.data)).catch(() => {}) }, [])
+  useEffect(() => { getUsersRosterApi().then((r) => setUsers(r.data)).catch(() => {}) }, [])
 
   const handleToggle = async (id: string, status: 'pending' | 'complete') => {
     try {

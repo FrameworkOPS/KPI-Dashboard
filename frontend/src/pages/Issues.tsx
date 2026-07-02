@@ -7,9 +7,9 @@ import {
   createIssueApi,
   updateIssueApi,
   deleteIssueApi,
-  getUsersApi,
+  getUsersRosterApi,
 } from '../services/api'
-import { Issue, TeamType, User } from '../types'
+import { Issue, TeamType, RosterUser } from '../types'
 import { useAuthStore } from '../store/authStore'
 
 const fmtDate = (d: string) =>
@@ -19,7 +19,7 @@ type StatusFilter = 'all' | 'open' | 'in_progress' | 'solved'
 
 interface IssueModalProps {
   issue?: Issue | null
-  users: User[]
+  users: RosterUser[]
   onClose: () => void
   onSave: () => void
 }
@@ -135,7 +135,7 @@ const Issues: React.FC = () => {
   )
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [issues, setIssues] = useState<Issue[]>([])
-  const [users, setUsers] = useState<User[]>([])
+  const [users, setUsers] = useState<RosterUser[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
@@ -163,7 +163,7 @@ const Issues: React.FC = () => {
   }, [team, statusFilter])
 
   useEffect(() => { loadIssues() }, [loadIssues])
-  useEffect(() => { getUsersApi().then((r) => setUsers(r.data)).catch(() => {}) }, [])
+  useEffect(() => { getUsersRosterApi().then((r) => setUsers(r.data)).catch(() => {}) }, [])
 
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this issue?')) return

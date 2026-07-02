@@ -53,6 +53,11 @@ export const resendInviteApi = (id: string) =>
 export const getUsersApi = () =>
   api.get('/users')
 
+// Minimal roster (id, name, team) — usable by any authenticated user, unlike
+// getUsersApi() which is admin-only. Use this for "assign to" pickers.
+export const getUsersRosterApi = () =>
+  api.get('/users/roster')
+
 export const createUserApi = (data: any) =>
   api.post('/users', data)
 
