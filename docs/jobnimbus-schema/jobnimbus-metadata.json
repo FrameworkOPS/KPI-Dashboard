@@ -1,0 +1,3705 @@
+{
+  "synced_at": "2026-06-26T02:19:21.630209+00:00",
+  "job_fields": [
+    {
+      "name": "# of SQS",
+      "label": "# of SQS",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 42,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Contact Type",
+      "label": "Contact Type",
+      "types": [
+        "string"
+      ],
+      "observed_count": 28,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Current Material",
+      "label": "Current Material",
+      "types": [
+        "string"
+      ],
+      "observed_count": 23,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Email",
+      "label": "Email",
+      "types": [
+        "string"
+      ],
+      "observed_count": 3,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "First Name",
+      "label": "First Name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 4,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Gate Code",
+      "label": "Gate Code",
+      "types": [
+        "string"
+      ],
+      "observed_count": 2,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "HOA",
+      "label": "HOA",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 47,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Immediate Concerns",
+      "label": "Immediate Concerns",
+      "types": [
+        "string"
+      ],
+      "observed_count": 7,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Inside Sales",
+      "label": "Inside Sales",
+      "types": [
+        "string"
+      ],
+      "observed_count": 10,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Internal Notes",
+      "label": "Internal Notes",
+      "types": [
+        "string"
+      ],
+      "observed_count": 4,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Job Type",
+      "label": "Job Type",
+      "types": [
+        "string"
+      ],
+      "observed_count": 28,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Last Name",
+      "label": "Last Name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 4,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Other Buildings To Inspect",
+      "label": "Other Buildings To Inspect",
+      "types": [
+        "string"
+      ],
+      "observed_count": 5,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Phone",
+      "label": "Phone",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 42,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Roof Age",
+      "label": "Roof Age",
+      "types": [
+        "string"
+      ],
+      "observed_count": 23,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Schedule Inspection & Estimate",
+      "label": "Schedule Inspection & Estimate",
+      "types": [
+        "string"
+      ],
+      "observed_count": 17,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Special Directions",
+      "label": "Special Directions",
+      "types": [
+        "string"
+      ],
+      "observed_count": 1,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Timeline?",
+      "label": "Timeline?",
+      "types": [
+        "string"
+      ],
+      "observed_count": 4,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "What Is Important To You?",
+      "label": "What Is Important To You?",
+      "types": [
+        "string"
+      ],
+      "observed_count": 6,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "What Material?",
+      "label": "What Material?",
+      "types": [
+        "string"
+      ],
+      "observed_count": 47,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "actual_time",
+      "label": "actual_time",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "address_line1",
+      "label": "address_line1",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "address_line2",
+      "label": "address_line2",
+      "types": [
+        "string"
+      ],
+      "observed_count": 47,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "all_day",
+      "label": "all_day",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "all_day_end_date",
+      "label": "all_day_end_date",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "all_day_start_date",
+      "label": "all_day_start_date",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "approved_estimate_total",
+      "label": "approved_estimate_total",
+      "types": [
+        "integer",
+        "number"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "approved_invoice_due",
+      "label": "approved_invoice_due",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "approved_invoice_total",
+      "label": "approved_invoice_total",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "attachment_count",
+      "label": "attachment_count",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 48,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_boolean_2",
+      "label": "cf_boolean_2",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 47,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_long_1",
+      "label": "cf_long_1",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 42,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_long_2",
+      "label": "cf_long_2",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 42,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_1",
+      "label": "cf_string_1",
+      "types": [
+        "string"
+      ],
+      "observed_count": 47,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_11",
+      "label": "cf_string_11",
+      "types": [
+        "string"
+      ],
+      "observed_count": 4,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_12",
+      "label": "cf_string_12",
+      "types": [
+        "string"
+      ],
+      "observed_count": 4,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_13",
+      "label": "cf_string_13",
+      "types": [
+        "string"
+      ],
+      "observed_count": 3,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_18",
+      "label": "cf_string_18",
+      "types": [
+        "string"
+      ],
+      "observed_count": 28,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_19",
+      "label": "cf_string_19",
+      "types": [
+        "string"
+      ],
+      "observed_count": 1,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_20",
+      "label": "cf_string_20",
+      "types": [
+        "string"
+      ],
+      "observed_count": 23,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_21",
+      "label": "cf_string_21",
+      "types": [
+        "string"
+      ],
+      "observed_count": 7,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_22",
+      "label": "cf_string_22",
+      "types": [
+        "string"
+      ],
+      "observed_count": 28,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_23",
+      "label": "cf_string_23",
+      "types": [
+        "string"
+      ],
+      "observed_count": 5,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_24",
+      "label": "cf_string_24",
+      "types": [
+        "string"
+      ],
+      "observed_count": 4,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_25",
+      "label": "cf_string_25",
+      "types": [
+        "string"
+      ],
+      "observed_count": 6,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_26",
+      "label": "cf_string_26",
+      "types": [
+        "string"
+      ],
+      "observed_count": 4,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_27",
+      "label": "cf_string_27",
+      "types": [
+        "string"
+      ],
+      "observed_count": 17,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_28",
+      "label": "cf_string_28",
+      "types": [
+        "string"
+      ],
+      "observed_count": 10,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_6",
+      "label": "cf_string_6",
+      "types": [
+        "string"
+      ],
+      "observed_count": 2,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_8",
+      "label": "cf_string_8",
+      "types": [
+        "string"
+      ],
+      "observed_count": 23,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "city",
+      "label": "city",
+      "types": [
+        "string"
+      ],
+      "observed_count": 47,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "class_id",
+      "label": "class_id",
+      "types": [
+        "null"
+      ],
+      "observed_count": 40,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "class_name",
+      "label": "class_name",
+      "types": [
+        "null"
+      ],
+      "observed_count": 40,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "country_name",
+      "label": "country_name",
+      "types": [
+        "string",
+        "null"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "created_by",
+      "label": "created_by",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "created_by_name",
+      "label": "created_by_name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "customer",
+      "label": "customer",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_created",
+      "label": "date_created",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_end",
+      "label": "date_end",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_start",
+      "label": "date_start",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_status_change",
+      "label": "date_status_change",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_updated",
+      "label": "date_updated",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "description",
+      "label": "description",
+      "types": [
+        "string",
+        "null"
+      ],
+      "observed_count": 48,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "estimated_time",
+      "label": "estimated_time",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "external_id",
+      "label": "external_id",
+      "types": [
+        "null"
+      ],
+      "observed_count": 40,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "fieldassists",
+      "label": "fieldassists",
+      "types": [
+        "array"
+      ],
+      "observed_count": 48,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "geo",
+      "label": "geo",
+      "types": [
+        "object"
+      ],
+      "observed_count": 48,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "image_id",
+      "label": "image_id",
+      "types": [
+        "null"
+      ],
+      "observed_count": 40,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "is_active",
+      "label": "is_active",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "is_archived",
+      "label": "is_archived",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "is_closed",
+      "label": "is_closed",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 40,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "is_lead",
+      "label": "is_lead",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 40,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "jnid",
+      "label": "jnid",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_budget_gross_margin",
+      "label": "last_budget_gross_margin",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_budget_gross_profit",
+      "label": "last_budget_gross_profit",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_budget_revenue",
+      "label": "last_budget_revenue",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_estimate",
+      "label": "last_estimate",
+      "types": [
+        "integer",
+        "number"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_estimate_date_created",
+      "label": "last_estimate_date_created",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 48,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_estimate_date_estimate",
+      "label": "last_estimate_date_estimate",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 48,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_estimate_jnid",
+      "label": "last_estimate_jnid",
+      "types": [
+        "null",
+        "string"
+      ],
+      "observed_count": 46,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_estimate_number",
+      "label": "last_estimate_number",
+      "types": [
+        "null",
+        "string"
+      ],
+      "observed_count": 46,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_invoice",
+      "label": "last_invoice",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_invoice_date_created",
+      "label": "last_invoice_date_created",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 48,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_invoice_date_invoice",
+      "label": "last_invoice_date_invoice",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 48,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_invoice_jnid",
+      "label": "last_invoice_jnid",
+      "types": [
+        "null"
+      ],
+      "observed_count": 40,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_invoice_number",
+      "label": "last_invoice_number",
+      "types": [
+        "null"
+      ],
+      "observed_count": 40,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "location",
+      "label": "location",
+      "types": [
+        "object"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "merged",
+      "label": "merged",
+      "types": [
+        "null"
+      ],
+      "observed_count": 40,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "misc",
+      "label": "misc",
+      "types": [
+        "array"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "name",
+      "label": "name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "number",
+      "label": "number",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "open_edge_id",
+      "label": "open_edge_id",
+      "types": [
+        "null"
+      ],
+      "observed_count": 40,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "owners",
+      "label": "owners",
+      "types": [
+        "array"
+      ],
+      "observed_count": 48,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_approved_estimate_total",
+      "label": "parent_approved_estimate_total",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_approved_invoice_due",
+      "label": "parent_approved_invoice_due",
+      "types": [
+        "integer",
+        "number"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_approved_invoice_total",
+      "label": "parent_approved_invoice_total",
+      "types": [
+        "integer",
+        "number"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_fax_number",
+      "label": "parent_fax_number",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_home_phone",
+      "label": "parent_home_phone",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_last_estimate",
+      "label": "parent_last_estimate",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_last_invoice",
+      "label": "parent_last_invoice",
+      "types": [
+        "integer",
+        "number"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_mobile_phone",
+      "label": "parent_mobile_phone",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_work_phone",
+      "label": "parent_work_phone",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "primary",
+      "label": "primary",
+      "types": [
+        "object"
+      ],
+      "observed_count": 47,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "recid",
+      "label": "recid",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "record_type",
+      "label": "record_type",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "record_type_name",
+      "label": "record_type_name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "related",
+      "label": "related",
+      "types": [
+        "array"
+      ],
+      "observed_count": 48,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "rules",
+      "label": "rules",
+      "types": [
+        "array"
+      ],
+      "observed_count": 48,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "sales_rep",
+      "label": "sales_rep",
+      "types": [
+        "null",
+        "string"
+      ],
+      "observed_count": 47,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "sales_rep_name",
+      "label": "sales_rep_name",
+      "types": [
+        "null",
+        "string"
+      ],
+      "observed_count": 47,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "source",
+      "label": "source",
+      "types": [
+        "integer",
+        "null"
+      ],
+      "observed_count": 44,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "source_name",
+      "label": "source_name",
+      "types": [
+        "string",
+        "null"
+      ],
+      "observed_count": 44,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "stage_dates_overrides",
+      "label": "stage_dates_overrides",
+      "types": [
+        "object"
+      ],
+      "observed_count": 48,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "stage_dates_overrides_on",
+      "label": "stage_dates_overrides_on",
+      "types": [
+        "object"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "state_text",
+      "label": "state_text",
+      "types": [
+        "string"
+      ],
+      "observed_count": 47,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "status",
+      "label": "status",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "status_name",
+      "label": "status_name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "subcontractors",
+      "label": "subcontractors",
+      "types": [
+        "array"
+      ],
+      "observed_count": 48,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "sunlightEvents",
+      "label": "sunlightEvents",
+      "types": [
+        "null"
+      ],
+      "observed_count": 40,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "sunlightStatusAndId",
+      "label": "sunlightStatusAndId",
+      "types": [
+        "null"
+      ],
+      "observed_count": 40,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "tags",
+      "label": "tags",
+      "types": [
+        "array"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "task_count",
+      "label": "task_count",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "type",
+      "label": "type",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "zip",
+      "label": "zip",
+      "types": [
+        "string"
+      ],
+      "observed_count": 47,
+      "source": "live_record_inference"
+    }
+  ],
+  "contact_fields": [
+    {
+      "name": "Linked to Aircall",
+      "label": "Linked to Aircall",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "actual_time",
+      "label": "actual_time",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "address_line1",
+      "label": "address_line1",
+      "types": [
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "address_line2",
+      "label": "address_line2",
+      "types": [
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "all_day",
+      "label": "all_day",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "all_day_end_date",
+      "label": "all_day_end_date",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "all_day_start_date",
+      "label": "all_day_start_date",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "approved_estimate_total",
+      "label": "approved_estimate_total",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "approved_invoice_due",
+      "label": "approved_invoice_due",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "approved_invoice_total",
+      "label": "approved_invoice_total",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "attachment_count",
+      "label": "attachment_count",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_boolean_1",
+      "label": "cf_boolean_1",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "city",
+      "label": "city",
+      "types": [
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "class_id",
+      "label": "class_id",
+      "types": [
+        "null",
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "class_name",
+      "label": "class_name",
+      "types": [
+        "null",
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "color",
+      "label": "color",
+      "types": [
+        "null",
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "color_shade",
+      "label": "color_shade",
+      "types": [
+        "null",
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "company",
+      "label": "company",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "country_name",
+      "label": "country_name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "created_by",
+      "label": "created_by",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "created_by_name",
+      "label": "created_by_name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "customer",
+      "label": "customer",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_created",
+      "label": "date_created",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_end",
+      "label": "date_end",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_start",
+      "label": "date_start",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_status_change",
+      "label": "date_status_change",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_updated",
+      "label": "date_updated",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "description",
+      "label": "description",
+      "types": [
+        "null"
+      ],
+      "observed_count": 14,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "disable_auto_text",
+      "label": "disable_auto_text",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "display_name",
+      "label": "display_name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "email",
+      "label": "email",
+      "types": [
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "estimated_time",
+      "label": "estimated_time",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "external_id",
+      "label": "external_id",
+      "types": [
+        "null"
+      ],
+      "observed_count": 14,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "fax_number",
+      "label": "fax_number",
+      "types": [
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "fieldassists",
+      "label": "fieldassists",
+      "types": [
+        "array"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "first_name",
+      "label": "first_name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "geo",
+      "label": "geo",
+      "types": [
+        "object"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "home_phone",
+      "label": "home_phone",
+      "types": [
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "image_id",
+      "label": "image_id",
+      "types": [
+        "null"
+      ],
+      "observed_count": 14,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "is_active",
+      "label": "is_active",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "is_archived",
+      "label": "is_archived",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "is_closed",
+      "label": "is_closed",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 14,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "is_lead",
+      "label": "is_lead",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 14,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "is_shadow",
+      "label": "is_shadow",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "is_sub_contractor",
+      "label": "is_sub_contractor",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "is_user",
+      "label": "is_user",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "jnid",
+      "label": "jnid",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_budget_gross_margin",
+      "label": "last_budget_gross_margin",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_budget_gross_profit",
+      "label": "last_budget_gross_profit",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_budget_revenue",
+      "label": "last_budget_revenue",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_estimate",
+      "label": "last_estimate",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_estimate_date_created",
+      "label": "last_estimate_date_created",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_estimate_date_estimate",
+      "label": "last_estimate_date_estimate",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_estimate_jnid",
+      "label": "last_estimate_jnid",
+      "types": [
+        "null"
+      ],
+      "observed_count": 14,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_estimate_number",
+      "label": "last_estimate_number",
+      "types": [
+        "null"
+      ],
+      "observed_count": 14,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_invoice",
+      "label": "last_invoice",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_invoice_date_created",
+      "label": "last_invoice_date_created",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_invoice_date_invoice",
+      "label": "last_invoice_date_invoice",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_invoice_jnid",
+      "label": "last_invoice_jnid",
+      "types": [
+        "null"
+      ],
+      "observed_count": 14,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_invoice_number",
+      "label": "last_invoice_number",
+      "types": [
+        "null"
+      ],
+      "observed_count": 14,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "last_name",
+      "label": "last_name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "location",
+      "label": "location",
+      "types": [
+        "object"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "merged",
+      "label": "merged",
+      "types": [
+        "null"
+      ],
+      "observed_count": 14,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "mobile_phone",
+      "label": "mobile_phone",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "number",
+      "label": "number",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "open_edge_id",
+      "label": "open_edge_id",
+      "types": [
+        "null"
+      ],
+      "observed_count": 14,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "owners",
+      "label": "owners",
+      "types": [
+        "array"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "recid",
+      "label": "recid",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "record_type",
+      "label": "record_type",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "record_type_name",
+      "label": "record_type_name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "related",
+      "label": "related",
+      "types": [
+        "array"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "rules",
+      "label": "rules",
+      "types": [
+        "array"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "sales_rep",
+      "label": "sales_rep",
+      "types": [
+        "null",
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "sales_rep_name",
+      "label": "sales_rep_name",
+      "types": [
+        "null",
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "source",
+      "label": "source",
+      "types": [
+        "integer",
+        "null"
+      ],
+      "observed_count": 14,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "source_name",
+      "label": "source_name",
+      "types": [
+        "string",
+        "null"
+      ],
+      "observed_count": 14,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "state_text",
+      "label": "state_text",
+      "types": [
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "status",
+      "label": "status",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "status_name",
+      "label": "status_name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "subcontractors",
+      "label": "subcontractors",
+      "types": [
+        "array"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "sunlightEvents",
+      "label": "sunlightEvents",
+      "types": [
+        "null"
+      ],
+      "observed_count": 14,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "sunlightStatusAndId",
+      "label": "sunlightStatusAndId",
+      "types": [
+        "null"
+      ],
+      "observed_count": 14,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "tags",
+      "label": "tags",
+      "types": [
+        "array"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "task_count",
+      "label": "task_count",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "type",
+      "label": "type",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "website",
+      "label": "website",
+      "types": [
+        "string",
+        "null"
+      ],
+      "observed_count": 14,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "work_phone",
+      "label": "work_phone",
+      "types": [
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "zip",
+      "label": "zip",
+      "types": [
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    }
+  ],
+  "work_order_fields": [
+    {
+      "name": "# Of Corners",
+      "label": "# Of Corners",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 12,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "# Of Drain Adapters",
+      "label": "# Of Drain Adapters",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 3,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "# Of SQS",
+      "label": "# Of SQS",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "# Of Stories",
+      "label": "# Of Stories",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 28,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "1st Story Downspouts",
+      "label": "1st Story Downspouts",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 13,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "2nd Story Downspouts",
+      "label": "2nd Story Downspouts",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 3,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "3rd Story Downspouts",
+      "label": "3rd Story Downspouts",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 3,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Access Concern Notes",
+      "label": "Access Concern Notes",
+      "types": [
+        "string"
+      ],
+      "observed_count": 1,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Chimney Scope Of Work",
+      "label": "Chimney Scope Of Work",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Chimneys",
+      "label": "Chimneys",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Customer Timeline",
+      "label": "Customer Timeline",
+      "types": [
+        "string"
+      ],
+      "observed_count": 1,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Dominant Pitch",
+      "label": "Dominant Pitch",
+      "types": [
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Downspout Color",
+      "label": "Downspout Color",
+      "types": [
+        "string"
+      ],
+      "observed_count": 9,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Excluded Sections",
+      "label": "Excluded Sections",
+      "types": [
+        "string"
+      ],
+      "observed_count": 10,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Existing Material",
+      "label": "Existing Material",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Gutter Color",
+      "label": "Gutter Color",
+      "types": [
+        "string"
+      ],
+      "observed_count": 12,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Gutter Guards",
+      "label": "Gutter Guards",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Gutter Map",
+      "label": "Gutter Map",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Gutter Material List",
+      "label": "Gutter Material List",
+      "types": [
+        "string"
+      ],
+      "observed_count": 7,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Gutter Scope Of Work",
+      "label": "Gutter Scope Of Work",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Gutter Size",
+      "label": "Gutter Size",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 13,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Gutter Wedges",
+      "label": "Gutter Wedges",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Hand Loaded",
+      "label": "Hand Loaded",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "LF Of Snow Stops",
+      "label": "LF Of Snow Stops",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 2,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "LF To Install",
+      "label": "LF To Install",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "LF To Remove",
+      "label": "LF To Remove",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Lift Required",
+      "label": "Lift Required",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Outside of Normal Scope?",
+      "label": "Outside of Normal Scope?",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Pipe Boots",
+      "label": "Pipe Boots",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Pitch",
+      "label": "Pitch",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 3,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Primary Color",
+      "label": "Primary Color",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Primary Material",
+      "label": "Primary Material",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Rainchains",
+      "label": "Rainchains",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 3,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Satellite Dish",
+      "label": "Satellite Dish",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Scope Of Work",
+      "label": "Scope Of Work",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Secondary Color",
+      "label": "Secondary Color",
+      "types": [
+        "string"
+      ],
+      "observed_count": 11,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Secondary Material",
+      "label": "Secondary Material",
+      "types": [
+        "string"
+      ],
+      "observed_count": 9,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Skylights",
+      "label": "Skylights",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Snow Stops",
+      "label": "Snow Stops",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Split Boots",
+      "label": "Split Boots",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Stem Vents",
+      "label": "Stem Vents",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "Ventilation Type",
+      "label": "Ventilation Type",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "all_day",
+      "label": "all_day",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "all_day_end_date",
+      "label": "all_day_end_date",
+      "types": [
+        "string"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "all_day_start_date",
+      "label": "all_day_start_date",
+      "types": [
+        "string"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "attachment_id",
+      "label": "attachment_id",
+      "types": [
+        "string"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_boolean_1",
+      "label": "cf_boolean_1",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_boolean_2",
+      "label": "cf_boolean_2",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_boolean_4",
+      "label": "cf_boolean_4",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_boolean_5",
+      "label": "cf_boolean_5",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_boolean_6",
+      "label": "cf_boolean_6",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_boolean_7",
+      "label": "cf_boolean_7",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_long_1",
+      "label": "cf_long_1",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_long_10",
+      "label": "cf_long_10",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 3,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_long_11",
+      "label": "cf_long_11",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 3,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_long_12",
+      "label": "cf_long_12",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 12,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_long_13",
+      "label": "cf_long_13",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 3,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_long_14",
+      "label": "cf_long_14",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 2,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_long_2",
+      "label": "cf_long_2",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 3,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_long_3",
+      "label": "cf_long_3",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 28,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_long_4",
+      "label": "cf_long_4",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_long_5",
+      "label": "cf_long_5",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_long_6",
+      "label": "cf_long_6",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_long_7",
+      "label": "cf_long_7",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 13,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_long_8",
+      "label": "cf_long_8",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 13,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_long_9",
+      "label": "cf_long_9",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 3,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_1",
+      "label": "cf_string_1",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_10",
+      "label": "cf_string_10",
+      "types": [
+        "string"
+      ],
+      "observed_count": 10,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_11",
+      "label": "cf_string_11",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_12",
+      "label": "cf_string_12",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_13",
+      "label": "cf_string_13",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_14",
+      "label": "cf_string_14",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_15",
+      "label": "cf_string_15",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_16",
+      "label": "cf_string_16",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_17",
+      "label": "cf_string_17",
+      "types": [
+        "string"
+      ],
+      "observed_count": 7,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_18",
+      "label": "cf_string_18",
+      "types": [
+        "string"
+      ],
+      "observed_count": 12,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_19",
+      "label": "cf_string_19",
+      "types": [
+        "string"
+      ],
+      "observed_count": 9,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_2",
+      "label": "cf_string_2",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_20",
+      "label": "cf_string_20",
+      "types": [
+        "string"
+      ],
+      "observed_count": 15,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_21",
+      "label": "cf_string_21",
+      "types": [
+        "string"
+      ],
+      "observed_count": 1,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_22",
+      "label": "cf_string_22",
+      "types": [
+        "string"
+      ],
+      "observed_count": 1,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_3",
+      "label": "cf_string_3",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_4",
+      "label": "cf_string_4",
+      "types": [
+        "string"
+      ],
+      "observed_count": 9,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_5",
+      "label": "cf_string_5",
+      "types": [
+        "string"
+      ],
+      "observed_count": 11,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_6",
+      "label": "cf_string_6",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_7",
+      "label": "cf_string_7",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_8",
+      "label": "cf_string_8",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cf_string_9",
+      "label": "cf_string_9",
+      "types": [
+        "string"
+      ],
+      "observed_count": 30,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "class_id",
+      "label": "class_id",
+      "types": [
+        "null",
+        "string"
+      ],
+      "observed_count": 11,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "class_name",
+      "label": "class_name",
+      "types": [
+        "null",
+        "string"
+      ],
+      "observed_count": 11,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "created_by",
+      "label": "created_by",
+      "types": [
+        "string"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "created_by_name",
+      "label": "created_by_name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "customer",
+      "label": "customer",
+      "types": [
+        "string"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "customer_note",
+      "label": "customer_note",
+      "types": [
+        "string",
+        "null"
+      ],
+      "observed_count": 28,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_created",
+      "label": "date_created",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_end",
+      "label": "date_end",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_start",
+      "label": "date_start",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_status_change",
+      "label": "date_status_change",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_updated",
+      "label": "date_updated",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "esigned",
+      "label": "esigned",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "external_id",
+      "label": "external_id",
+      "types": [
+        "null"
+      ],
+      "observed_count": 8,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "guid",
+      "label": "guid",
+      "types": [
+        "string"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "internal_note",
+      "label": "internal_note",
+      "types": [
+        "string",
+        "null"
+      ],
+      "observed_count": 27,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "is_active",
+      "label": "is_active",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "is_archived",
+      "label": "is_archived",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "items",
+      "label": "items",
+      "types": [
+        "array"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "jnid",
+      "label": "jnid",
+      "types": [
+        "string"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "location",
+      "label": "location",
+      "types": [
+        "object"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "merged",
+      "label": "merged",
+      "types": [
+        "null"
+      ],
+      "observed_count": 8,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "number",
+      "label": "number",
+      "types": [
+        "string"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "owners",
+      "label": "owners",
+      "types": [
+        "array"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_approved_estimate_total",
+      "label": "parent_approved_estimate_total",
+      "types": [
+        "number",
+        "integer"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_approved_invoice_due",
+      "label": "parent_approved_invoice_due",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_approved_invoice_total",
+      "label": "parent_approved_invoice_total",
+      "types": [
+        "integer",
+        "number"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_fax_number",
+      "label": "parent_fax_number",
+      "types": [
+        "null"
+      ],
+      "observed_count": 8,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_home_phone",
+      "label": "parent_home_phone",
+      "types": [
+        "null"
+      ],
+      "observed_count": 8,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_last_estimate",
+      "label": "parent_last_estimate",
+      "types": [
+        "number",
+        "integer"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_last_invoice",
+      "label": "parent_last_invoice",
+      "types": [
+        "integer",
+        "number"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_mobile_phone",
+      "label": "parent_mobile_phone",
+      "types": [
+        "null"
+      ],
+      "observed_count": 8,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "parent_work_phone",
+      "label": "parent_work_phone",
+      "types": [
+        "null"
+      ],
+      "observed_count": 8,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "recid",
+      "label": "recid",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "record_type",
+      "label": "record_type",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "record_type_name",
+      "label": "record_type_name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "related",
+      "label": "related",
+      "types": [
+        "array"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "rules",
+      "label": "rules",
+      "types": [
+        "array"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "sales_rep",
+      "label": "sales_rep",
+      "types": [
+        "string"
+      ],
+      "observed_count": 31,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "sections",
+      "label": "sections",
+      "types": [
+        "array"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "status",
+      "label": "status",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "status_name",
+      "label": "status_name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "subcontractors",
+      "label": "subcontractors",
+      "types": [
+        "array"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "supplier",
+      "label": "supplier",
+      "types": [
+        "null"
+      ],
+      "observed_count": 8,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "template_id",
+      "label": "template_id",
+      "types": [
+        "string"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "total_line_item_cost",
+      "label": "total_line_item_cost",
+      "types": [
+        "number",
+        "integer"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "total_line_item_price",
+      "label": "total_line_item_price",
+      "types": [
+        "number",
+        "integer"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "type",
+      "label": "type",
+      "types": [
+        "string"
+      ],
+      "observed_count": 33,
+      "source": "live_record_inference"
+    }
+  ],
+  "estimate_fields": [
+    {
+      "name": "FooterHtml",
+      "label": "FooterHtml",
+      "types": [
+        "null"
+      ],
+      "observed_count": 22,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "attachment_id",
+      "label": "attachment_id",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "class_id",
+      "label": "class_id",
+      "types": [
+        "null"
+      ],
+      "observed_count": 22,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "class_name",
+      "label": "class_name",
+      "types": [
+        "null"
+      ],
+      "observed_count": 22,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "cost",
+      "label": "cost",
+      "types": [
+        "integer",
+        "number"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "created_by",
+      "label": "created_by",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "created_by_name",
+      "label": "created_by_name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "customer",
+      "label": "customer",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_created",
+      "label": "date_created",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_estimate",
+      "label": "date_estimate",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_sign_requested",
+      "label": "date_sign_requested",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_signed",
+      "label": "date_signed",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_status_change",
+      "label": "date_status_change",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "date_updated",
+      "label": "date_updated",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "duplicate_from_id",
+      "label": "duplicate_from_id",
+      "types": [
+        "null"
+      ],
+      "observed_count": 22,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "esigned",
+      "label": "esigned",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 28,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "external_id",
+      "label": "external_id",
+      "types": [
+        "null"
+      ],
+      "observed_count": 22,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "guid",
+      "label": "guid",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "html",
+      "label": "html",
+      "types": [
+        "null"
+      ],
+      "observed_count": 22,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "internal_note",
+      "label": "internal_note",
+      "types": [
+        "null"
+      ],
+      "observed_count": 22,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "is_active",
+      "label": "is_active",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "is_archived",
+      "label": "is_archived",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "items",
+      "label": "items",
+      "types": [
+        "array"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "jnid",
+      "label": "jnid",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "location",
+      "label": "location",
+      "types": [
+        "object"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "margin",
+      "label": "margin",
+      "types": [
+        "integer",
+        "number"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "merged",
+      "label": "merged",
+      "types": [
+        "null"
+      ],
+      "observed_count": 22,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "no_access",
+      "label": "no_access",
+      "types": [
+        "boolean"
+      ],
+      "observed_count": 22,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "note",
+      "label": "note",
+      "types": [
+        "null"
+      ],
+      "observed_count": 22,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "number",
+      "label": "number",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "owners",
+      "label": "owners",
+      "types": [
+        "array"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "recid",
+      "label": "recid",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "related",
+      "label": "related",
+      "types": [
+        "array"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "sales_rep",
+      "label": "sales_rep",
+      "types": [
+        "string",
+        "null"
+      ],
+      "observed_count": 45,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "sales_rep_name",
+      "label": "sales_rep_name",
+      "types": [
+        "string",
+        "null"
+      ],
+      "observed_count": 45,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "sections",
+      "label": "sections",
+      "types": [
+        "array"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "signature_status",
+      "label": "signature_status",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "source",
+      "label": "source",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "status",
+      "label": "status",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "status_name",
+      "label": "status_name",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "subtotal",
+      "label": "subtotal",
+      "types": [
+        "integer",
+        "number"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "supplier",
+      "label": "supplier",
+      "types": [
+        "null",
+        "object"
+      ],
+      "observed_count": 23,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "tax",
+      "label": "tax",
+      "types": [
+        "integer"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "template_id",
+      "label": "template_id",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "total",
+      "label": "total",
+      "types": [
+        "integer",
+        "number"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    },
+    {
+      "name": "type",
+      "label": "type",
+      "types": [
+        "string"
+      ],
+      "observed_count": 50,
+      "source": "live_record_inference"
+    }
+  ],
+  "dropdown_values": [],
+  "statuses": [
+    {
+      "status_name": "Active",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Approved",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Appt Scheduled",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Contract Sent",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Draft",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Estimate Info Gathered",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Installation WIP",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Lead",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Lost",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "New",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "New Bid",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Plan Review",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Production - Long Term Sched",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Production - Mats Ordered",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Production Scheduled",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Project Closed Out",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "RFI",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Sent",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Sent To Production",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Signed Contract",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "T/O to Production",
+      "source": "live_record_inference"
+    },
+    {
+      "status_name": "Webform",
+      "source": "live_record_inference"
+    }
+  ],
+  "workflow_stages": [
+    {
+      "record_type_name": "Customer",
+      "source": "live_record_inference"
+    },
+    {
+      "record_type_name": "Gutters",
+      "source": "live_record_inference"
+    },
+    {
+      "record_type_name": "New Construction",
+      "source": "live_record_inference"
+    },
+    {
+      "record_type_name": "Retail",
+      "source": "live_record_inference"
+    },
+    {
+      "record_type_name": "Subcontractor",
+      "source": "live_record_inference"
+    },
+    {
+      "record_type_name": "estimate",
+      "source": "live_record_inference"
+    }
+  ],
+  "source": "live_record_inference"
+}

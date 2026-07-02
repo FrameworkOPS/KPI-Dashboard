@@ -28,6 +28,7 @@ import pipelineRoutes from './routes/pipelineRoutes';
 import metricsRoutes from './routes/metricsRoutes';
 import estimatingRoutes from './routes/estimatingRoutes';
 import forecasterAiRoutes from './routes/forecasterAiRoutes';
+import skyRoutes from './routes/skyRoutes';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '5001', 10);
@@ -81,6 +82,7 @@ app.use('/api/pipeline', pipelineRoutes);
 app.use('/api/metrics', metricsRoutes);
 app.use('/api/estimating', estimatingRoutes);
 app.use('/api/forecaster-ai', forecasterAiRoutes);
+app.use('/api/sky', skyRoutes);
 
 // Serve frontend static files
 const frontendDist = path.join(__dirname, '../../frontend/dist');

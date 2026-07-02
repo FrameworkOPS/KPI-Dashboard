@@ -36,19 +36,20 @@ export async function getCrew(req: AuthRequest, res: Response, next: NextFunctio
 export async function createCrew(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { crew_name, crew_type, team_members, training_period_days, start_date, terminate_date, revenue_per_sq, weekly_sq_capacity } = req.body;
-    if (!crew_name || !crew_type || !team_members || !training_period_days || !start_date) {
-      res.status(400).json({ error: 'Missing required fields' }); return;
+    if (!crew_name || !crew_type) {
+      res.status(400).json({ error: 'crew_name and crew_type are required' }); return;
     }
     if (!['shingle', 'metal'].includes(crew_type)) {
       res.status(400).json({ error: 'crew_type must be "shingle" or "metal"' }); return;
     }
     const defaultRevenue = crew_type === 'shingle' ? 600 : 1000;
     const defaultCapacity = crew_type === 'shingle' ? 200 : 100;
+    const effectiveStartDate = start_date || new Date().toISOString().split('T')[0];
     const result = await pool.query(
       `INSERT INTO crews (crew_name, crew_type, team_members, training_period_days, start_date,
         terminate_date, revenue_per_sq, weekly_sq_capacity, is_active, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,$9) RETURNING *`,
-      [crew_name, crew_type, team_members, training_period_days, start_date,
+      [crew_name, crew_type, team_members ?? 0, training_period_days ?? 0, effectiveStartDate,
        terminate_date || null, revenue_per_sq ?? defaultRevenue, weekly_sq_capacity ?? defaultCapacity,
        req.user?.id || null]
     );

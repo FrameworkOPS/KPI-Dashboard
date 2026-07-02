@@ -1,8 +1,12 @@
-import { Pool } from 'pg';
+import { Pool, types } from 'pg';
 import bcrypt from 'bcrypt';
 import dotenv from 'dotenv';
 
 dotenv.config();
+
+// pg returns NUMERIC/DECIMAL as strings by default; parse them as JS numbers
+// so callers don't have to wrap every value in Number().
+types.setTypeParser(1700, parseFloat); // NUMERIC / DECIMAL
 
 export const pool = process.env.DATABASE_URL
   ? new Pool({
@@ -471,6 +475,15 @@ export async function initializeDatabase(): Promise<void> {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_jn_jobs_signed_date ON jobnimbus_jobs(signed_date)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_jn_jobs_billed_date ON jobnimbus_jobs(billed_date)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_jn_jobs_contract_sent_date ON jobnimbus_jobs(contract_sent_date)`);
+    await client.query(`
+      INSERT INTO app_settings (key, value)
+      VALUES ('forecaster_jn_material_field', 'What Material?')
+      ON CONFLICT (key) DO UPDATE
+        SET value = 'What Material?', updated_at = NOW()
+        WHERE app_settings.value IS NULL
+           OR app_settings.value = ''
+           OR app_settings.value = 'material_type'
+    `);
 
     // scorecard_templates table
     await client.query(`
