@@ -2,8 +2,8 @@ import React, { useEffect, useState, useCallback } from 'react'
 import Header from '../components/Header'
 import TeamFilter from '../components/TeamFilter'
 import StatusBadge from '../components/StatusBadge'
-import { getRocksApi, createRockApi, updateRockApi, deleteRockApi, getUsersApi } from '../services/api'
-import { Rock, TeamType, User } from '../types'
+import { getRocksApi, createRockApi, updateRockApi, deleteRockApi, getUsersRosterApi } from '../services/api'
+import { Rock, TeamType, RosterUser } from '../types'
 import { useAuthStore } from '../store/authStore'
 import { fireRockDoneConfetti } from '../utils/confetti'
 
@@ -26,7 +26,7 @@ const fmtDate = (d: string) =>
 
 interface RockModalProps {
   rock?: Rock | null
-  users: User[]
+  users: RosterUser[]
   teams: string[]
   onClose: () => void
   onSave: () => void
@@ -162,7 +162,7 @@ const Rocks: React.FC = () => {
   const [quarter, setQuarter] = useState(Math.ceil((now.getMonth() + 1) / 3))
   const [year, setYear] = useState(now.getFullYear())
   const [rocks, setRocks] = useState<Rock[]>([])
-  const [users, setUsers] = useState<User[]>([])
+  const [users, setUsers] = useState<RosterUser[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
@@ -186,7 +186,7 @@ const Rocks: React.FC = () => {
   useEffect(() => { loadRocks() }, [loadRocks])
 
   useEffect(() => {
-    getUsersApi().then((r) => setUsers(r.data)).catch(() => {})
+    getUsersRosterApi().then((r) => setUsers(r.data)).catch(() => {})
   }, [])
 
   const handleDelete = async (id: string) => {

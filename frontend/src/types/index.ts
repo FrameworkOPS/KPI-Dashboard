@@ -12,6 +12,17 @@ export interface User {
   invited?: boolean;
 }
 
+// Minimal shape returned by GET /users/roster — available to any authenticated
+// user for "assign to" pickers (unlike User, which requires admin to fetch).
+export interface RosterUser {
+  id: string;
+  first_name: string;
+  last_name: string;
+  team: 'sales' | 'production' | 'office' | 'leadership' | 'all';
+  teams?: ('sales' | 'production' | 'office' | 'leadership' | 'all')[];
+  active: boolean;
+}
+
 export interface ScorecardEntry {
   id: string;
   team: string;
