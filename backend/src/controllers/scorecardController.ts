@@ -90,7 +90,7 @@ export async function createScorecardEntry(req: AuthRequest, res: Response, next
 export async function updateScorecardEntry(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const { goal, actual, is_on_track, data_source, notes, metric_name } = req.body;
+    const { goal, actual, is_on_track, notes, data_source, metric_name } = req.body;
     const user = req.user!;
 
     const existing = await pool.query('SELECT * FROM scorecard_entries WHERE id = $1', [id]);
@@ -110,19 +110,25 @@ export async function updateScorecardEntry(req: AuthRequest, res: Response, next
     const computedIsOnTrack = is_on_track !== undefined
       ? is_on_track
       : (updatedGoal != null && updatedActual != null ? updatedActual >= updatedGoal : null);
+    const updatedMetricName = metric_name !== undefined && metric_name !== null ? metric_name : entry.metric_name;
+    const explicitDataSource = data_source !== undefined ? data_source : 'manual';
 
     const result = await pool.query(
       `UPDATE scorecard_entries SET
-         metric_name = COALESCE($1, metric_name),
+         metric_name = $1,
          goal = $2,
          actual = $3,
          is_on_track = $4,
-         data_source = COALESCE($5, data_source),
+         data_source = CASE
+           WHEN $5 = 'manual' THEN 'manual'
+           WHEN $5 IS NULL THEN 'manual'
+           ELSE $5
+         END,
          notes = $6,
          updated_at = NOW()
        WHERE id = $7
        RETURNING *`,
-      [metric_name || null, updatedGoal, updatedActual, computedIsOnTrack, data_source || null, notes !== undefined ? notes : entry.notes, id]
+      [updatedMetricName, updatedGoal, updatedActual, computedIsOnTrack, explicitDataSource, notes !== undefined ? notes : entry.notes, id]
     );
 
     res.json(result.rows[0]);

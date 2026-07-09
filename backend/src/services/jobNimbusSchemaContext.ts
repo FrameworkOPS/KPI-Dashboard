@@ -23,6 +23,25 @@ export const WORK_ORDER_SQS_FIELD_CANDIDATES = [
   'Squares',
 ] as const;
 
+// Date candidates observed in JobNimbus schema for when a won contract was signed.
+// Uses the most reliable fields first, then falls back to broader timestamp
+// candidates when signature-specific fields are missing.
+export const SOLD_DATE_FIELD_CANDIDATES = [
+  'last_estimate_date_estimate',
+  'last_estimate_date_created',
+  'date_signed',
+  'date_estimate',
+  'date_status_change',
+  'date_updated',
+  'date_created',
+] as const;
+
+// Estimate value candidates observed in JobNimbus schema.
+export const ESTIMATE_VALUE_FIELD_CANDIDATES = [
+  'approved_estimate_total',
+  'parent_approved_estimate_total',
+] as const;
+
 // All status names observed in live JN records (from jobnimbus-metadata.json).
 export const JOBNIMBUS_PIPELINE_STATUS_NAMES = [
   'Active',
@@ -48,4 +67,3 @@ export const JOBNIMBUS_PIPELINE_STATUS_NAMES = [
   'T/O to Production',
   'Webform',
 ] as const;
-

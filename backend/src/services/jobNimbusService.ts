@@ -1,6 +1,10 @@
 import crypto from 'crypto';
 import axios from 'axios';
 import { query } from '../config/database';
+import {
+  SOLD_DATE_FIELD_CANDIDATES,
+  ESTIMATE_VALUE_FIELD_CANDIDATES,
+} from './jobNimbusSchemaContext';
 
 // ── Webhook token management ──────────────────────────────────────────────────
 
@@ -186,12 +190,80 @@ function toEpochDateOrNull(v: unknown): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+function pickPositiveFromRecord(record: Record<string, any>, keys: readonly string[]): number | null {
+  return pickPositive(...keys.map((k) => record[k]));
+}
+
+function pickDateFromRecord(record: Record<string, any>, keys: readonly string[]): Date | null {
+  for (const key of keys) {
+    const d = toEpochDateOrNull(record[key]);
+    if (d) return d;
+  }
+  return null;
+}
+
+const ESTIMATE_DATE_FIELD_CANDIDATES = ['date_signed', 'date_estimate'] as const;
+const ESTIMATE_VALUE_FIELD_CANDIDATES_NESTED = ['total', 'subtotal', 'subtotal_after_discount', 'amount'] as const;
+const INVOICE_VALUE_FIELD_CANDIDATES_NESTED = ['total', 'subtotal', 'subtotal_after_discount', 'amount'] as const;
+
+function pickSoldDate(job: Record<string, any>): Date | null {
+  const direct = pickDateFromRecord(job, SOLD_DATE_FIELD_CANDIDATES);
+  if (direct) return direct;
+
+  const lastEstimate = job.last_estimate;
+  if (lastEstimate && typeof lastEstimate === 'object') {
+    const nested = pickDateFromRecord(lastEstimate as Record<string, any>, ESTIMATE_DATE_FIELD_CANDIDATES);
+    if (nested) return nested;
+  }
+
+  const est = job.estimates;
+  if (Array.isArray(est)) {
+    for (const item of est) {
+      if (item && typeof item === 'object') {
+        const nested = pickDateFromRecord(item as Record<string, any>, ESTIMATE_DATE_FIELD_CANDIDATES);
+        if (nested) return nested;
+      }
+    }
+  }
+
+  return null;
+}
+
 function estimateValue(job: Record<string, any>): number | null {
-  return pickPositive(job.approved_estimate_total, job.last_estimate);
+  const direct = pickPositiveFromRecord(job, ESTIMATE_VALUE_FIELD_CANDIDATES);
+  if (direct !== null) return direct;
+
+  const lastEstimate = job.last_estimate;
+  if (lastEstimate && typeof lastEstimate === 'object') {
+    const nested = pickPositiveFromRecord(lastEstimate as Record<string, any>, ESTIMATE_VALUE_FIELD_CANDIDATES_NESTED);
+    if (nested) return nested;
+  }
+
+  const est = job.estimates;
+  if (Array.isArray(est)) {
+    for (const item of est) {
+      if (item && typeof item === 'object') {
+        const nested = pickPositiveFromRecord(item as Record<string, any>, ESTIMATE_VALUE_FIELD_CANDIDATES_NESTED);
+        if (nested) return nested;
+      }
+    }
+  }
+
+  const legacyValue = toNumOrNull(job.value);
+  return legacyValue !== null && legacyValue > 0 ? legacyValue : null;
 }
 
 function invoiceValue(job: Record<string, any>): number | null {
-  return pickPositive(job.approved_invoice_total, job.last_invoice);
+  const direct = pickPositive(job.approved_invoice_total, job.parent_approved_invoice_total);
+  if (direct !== null) return direct;
+
+  const lastInvoice = job.last_invoice;
+  if (lastInvoice && typeof lastInvoice === 'object') {
+    const nested = pickPositiveFromRecord(lastInvoice as Record<string, any>, INVOICE_VALUE_FIELD_CANDIDATES_NESTED);
+    if (nested) return nested;
+  }
+
+  return null;
 }
 
 // Classify a JobNimbus job into the status_type used across the dashboard:
@@ -241,7 +313,7 @@ export async function upsertJobFromApi(job: Record<string, any>): Promise<void> 
 
   // When the deal was signed (won) and when it was billed (invoiced).
   const signedDate = statusType === 4
-    ? (toEpochDateOrNull(job.last_estimate_date_estimate) ?? toEpochDateOrNull(job.date_status_change) ?? dateUpdated)
+    ? (pickSoldDate(job) ?? dateUpdated)
     : null;
   const billedDate = invValue !== null ? toEpochDateOrNull(job.last_invoice_date_invoice) : null;
 
@@ -500,7 +572,7 @@ export interface JobNimbusAnalytics {
   recent: { jnid: string; name: string | null; status: string | null; status_type: number | null; value: number | null; date_updated: string | null }[];
   targets: JobNimbusTargets;
   progress: {
-    wtd_sold: number; mtd_sold: number;
+    wtd_sold: number; mtd_sold: number; ytd_sold: number;
     wtd_billed: number; mtd_billed: number;
     week_start: string; month_start: string;
   };
@@ -817,22 +889,25 @@ export async function getJobNimbusAnalytics(opts: AnalyticsQuery): Promise<JobNi
       ARRAY(SELECT DISTINCT record_type_name FROM jobnimbus_jobs WHERE record_type_name IS NOT NULL AND record_type_name <> '' AND status_type <> 1 ORDER BY 1) AS types
   `)).rows[0];
 
-  // Week/month progress against targets (always uses current week & month —
-  // independent of the selected window).
+  // Progress against targets (always uses current week + month/ytd windows,
+  // independent of the selected window). Sold is filtered by sold date windows,
+  // with the weekly bucket as the trailing 7 days.
   const targets = await getJobNimbusTargets();
   const now = new Date();
-  const weekStart = (() => { const x = new Date(now); x.setHours(0,0,0,0); const dow = x.getDay(); const off = dow === 0 ? -6 : 1 - dow; x.setDate(x.getDate() + off); return x; })();
+  const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const ytdStart = new Date(now.getFullYear(), 0, 1);
   const fProg = buildFilterSql(opts, 3);
   const progressRow = (await query(`
     SELECT
       COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $1), 0) AS wtd_sold,
       COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $2), 0) AS mtd_sold,
+      COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 4 AND signed_date >= $3), 0) AS ytd_sold,
       COALESCE(SUM(invoice_value)  FILTER (WHERE billed_date >= $1), 0)                     AS wtd_billed,
       COALESCE(SUM(invoice_value)  FILTER (WHERE billed_date >= $2), 0)                     AS mtd_billed
     FROM jobnimbus_jobs
     WHERE TRUE${fProg.sql}
-  `, [weekStart, monthStart, ...fProg.params])).rows[0];
+  `, [weekStart, monthStart, ytdStart, ...fProg.params])).rows[0];
 
   return {
     totals: { all, open, won, lost, leads, contracts_sent: contractsSent, billed },
@@ -871,6 +946,7 @@ export async function getJobNimbusAnalytics(opts: AnalyticsQuery): Promise<JobNi
     progress: {
       wtd_sold: Number(progressRow.wtd_sold),
       mtd_sold: Number(progressRow.mtd_sold),
+      ytd_sold: Number(progressRow.ytd_sold),
       wtd_billed: Number(progressRow.wtd_billed),
       mtd_billed: Number(progressRow.mtd_billed),
       week_start: weekStart.toISOString(),
@@ -1141,7 +1217,10 @@ async function fillScorecardWeek(weekMonday: string): Promise<void> {
         is_on_track     = EXCLUDED.is_on_track,
         display_format  = EXCLUDED.display_format,
         lower_is_better = EXCLUDED.lower_is_better,
-        data_source     = 'jobnimbus',
+        data_source     = CASE
+           WHEN scorecard_entries.data_source = 'manual' THEN 'manual'
+           ELSE 'jobnimbus'
+        END,
         updated_at      = NOW()
     `, [JN_TEAM, weekMonday, m.name, goal, goalText, actual, onTrack, m.format, lib]);
   }
@@ -1348,7 +1427,10 @@ async function fillSalesScorecardWeek(weekMonday: string): Promise<void> {
         is_on_track     = EXCLUDED.is_on_track,
         display_format  = EXCLUDED.display_format,
         lower_is_better = EXCLUDED.lower_is_better,
-        data_source     = 'jobnimbus',
+        data_source     = CASE
+           WHEN scorecard_entries.data_source = 'manual' THEN 'manual'
+           ELSE 'jobnimbus'
+        END,
         updated_at      = NOW()
     `, [SALES_TEAM, weekMonday, metricName, tmpl.goal, tmpl.goal_text, actual, onTrack, tmpl.display_format || fallbackFormat, tmpl.lower_is_better]);
   };

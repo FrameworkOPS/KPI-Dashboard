@@ -55,7 +55,7 @@ interface Analytics {
   weekly_billed: { week: string; count: number; amount: number }[]
   recent: { jnid: string; name: string | null; status: string | null; status_type: number | null; value: number | null; date_updated: string | null }[]
   targets: Targets
-  progress: { wtd_sold: number; mtd_sold: number; wtd_billed: number; mtd_billed: number; week_start: string; month_start: string }
+  progress: { wtd_sold: number; mtd_sold: number; ytd_sold: number; wtd_billed: number; mtd_billed: number; week_start: string; month_start: string }
   filter: { from: string; to: string; compare_from: string; compare_to: string; rep: string | null; source: string | null; record_type: string | null }
   available_filters: { reps: string[]; sources: string[]; record_types: string[] }
 }
@@ -406,15 +406,19 @@ const TargetsCard: React.FC<{
   return (
     <Section
       title="Targets & Progress"
-      subtitle="$ Signed, current week & month"
+      subtitle="$ Signed, current week, month, and sold YTD"
       right={canEdit && !editing && (
         <button onClick={() => setEditing(true)} className="text-[11px] text-slate-400 hover:text-white">Edit</button>
       )}
     >
       {!editing ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Bar label="This week" actual={progress.wtd_sold} target={targets.weekly_sold} />
           <Bar label="This month" actual={progress.mtd_sold} target={targets.monthly_sold} />
+          <div>
+            <p className="text-xs text-slate-400 mb-1">Sold YTD</p>
+            <p className="text-xl font-bold text-emerald-400">{fmtUsd(progress.ytd_sold)}</p>
+          </div>
         </div>
       ) : (
         <div className="space-y-3">

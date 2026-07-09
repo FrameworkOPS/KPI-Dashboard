@@ -16,28 +16,24 @@ export interface Period {
 
 // ── Date math helpers ─────────────────────────────────────────────────────────
 
-const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x }
-const startOfWeek = (d: Date) => {
-  const x = startOfDay(d); const dow = x.getDay(); const off = dow === 0 ? -6 : 1 - dow
-  x.setDate(x.getDate() + off); return x
-}
 const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1)
 const startOfQuarter = (d: Date) => new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3, 1)
 const startOfYear = (d: Date) => new Date(d.getFullYear(), 0, 1)
 const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
+const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x }
 const addMonths = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth() + n, d.getDate())
 
 export function periodFromKey(key: PeriodKey, customFrom?: Date, customTo?: Date): Period {
   const now = new Date()
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
   switch (key) {
     case 'this_week': {
-      const from = startOfWeek(now)
-      return { key, from, to: now, label: 'This week' }
+      return { key, from: new Date(now.getTime() - sevenDaysMs), to: now, label: 'This week' }
     }
     case 'last_week': {
-      const to = startOfWeek(now)
-      const from = addDays(to, -7)
-      return { key, from, to, label: 'Last week' }
+      const to = new Date(now.getTime() - sevenDaysMs)
+      const from = new Date(to.getTime() - sevenDaysMs)
+      return { key, from, to, label: 'Last 7 days' }
     }
     case 'this_month': {
       return { key, from: startOfMonth(now), to: now, label: 'This month' }
@@ -77,7 +73,7 @@ export const PRESETS: { key: PeriodKey; label: string; group: 'This' | 'Last' }[
   { key: 'this_month',   label: 'This month',   group: 'This' },
   { key: 'this_quarter', label: 'This quarter', group: 'This' },
   { key: 'this_year',    label: 'This year',    group: 'This' },
-  { key: 'last_week',    label: 'Last week',    group: 'Last' },
+  { key: 'last_week',    label: 'Last 7 days', group: 'Last' },
   { key: 'last_month',   label: 'Last month',   group: 'Last' },
   { key: 'last_quarter', label: 'Last quarter', group: 'Last' },
   { key: 'last_year',    label: 'Last year',    group: 'Last' },
