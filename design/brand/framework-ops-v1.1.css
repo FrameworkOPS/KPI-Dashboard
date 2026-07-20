@@ -1,0 +1,108 @@
+/*
+ * Framework OPS Product Design System v1.1
+ * Brand Book v1.0 identity + July 2026 UI/UX implementation handoff.
+ */
+:root {
+  color-scheme: dark;
+
+  --fo-ink: #07182b;
+  --fo-ink-deep: #030b17;
+  --fo-surface: #0f2940;
+  --fo-hairline: #1b3a57;
+  --fo-emerald: #14b981;
+  --fo-emerald-bright: #34d9a2;
+  --fo-emerald-deep: #047857;
+  --fo-bone: #f4f4ee;
+  --fo-paper: #fafaf7;
+  --fo-fog: #d9ddd5;
+  --fo-graphite: #4a5868;
+  --fo-ash: #8893a1;
+  --fo-amber: #e8a33d;
+  --fo-red: #e4604a;
+
+  --fo-font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --fo-font-mono: "Geist Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+
+  --fo-space-1: 4px;
+  --fo-space-2: 8px;
+  --fo-space-3: 12px;
+  --fo-space-4: 16px;
+  --fo-space-6: 24px;
+  --fo-space-8: 32px;
+  --fo-space-12: 48px;
+  --fo-space-16: 64px;
+
+  --fo-radius-control: 6px;
+  --fo-radius-input: 10px;
+  --fo-radius-card: 16px;
+  --fo-radius-panel: 22px;
+
+  --fo-shadow-sm: 0 1px 2px rgb(7 24 43 / 6%);
+  --fo-shadow-md: 0 6px 18px -8px rgb(7 24 43 / 18%);
+  --fo-shadow-lg: 0 24px 48px -16px rgb(7 24 43 / 32%);
+
+  --fo-duration-fast: 120ms;
+  --fo-duration-base: 200ms;
+  --fo-duration-slow: 300ms;
+  --fo-duration-data: 400ms;
+  --fo-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --fo-sidebar-width: 240px;
+  --fo-sidebar-collapsed: 64px;
+  --fo-topbar-height: 56px;
+  --fo-content-max: 1320px;
+  --fo-reading-max: 720px;
+  --fo-target-min: 44px;
+
+  --ui-bg: var(--fo-ink);
+  --ui-bg-deep: var(--fo-ink-deep);
+  --ui-surface: var(--fo-surface);
+  --ui-border: var(--fo-hairline);
+  --ui-fg: var(--fo-bone);
+  --ui-fg-2: var(--fo-ash);
+  --ui-accent: var(--fo-emerald);
+  --ui-accent-hi: var(--fo-emerald-bright);
+  --ui-warning: var(--fo-amber);
+  --ui-danger: var(--fo-red);
+  --ui-focus: var(--fo-emerald-bright);
+
+  --t-fast: var(--fo-duration-fast) ease-out;
+  --t-base: var(--fo-duration-base) var(--fo-ease-standard);
+  --t-slow: var(--fo-duration-slow) var(--fo-ease-standard);
+  --t-data: var(--fo-duration-data) ease-in-out;
+}
+
+[data-mode="paper"] {
+  color-scheme: light;
+  --ui-bg: var(--fo-paper);
+  --ui-bg-deep: var(--fo-bone);
+  --ui-surface: var(--fo-bone);
+  --ui-border: var(--fo-fog);
+  --ui-fg: var(--fo-ink);
+  --ui-fg-2: var(--fo-graphite);
+  --ui-accent: var(--fo-emerald-deep);
+  --ui-accent-hi: var(--fo-emerald);
+  --ui-focus: var(--fo-emerald-deep);
+}
+
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 3px solid var(--ui-focus);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 80ms !important;
+    transition-property: opacity !important;
+    animation: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline-color: Highlight;
+  }
+}
