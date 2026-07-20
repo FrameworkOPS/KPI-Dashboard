@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "system": "Framework OPS Product Design System",
+  "version": "1.1.0",
+  "compliance": "knowledge-aligned",
+  "identity_source": "Framework OPS Brand Book v1.0",
+  "interface_source": "Framework OPS Product Design System v1.0",
+  "implementation_source": "July 2026 UI/UX v1.1 handoff",
+  "source_sha256": {
+    "product_design_system_pdf": "8b478ca46691a7d7364af511a6b451eec4afc7beb391d3cbe6bb84782d6f18a6",
+    "ui_ux_handoff_markdown": "b9e9a3bdd2b7ac04d9639c8133bc481104c91ac7c247125bce003772c1abc117"
+  },
+  "assets": {
+    "contract": "../../DESIGN_SYSTEM.md",
+    "css_tokens": "./framework-ops-v1.1.css",
+    "json_tokens": "./framework-ops-v1.1.json"
+  },
+  "governance": {
+    "raw_hex_in_components": "forbidden",
+    "wcag_target": "2.2 AA",
+    "backend_services_add_ui_dependencies": false,
+    "ui_verified": false
+  }
+}

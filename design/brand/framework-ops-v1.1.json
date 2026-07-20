@@ -1,0 +1,94 @@
+{
+  "name": "Framework OPS Product Design System",
+  "version": "1.1.0",
+  "sources": {
+    "identity": "Framework OPS Brand Book v1.0",
+    "interface": "Framework OPS Product Design System v1.0",
+    "implementation": "July 2026 UI/UX v1.1 handoff"
+  },
+  "color": {
+    "brand": {
+      "ink": "#07182B",
+      "inkDeep": "#030B17",
+      "surface": "#0F2940",
+      "hairline": "#1B3A57",
+      "emerald": "#14B981",
+      "emeraldBright": "#34D9A2",
+      "emeraldDeep": "#047857",
+      "bone": "#F4F4EE",
+      "paper": "#FAFAF7",
+      "fog": "#D9DDD5",
+      "graphite": "#4A5868",
+      "ash": "#8893A1"
+    },
+    "operational": {
+      "warning": "#E8A33D",
+      "danger": "#E4604A"
+    },
+    "semantic": {
+      "ink": {
+        "background": "{color.brand.ink}",
+        "backgroundDeep": "{color.brand.inkDeep}",
+        "surface": "{color.brand.surface}",
+        "border": "{color.brand.hairline}",
+        "foreground": "{color.brand.bone}",
+        "foregroundSecondary": "{color.brand.ash}",
+        "accent": "{color.brand.emerald}",
+        "accentHover": "{color.brand.emeraldBright}"
+      },
+      "paper": {
+        "background": "{color.brand.paper}",
+        "backgroundDeep": "{color.brand.bone}",
+        "surface": "{color.brand.bone}",
+        "border": "{color.brand.fog}",
+        "foreground": "{color.brand.ink}",
+        "foregroundSecondary": "{color.brand.graphite}",
+        "accent": "{color.brand.emeraldDeep}",
+        "accentHover": "{color.brand.emerald}"
+      }
+    }
+  },
+  "font": {
+    "sans": "Geist, ui-sans-serif, system-ui, sans-serif",
+    "mono": "Geist Mono, ui-monospace, JetBrains Mono, Menlo, monospace"
+  },
+  "spacing": {
+    "1": "4px",
+    "2": "8px",
+    "3": "12px",
+    "4": "16px",
+    "6": "24px",
+    "8": "32px",
+    "12": "48px",
+    "16": "64px"
+  },
+  "radius": {
+    "control": "6px",
+    "input": "10px",
+    "card": "16px",
+    "panel": "22px",
+    "round": "9999px"
+  },
+  "motion": {
+    "fast": "120ms",
+    "base": "200ms",
+    "slow": "300ms",
+    "data": "400ms",
+    "reduced": "80ms",
+    "standardEasing": "cubic-bezier(0.2, 0.8, 0.2, 1)"
+  },
+  "layout": {
+    "sidebar": "240px",
+    "sidebarCollapsed": "64px",
+    "topbar": "56px",
+    "contentMax": "1320px",
+    "readingMax": "720px",
+    "gridColumnsWide": 12,
+    "gridColumnsStandard": 8,
+    "gutterWide": "24px",
+    "compactMax": "767px",
+    "standardMax": "1199px",
+    "wideMin": "1200px",
+    "touchTarget": "44px"
+  }
+}
