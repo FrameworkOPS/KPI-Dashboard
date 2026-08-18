@@ -129,6 +129,18 @@ export async function initializeDatabase(): Promise<void> {
       )
     `);
 
+    // issue_votes table — one vote per user per issue, powers the issues ranking
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS issue_votes (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        issue_id UUID NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(issue_id, user_id)
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_issue_votes_issue_id ON issue_votes(issue_id)`);
+
     // todos table
     await client.query(`
       CREATE TABLE IF NOT EXISTS todos (
