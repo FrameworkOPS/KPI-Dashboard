@@ -79,6 +79,8 @@ export interface Issue {
   owner?: User;
   created_by: string;
   created_at: string;
+  vote_count: number;
+  has_voted: boolean;
 }
 
 export interface Todo {

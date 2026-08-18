@@ -8,6 +8,8 @@ import {
   updateIssueApi,
   deleteIssueApi,
   getUsersRosterApi,
+  voteIssueApi,
+  unvoteIssueApi,
 } from '../services/api'
 import { Issue, TeamType, RosterUser } from '../types'
 import { useAuthStore } from '../store/authStore'
@@ -141,7 +143,7 @@ const Issues: React.FC = () => {
   const [showModal, setShowModal] = useState(false)
   const [editIssue, setEditIssue] = useState<Issue | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [sortField, setSortField] = useState<'priority' | 'created_at'>('created_at')
+  const [sortField, setSortField] = useState<'priority' | 'created_at' | 'votes'>('votes')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [search, setSearch] = useState('')
   const [mineOnly, setMineOnly] = useState(false)
@@ -184,6 +186,25 @@ const Issues: React.FC = () => {
     }
   }
 
+  const handleVote = async (issue: Issue) => {
+    const wasVoted = issue.has_voted
+    // Optimistic update so the count/rank feel instant.
+    setIssues((prev) => prev.map((i) => i.id === issue.id
+      ? { ...i, has_voted: !wasVoted, vote_count: i.vote_count + (wasVoted ? -1 : 1) }
+      : i
+    ))
+    try {
+      wasVoted ? await unvoteIssueApi(issue.id) : await voteIssueApi(issue.id)
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message)
+      // Roll back on failure.
+      setIssues((prev) => prev.map((i) => i.id === issue.id
+        ? { ...i, has_voted: wasVoted, vote_count: issue.vote_count }
+        : i
+      ))
+    }
+  }
+
   const priorityOrder = { high: 0, medium: 1, low: 2 }
   const q = search.trim().toLowerCase()
   const filtered = issues.filter((i) => {
@@ -196,13 +217,24 @@ const Issues: React.FC = () => {
       const diff = priorityOrder[a.priority] - priorityOrder[b.priority]
       return sortDir === 'asc' ? diff : -diff
     }
+    if (sortField === 'votes') {
+      const diff = a.vote_count - b.vote_count
+      return sortDir === 'asc' ? diff : -diff
+    }
     const diff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     return sortDir === 'asc' ? diff : -diff
   })
 
-  const toggleSort = (field: 'priority' | 'created_at') => {
+  // Rank reflects popularity (most votes first) regardless of the active table sort.
+  const rankById = new Map(
+    [...filtered]
+      .sort((a, b) => b.vote_count - a.vote_count || new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      .map((issue, idx) => [issue.id, idx + 1])
+  )
+
+  const toggleSort = (field: 'priority' | 'created_at' | 'votes') => {
     if (sortField === field) setSortDir((d) => d === 'asc' ? 'desc' : 'asc')
-    else { setSortField(field); setSortDir('asc') }
+    else { setSortField(field); setSortDir(field === 'votes' ? 'desc' : 'asc') }
   }
 
   const statusTabs: { key: StatusFilter; label: string }[] = [
@@ -279,6 +311,13 @@ const Issues: React.FC = () => {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-700">
+                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide">Rank</th>
+                  <th
+                    onClick={() => toggleSort('votes')}
+                    className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide cursor-pointer hover:text-white transition-colors"
+                  >
+                    Votes {sortField === 'votes' && (sortDir === 'asc' ? '↑' : '↓')}
+                  </th>
                   <th
                     onClick={() => toggleSort('priority')}
                     className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide cursor-pointer hover:text-white transition-colors"
@@ -311,6 +350,23 @@ const Issues: React.FC = () => {
                         className="hover:bg-slate-700/20 transition-colors cursor-pointer"
                         onClick={() => setExpandedId(expandedId === issue.id ? null : issue.id)}
                       >
+                        <td className="px-4 py-3 text-slate-400 font-medium">#{rankById.get(issue.id)}</td>
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => handleVote(issue)}
+                            title={issue.has_voted ? 'Remove vote' : 'Vote for this issue'}
+                            className={`flex items-center gap-1.5 text-sm font-medium px-2 py-1 rounded-lg border transition-colors ${
+                              issue.has_voted
+                                ? 'bg-blue-600 border-blue-600 text-white'
+                                : 'bg-slate-700/50 border-slate-600 text-slate-300 hover:border-blue-500 hover:text-white'
+                            }`}
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                            </svg>
+                            {issue.vote_count}
+                          </button>
+                        </td>
                         <td className="px-4 py-3">
                           <StatusBadge status={issue.priority} />
                         </td>
@@ -357,7 +413,7 @@ const Issues: React.FC = () => {
                       </tr>
                       {expandedId === issue.id && issue.description && (
                         <tr className="bg-slate-700/10">
-                          <td colSpan={user?.role !== 'manager' ? 7 : 6} className="px-8 py-3">
+                          <td colSpan={user?.role !== 'manager' ? 9 : 8} className="px-8 py-3">
                             <p className="text-sm text-slate-300 whitespace-pre-wrap">{issue.description}</p>
                           </td>
                         </tr>

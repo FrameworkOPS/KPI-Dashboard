@@ -103,8 +103,8 @@ export const deleteRockApi = (id: string) =>
   api.delete(`/rocks/${id}`)
 
 // ── Issues ────────────────────────────────────────────────────────────────────
-export const getIssuesApi = (team?: string, status?: string) =>
-  api.get('/issues', { params: { team, status } })
+export const getIssuesApi = (team?: string, status?: string, sort?: string) =>
+  api.get('/issues', { params: { team, status, sort } })
 
 export const createIssueApi = (data: any) =>
   api.post('/issues', data)
@@ -114,6 +114,12 @@ export const updateIssueApi = (id: string, data: any) =>
 
 export const deleteIssueApi = (id: string) =>
   api.delete(`/issues/${id}`)
+
+export const voteIssueApi = (id: string) =>
+  api.post(`/issues/${id}/vote`)
+
+export const unvoteIssueApi = (id: string) =>
+  api.delete(`/issues/${id}/vote`)
 
 // ── Todos ─────────────────────────────────────────────────────────────────────
 export const getTodosApi = (team?: string, status?: string) =>
