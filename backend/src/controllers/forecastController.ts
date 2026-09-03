@@ -1,7 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { pool } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
-import { getJnPipelineSqsByType } from '../services/jnPipelineService';
 
 function getMonday(date: Date): Date {
   const d = new Date(date);
@@ -78,7 +77,7 @@ export async function getSixMonthForecastData(weeksParam: number = 26, scenario?
     }
   }
 
-  // Manual pipeline + live JobNimbus pipeline — combined per material type
+  // Pipeline is maintained manually in pipeline_items.
   const pipelineResult = await pool.query(
     `SELECT job_type, COALESCE(SUM(square_footage), 0) AS total_sqs
      FROM pipeline_items WHERE is_active=true GROUP BY job_type`
@@ -87,11 +86,8 @@ export async function getSixMonthForecastData(weeksParam: number = 26, scenario?
   for (const row of pipelineResult.rows) {
     manualMap[row.job_type] = parseFloat(row.total_sqs) || 0;
   }
-  let jn = { shingle: 0, metal: 0 };
-  try { jn = await getJnPipelineSqsByType(); } catch { /* JN may not be configured */ }
-
-  let rollingShingle = (manualMap['shingle'] || 0) + jn.shingle + (scenario?.pipeline_delta?.shingle || 0);
-  let rollingMetal   = (manualMap['metal']   || 0) + jn.metal   + (scenario?.pipeline_delta?.metal   || 0);
+  let rollingShingle = (manualMap['shingle'] || 0) + (scenario?.pipeline_delta?.shingle || 0);
+  let rollingMetal   = (manualMap['metal']   || 0) + (scenario?.pipeline_delta?.metal   || 0);
 
   const today = new Date();
   const startWeek = getMonday(today);
@@ -204,8 +200,8 @@ export async function getSixMonthForecastData(weeksParam: number = 26, scenario?
   return {
     weeks: weeklyData,
     initial_pipeline: {
-      shingle: { manual: manualMap['shingle'] || 0, jobnimbus: jn.shingle, total: rollingShingle + 0 },
-      metal:   { manual: manualMap['metal']   || 0, jobnimbus: jn.metal,   total: rollingMetal + 0 },
+      shingle: { manual: manualMap['shingle'] || 0, total: manualMap['shingle'] || 0 },
+      metal:   { manual: manualMap['metal']   || 0, total: manualMap['metal']   || 0 },
     },
   };
 }

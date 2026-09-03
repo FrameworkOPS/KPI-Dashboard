@@ -21,7 +21,6 @@ import LearningDen from './pages/LearningDen'
 import Meetings from './pages/Meetings'
 import UserManagement from './pages/UserManagement'
 import Integrations from './pages/Integrations'
-import JobNimbusDashboard from './pages/JobNimbusDashboard'
 import PeopleAnalyzer from './pages/PeopleAnalyzer'
 import Pipeline from './pages/Pipeline'
 import Crews from './pages/Crews'
@@ -30,7 +29,6 @@ import ProductionForecast from './pages/ProductionForecast'
 import Metrics from './pages/Metrics'
 import CustomProjects from './pages/CustomProjects'
 import ForecasterAI from './pages/ForecasterAI'
-import SalesRepRates from './pages/SalesRepRates'
 
 const App: React.FC = () => {
   const { loadUser } = useAuthStore()
@@ -150,17 +148,6 @@ const App: React.FC = () => {
         />
 
         <Route
-          path="/jobnimbus"
-          element={
-            <ProtectedRoute roles={['admin', 'leadership']}>
-              <Layout>
-                <JobNimbusDashboard />
-              </Layout>
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
           path="/integrations"
           element={
             <ProtectedRoute roles={['admin']}>
@@ -190,7 +177,6 @@ const App: React.FC = () => {
         <Route path="/metrics" element={<ProtectedRoute><Layout><Metrics /></Layout></ProtectedRoute>} />
         <Route path="/capacity-blocks" element={<ProtectedRoute><Layout><CustomProjects /></Layout></ProtectedRoute>} />
         <Route path="/forecaster-ai" element={<ProtectedRoute><Layout><ForecasterAI /></Layout></ProtectedRoute>} />
-        <Route path="/sales-rep-rates" element={<ProtectedRoute><Layout><SalesRepRates /></Layout></ProtectedRoute>} />
 
         {/* Public legal pages */}
         <Route path="/eula" element={<EULA />} />

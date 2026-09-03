@@ -1,9 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useAuthStore } from '../store/authStore'
-import api, {
-  syncJobNimbusApi,
-  getJobNimbusStatusApi,
-} from '../services/api'
+import api from '../services/api'
 
 interface QBOStatus {
   connected: boolean
@@ -11,39 +8,23 @@ interface QBOStatus {
   token_expiry?: string
 }
 
-interface JNStatus {
-  connected: boolean
-  mode?: string
-  last_sync?: string | null
-  last_count?: number | null
-}
-
 const Integrations: React.FC = () => {
   const { user } = useAuthStore()
   const isAdmin = user?.role === 'admin'
-
-  // QuickBooks
   const [qboStatus, setQboStatus] = useState<QBOStatus | null>(null)
   const [qboLoading, setQboLoading] = useState(true)
   const [disconnecting, setDisconnecting] = useState(false)
-
-  // JobNimbus
-  const [jnStatus, setJnStatus] = useState<JNStatus | null>(null)
-  const [jnLoading, setJnLoading] = useState(true)
-  const [jnSyncing, setJnSyncing] = useState(false)
-
   const [msg, setMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
 
   const flash = (text: string, type: 'success' | 'error') => {
     setMsg({ text, type })
-    setTimeout(() => setMsg(null), 5000)
+    window.setTimeout(() => setMsg(null), 5000)
   }
 
-  // Check for ?qbo=connected redirect from OAuth callback
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('qbo') === 'connected') {
-      flash('QuickBooks Online connected successfully!', 'success')
+      flash('QuickBooks Online connected successfully.', 'success')
       window.history.replaceState({}, '', '/integrations')
     }
   }, [])
@@ -60,22 +41,7 @@ const Integrations: React.FC = () => {
     }
   }
 
-  const fetchJNStatus = async () => {
-    try {
-      setJnLoading(true)
-      const res = await getJobNimbusStatusApi()
-      setJnStatus(res.data)
-    } catch {
-      setJnStatus({ connected: false })
-    } finally {
-      setJnLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchQBOStatus()
-    fetchJNStatus()
-  }, [])
+  useEffect(() => { fetchQBOStatus() }, [])
 
   const handleQBOConnect = () => { window.location.href = '/api/integrations/qbo/connect' }
   const handleQBOReconnect = () => { window.location.href = '/api/integrations/qbo/reconnect' }
@@ -87,24 +53,10 @@ const Integrations: React.FC = () => {
       await api.post('/integrations/qbo/disconnect')
       flash('QuickBooks Online disconnected.', 'success')
       setQboStatus({ connected: false })
-    } catch (e: any) {
-      flash(e.response?.data?.error || 'Disconnect failed', 'error')
+    } catch (error: any) {
+      flash(error.response?.data?.error || 'Disconnect failed', 'error')
     } finally {
       setDisconnecting(false)
-    }
-  }
-
-  const handleJNSync = async () => {
-    setJnSyncing(true)
-    try {
-      const res = await syncJobNimbusApi()
-      const { fetched, saved, errors } = res.data || {}
-      flash(`Synced from JobNimbus — ${saved} saved${errors ? `, ${errors} errors` : ''} (of ${fetched} fetched).`, 'success')
-      await fetchJNStatus()
-    } catch (e: any) {
-      flash(e.response?.data?.error || 'Sync failed', 'error')
-    } finally {
-      setJnSyncing(false)
     }
   }
 
@@ -122,13 +74,14 @@ const Integrations: React.FC = () => {
 
       {msg && (
         <div className={`px-4 py-3 rounded-lg text-sm font-medium ${
-          msg.type === 'success' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'
+          msg.type === 'success'
+            ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+            : 'bg-red-500/20 text-red-400 border border-red-500/30'
         }`}>
           {msg.text}
         </div>
       )}
 
-      {/* QuickBooks Online */}
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -140,7 +93,7 @@ const Integrations: React.FC = () => {
             </div>
             <div>
               <p className="text-white font-medium">QuickBooks Online</p>
-              <p className="text-slate-400 text-sm">P&L, revenue, and financial data</p>
+              <p className="text-slate-400 text-sm">P&amp;L, revenue, and financial data</p>
             </div>
           </div>
           {qboLoading ? (
@@ -192,85 +145,14 @@ const Integrations: React.FC = () => {
           )}
           {qboStatus?.connected && (
             <button onClick={fetchQBOStatus} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600 rounded-lg text-sm font-medium transition-colors">
-              Refresh Status
+              Refresh status
             </button>
           )}
         </div>
 
         {!qboStatus?.connected && (
           <p className="mt-3 text-slate-500 text-xs">
-            Clicking "Connect" will redirect you to Intuit to authorize access. You'll be redirected back here when complete.
-          </p>
-        )}
-      </div>
-
-      {/* JobNimbus via direct API */}
-      <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
-              <svg className="w-5 h-5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75}
-                  d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-white font-medium">JobNimbus <span className="text-slate-500 font-normal text-xs ml-1">direct API</span></p>
-              <p className="text-slate-400 text-sm">Job pipeline, open jobs, and won revenue</p>
-            </div>
-          </div>
-          {jnLoading ? (
-            <span className="text-slate-500 text-sm">Checking…</span>
-          ) : (
-            <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-              jnStatus?.connected
-                ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                : 'bg-slate-700 text-slate-400'
-            }`}>
-              {jnStatus?.connected ? 'Connected' : 'Not configured'}
-            </span>
-          )}
-        </div>
-
-        {jnStatus?.connected ? (
-          <>
-            <div className="mb-4 bg-slate-700/50 rounded-lg p-3 text-sm space-y-1">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Connection</span>
-                <span className="text-slate-300 text-xs">JobNimbus REST API (auto-sync every 15 min)</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Last sync</span>
-                <span className="text-slate-300 text-xs">
-                  {jnStatus.last_sync ? new Date(jnStatus.last_sync).toLocaleString() : 'Never — run a sync'}
-                </span>
-              </div>
-              {jnStatus.last_count != null && (
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Jobs last synced</span>
-                  <span className="text-slate-300 text-xs">{jnStatus.last_count}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-3 flex-wrap">
-              <button
-                onClick={handleJNSync}
-                disabled={jnSyncing}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-              >
-                {jnSyncing ? 'Syncing…' : 'Sync now'}
-              </button>
-              <button onClick={fetchJNStatus} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600 rounded-lg text-sm font-medium transition-colors">
-                Refresh Status
-              </button>
-            </div>
-          </>
-        ) : (
-          <p className="mt-1 text-slate-500 text-xs">
-            Set the <code className="text-slate-400">JOBNIMBUS_API_KEY</code> environment variable on the server
-            (JobNimbus → Settings → API) and redeploy. The dashboard then pulls jobs directly from the JobNimbus
-            REST API automatically — no Zapier required.
+            Connect redirects to Intuit for authorization, then returns here.
           </p>
         )}
       </div>

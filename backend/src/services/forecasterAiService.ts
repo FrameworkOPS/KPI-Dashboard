@@ -1,13 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { pool } from '../config/database';
-import {
-  getJnPipelineSummary,
-  getForecasterSettings,
-  updateForecasterSettings,
-  listSalesRepCloseRates,
-  upsertSalesRepCloseRate,
-  deleteSalesRepCloseRate,
-} from './jnPipelineService';
 
 const FORECASTER_MODEL = process.env.FORECASTER_AI_MODEL || 'claude-sonnet-4-6';
 const SKY_MODEL        = process.env.SKY_AI_MODEL        || 'claude-haiku-4-5-20251001';
@@ -28,14 +20,14 @@ Tools are tagged as one of:
 
 - **[READ]** — pull live data. Use freely.
 - **[DATA]** — write a routine data record (sales forecast week, capacity block, pipeline item). Just do it; confirm what you did with the row(s) you changed.
-- **[CONFIG]** — change a setting that affects ALL downstream calculations (closing rate, average SQs per contract, JobNimbus material field key, sales-rep close rates, crew capacity, scenario sandboxing). These can re-shape every forecast and KPI in the dashboard.
+- **[CONFIG]** — change a setting that affects all downstream calculations, such as crew capacity. These can re-shape every forecast and KPI in the dashboard.
 - **[SCENARIO]** — run a what-if without persisting. Use freely for projections.
 
 # CRITICAL: Two-step confirmation for [CONFIG] tools
 
 Before calling any [CONFIG] tool:
 1. State exactly what you're about to change, what it currently is, and what it will become.
-2. Spell out which dashboards/forecasts will move as a result (e.g. "every shingle lead-time projection will shift", "JobNimbus weighted pipeline drops by ~X SQs").
+2. Spell out which dashboards and forecasts will move as a result.
 3. Ask the user to confirm with a clear "yes" before you proceed.
 
 If the user has already said something unambiguous like "yes, set the close rate to 40%", you can skip step 3 and proceed — but still summarise the impact in your reply.
@@ -44,12 +36,11 @@ When you do call a [CONFIG] tool, pass \`confirmed: true\` so the tool knows the
 
 # Data sources
 
-- Manual pipeline_items + live JobNimbus pipeline (contracts × close-rate × avg SQ; work orders use their JobNimbus # of sqs field)
+- Manually maintained pipeline_items
 - Active crews with ramp-up + capacity
 - Sales forecast (projected weekly square footage by job type)
 - 6-month rolling production forecast
 - 12-week rolling KPI metrics
-- Sales-rep level close-rate overrides
 - Capacity blocks (custom_projects)
 
 # Style
@@ -63,7 +54,7 @@ When you do call a [CONFIG] tool, pass \`confirmed: true\` so the tool knows the
 
 const SKY_SYSTEM_PROMPT = `You are Sky, the AI operating assistant inside Skyright Roofing's KPI Dashboard.
 
-Your job is to help users understand and act on every part of this application: dashboard KPIs, scorecards, rocks, issues, to-dos, meetings, V/TO, accountability, JobNimbus, production pipeline, crews, sales forecasts, production forecasts, metrics, capacity blocks, and Forecaster AI data.
+Your job is to help users understand and act on every part of this application: dashboard KPIs, scorecards, rocks, issues, to-dos, meetings, V/TO, accountability, the manually maintained production pipeline, crews, sales forecasts, production forecasts, metrics, capacity blocks, and Forecaster AI data.
 
 # Tool categories
 
@@ -96,7 +87,7 @@ const TOOLS: Anthropic.Tool[] = [
   // ── READ ────────────────────────────────────────────────────────────────────
   {
     name: 'get_app_overview',
-    description: '[READ] High-level operating snapshot across scorecard, rocks, issues, to-dos, meetings, JobNimbus, pipeline, crews, and production forecast.',
+    description: '[READ] High-level operating snapshot across scorecard, rocks, issues, to-dos, meetings, pipeline, crews, and production forecast.',
     input_schema: { type: 'object', properties: {} },
   },
   {
@@ -126,13 +117,8 @@ const TOOLS: Anthropic.Tool[] = [
     input_schema: { type: 'object', properties: {} },
   },
   {
-    name: 'get_jobnimbus_snapshot',
-    description: '[READ] JobNimbus summary and live pipeline details including jobs by rep.',
-    input_schema: { type: 'object', properties: {} },
-  },
-  {
     name: 'get_pipeline',
-    description: '[READ] Current pipeline: manual entries aggregated by material + live JobNimbus summary. Contracts are weighted by close rate; work orders use the JobNimbus # of sqs field.',
+    description: '[READ] Current manually maintained pipeline, aggregated by material.',
     input_schema: { type: 'object', properties: {} },
   },
   {
@@ -167,16 +153,6 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: 'get_capacity_blocks',
     description: '[READ] Active custom_projects — crews unavailable for a date range.',
-    input_schema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'get_forecaster_settings',
-    description: '[READ] Current forecaster config: JobNimbus material field, global closing rate, average SQs per contract.',
-    input_schema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'get_sales_rep_close_rates',
-    description: '[READ] Per-sales-rep closing rate overrides. Reps not listed use the global rate.',
     input_schema: { type: 'object', properties: {} },
   },
 
@@ -623,45 +599,6 @@ const TOOLS: Anthropic.Tool[] = [
 
   // ── CONFIG writes (require confirmed: true) ─────────────────────────────────
   {
-    name: 'update_forecaster_settings',
-    description: '[CONFIG] Change the global closing rate, average SQs per contract, or the JobNimbus material field key. Affects ALL forecasts that use the JN-derived pipeline. Requires confirmed: true.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        closing_rate:           { type: 'number', description: '0.0–1.0' },
-        avg_sqs_per_contract:   { type: 'number' },
-        material_field_key:     { type: 'string' },
-        confirmed:              { type: 'boolean' },
-      },
-    },
-  },
-  {
-    name: 'set_sales_rep_close_rate',
-    description: '[CONFIG] Set or override the closing rate for a specific sales rep. Used to weight JobNimbus contracts more accurately. Requires confirmed: true.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        sales_rep_name: { type: 'string' },
-        close_rate:     { type: 'number', description: '0.0–1.0' },
-        notes:          { type: 'string' },
-        confirmed:      { type: 'boolean' },
-      },
-      required: ['sales_rep_name', 'close_rate'],
-    },
-  },
-  {
-    name: 'delete_sales_rep_close_rate',
-    description: '[CONFIG] Remove a sales-rep close-rate override — that rep will revert to the global rate. Requires confirmed: true.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        sales_rep_name: { type: 'string' },
-        confirmed:      { type: 'boolean' },
-      },
-      required: ['sales_rep_name'],
-    },
-  },
-  {
     name: 'update_crew_capacity',
     description: '[CONFIG] Change a crew\'s weekly_sq_capacity or training_period_days. Affects every weekly forecast. Requires confirmed: true.',
     input_schema: {
@@ -699,14 +636,13 @@ async function tool_get_pipeline(): Promise<any> {
   for (const r of manualResult.rows) {
     manual[r.job_type] = { sqs: Number(r.total_sqs), revenue: Number(r.total_revenue), count: Number(r.job_count) };
   }
-  const jn = await getJnPipelineSummary();
   return {
-    manual_pipeline: manual,
-    jobnimbus_live: { shingle: jn.shingle, metal: jn.metal, unknown_material: jn.unknown, settings: jn.settings },
+    pipeline: manual,
     combined_sqs: {
-      shingle: (manual.shingle?.sqs || 0) + jn.shingle.total_sqs + jn.unknown.total_sqs / 2,
-      metal:   (manual.metal?.sqs   || 0) + jn.metal.total_sqs   + jn.unknown.total_sqs / 2,
+      shingle: manual.shingle?.sqs || 0,
+      metal: manual.metal?.sqs || 0,
     },
+    source: 'manual',
   };
 }
 
@@ -793,37 +729,14 @@ async function tool_get_accountability_snapshot(): Promise<any> {
   return { seats: r.rows };
 }
 
-async function tool_get_jobnimbus_snapshot(): Promise<any> {
-  const pipeline = await getJnPipelineSummary();
-  let summary: any = null;
-  try {
-    const r = await pool.query(
-      `SELECT
-         COUNT(*) FILTER (WHERE status_type <> 1) AS total_jobs,
-         COUNT(*) FILTER (WHERE status_type = 1) AS leads,
-         COUNT(*) FILTER (WHERE status_type = 2) AS open_jobs,
-         COUNT(*) FILTER (WHERE status_type = 4) AS won_jobs,
-         COUNT(*) FILTER (WHERE contract_sent = true) AS contracts_sent,
-         COALESCE(SUM(estimate_value) FILTER (WHERE status_type = 2), 0) AS open_estimate_value,
-         MAX(updated_at) AS last_received
-       FROM jobnimbus_jobs`
-    );
-    summary = r.rows[0];
-  } catch {
-    summary = { unavailable: true };
-  }
-  return { summary, pipeline };
-}
-
 async function tool_get_app_overview(): Promise<any> {
-  const [scorecard, eos, jobnimbus, pipeline, forecast] = await Promise.all([
+  const [scorecard, eos, pipeline, forecast] = await Promise.all([
     tool_get_scorecard_snapshot({}),
     tool_get_eos_work({}),
-    tool_get_jobnimbus_snapshot(),
     tool_get_pipeline(),
     tool_get_production_forecast({ weeks: 8 }),
   ]);
-  return { scorecard, eos, jobnimbus, pipeline, production_forecast: forecast };
+  return { scorecard, eos, pipeline, production_forecast: forecast };
 }
 
 async function tool_get_crews(): Promise<any> {
@@ -884,16 +797,6 @@ async function tool_get_capacity_blocks(): Promise<any> {
      ORDER BY cp.start_date`
   );
   return { capacity_blocks: r.rows };
-}
-
-async function tool_get_forecaster_settings(): Promise<any> {
-  return getForecasterSettings();
-}
-
-async function tool_get_sales_rep_close_rates(): Promise<any> {
-  const settings = await getForecasterSettings();
-  const overrides = await listSalesRepCloseRates();
-  return { global_close_rate: settings.closing_rate, overrides };
 }
 
 // ── DATA writes ────────────────────────────────────────────────────────────────
@@ -961,37 +864,6 @@ async function tool_add_pipeline_item(input: any, userId: string | null): Promis
 }
 
 // ── CONFIG writes ──────────────────────────────────────────────────────────────
-
-async function tool_update_forecaster_settings(input: any): Promise<any> {
-  if (input?.confirmed !== true) {
-    return requiresConfirmation('update_forecaster_settings',
-      `closing_rate=${input?.closing_rate}, avg_sqs_per_contract=${input?.avg_sqs_per_contract}, material_field_key=${input?.material_field_key}`);
-  }
-  const updated = await updateForecasterSettings({
-    closing_rate: input.closing_rate,
-    avg_sqs_per_contract: input.avg_sqs_per_contract,
-    material_field_key: input.material_field_key,
-  });
-  return { ok: true, warning: 'Base function change — all JN-weighted projections recalculate on next read.', updated };
-}
-
-async function tool_set_sales_rep_close_rate(input: any, userId: string | null): Promise<any> {
-  if (input?.confirmed !== true) {
-    return requiresConfirmation('set_sales_rep_close_rate',
-      `${input?.sales_rep_name} → ${input?.close_rate} (${Math.round(Number(input?.close_rate) * 100)}%)`);
-  }
-  const result = await upsertSalesRepCloseRate(input.sales_rep_name, Number(input.close_rate), input.notes ?? null, userId);
-  return { ok: true, warning: `Sales rep override changes JN pipeline weighting for ${result.sales_rep_name}.`, result };
-}
-
-async function tool_delete_sales_rep_close_rate(input: any): Promise<any> {
-  if (input?.confirmed !== true) {
-    return requiresConfirmation('delete_sales_rep_close_rate',
-      `Remove override for ${input?.sales_rep_name} — they'll revert to the global rate.`);
-  }
-  const ok = await deleteSalesRepCloseRate(input.sales_rep_name);
-  return ok ? { ok: true, deleted: input.sales_rep_name } : { error: 'No override existed for that rep' };
-}
 
 async function tool_update_crew_capacity(input: any): Promise<any> {
   if (input?.confirmed !== true) {
@@ -1417,7 +1289,6 @@ async function executeTool(name: string, input: any, userId: string | null): Pro
       case 'get_scorecard_snapshot':         return await tool_get_scorecard_snapshot(input);
       case 'get_eos_work':                   return await tool_get_eos_work(input);
       case 'get_accountability_snapshot':    return await tool_get_accountability_snapshot();
-      case 'get_jobnimbus_snapshot':         return await tool_get_jobnimbus_snapshot();
       case 'get_pipeline':                   return await tool_get_pipeline();
       case 'get_crews':                      return await tool_get_crews();
       case 'get_current_date':               return tool_get_current_date();
@@ -1425,17 +1296,12 @@ async function executeTool(name: string, input: any, userId: string | null): Pro
       case 'get_production_forecast':        return await tool_get_production_forecast(input);
       case 'get_metrics_dashboard':          return await tool_get_metrics_dashboard();
       case 'get_capacity_blocks':            return await tool_get_capacity_blocks();
-      case 'get_forecaster_settings':        return await tool_get_forecaster_settings();
-      case 'get_sales_rep_close_rates':      return await tool_get_sales_rep_close_rates();
       case 'simulate_production_forecast':   return await tool_simulate_production_forecast(input);
       case 'set_sales_forecast':             return await tool_set_sales_forecast(input, userId);
       case 'set_sales_forecast_range':       return await tool_set_sales_forecast_range(input, userId);
       case 'delete_sales_forecast':          return await tool_delete_sales_forecast(input);
       case 'add_capacity_block':             return await tool_add_capacity_block(input, userId);
       case 'add_pipeline_item':              return await tool_add_pipeline_item(input, userId);
-      case 'update_forecaster_settings':     return await tool_update_forecaster_settings(input);
-      case 'set_sales_rep_close_rate':       return await tool_set_sales_rep_close_rate(input, userId);
-      case 'delete_sales_rep_close_rate':    return await tool_delete_sales_rep_close_rate(input);
       case 'update_crew_capacity':           return await tool_update_crew_capacity(input);
       // EOS READ
       case 'list_users':                    return await tool_list_users(input);
@@ -1482,9 +1348,6 @@ export interface ChatResult {
 
 // CONFIG tool names — used to flag warnings in the UI
 const CONFIG_TOOLS = new Set([
-  'update_forecaster_settings',
-  'set_sales_rep_close_rate',
-  'delete_sales_rep_close_rate',
   'update_crew_capacity',
 ]);
 

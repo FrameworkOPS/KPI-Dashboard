@@ -1,7 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { pool } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
-import { getJnPipelineSqsByType } from '../services/jnPipelineService';
 
 function getMonday(date: Date): Date {
   const d = new Date(date);
@@ -60,22 +59,16 @@ export async function getMetricsDashboardData(startWeek?: string): Promise<any> 
         count: parseInt(row.job_count) || 0,
       };
     }
-    // Merge live JobNimbus pipeline into starting totals
-    let jn = { shingle: 0, metal: 0 };
-    try { jn = await getJnPipelineSqsByType(); } catch { /* JN may not be configured */ }
+    // Pipeline totals are maintained manually in pipeline_items.
     pipelineMap['shingle'] = {
-      sqs:     (pipelineMap['shingle']?.sqs     || 0) + jn.shingle,
+      sqs:     pipelineMap['shingle']?.sqs     || 0,
       revenue: (pipelineMap['shingle']?.revenue || 0),
       count:   (pipelineMap['shingle']?.count   || 0),
-      manual_sqs:    pipelineMap['shingle']?.sqs || 0,
-      jobnimbus_sqs: jn.shingle,
     };
     pipelineMap['metal'] = {
-      sqs:     (pipelineMap['metal']?.sqs     || 0) + jn.metal,
+      sqs:     pipelineMap['metal']?.sqs     || 0,
       revenue: (pipelineMap['metal']?.revenue || 0),
       count:   (pipelineMap['metal']?.count   || 0),
-      manual_sqs:    pipelineMap['metal']?.sqs || 0,
-      jobnimbus_sqs: jn.metal,
     };
 
     // Sales forecasts in window
@@ -182,10 +175,6 @@ export async function getMetricsDashboardData(startWeek?: string): Promise<any> 
       current: {
         pipeline_shingle:    pipelineMap['shingle']?.sqs     || 0,
         pipeline_metal:      pipelineMap['metal']?.sqs       || 0,
-        pipeline_shingle_manual:    pipelineMap['shingle']?.manual_sqs    || 0,
-        pipeline_shingle_jobnimbus: pipelineMap['shingle']?.jobnimbus_sqs || 0,
-        pipeline_metal_manual:      pipelineMap['metal']?.manual_sqs      || 0,
-        pipeline_metal_jobnimbus:   pipelineMap['metal']?.jobnimbus_sqs   || 0,
         production_shingle:  current.production_rate_shingle || 0,
         production_metal:    current.production_rate_metal   || 0,
         lead_time_shingle:   current.lead_time_days_shingle  || 0,

@@ -212,13 +212,5 @@ export interface QBOSummary {
   period: string;
 }
 
-export interface JobNimbusSummary {
-  open_jobs: number;
-  won_this_month: number;
-  pipeline_value: number;
-  total_jobs: number;
-  last_received: string | null;
-}
-
 export type TeamType = 'sales' | 'production' | 'office' | 'leadership' | 'all';
 export type RoleType = 'admin' | 'leadership' | 'manager' | 'team_member';

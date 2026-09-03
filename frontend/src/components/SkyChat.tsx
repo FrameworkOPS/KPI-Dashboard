@@ -194,9 +194,9 @@ export default function SkyChat() {
               <button onClick={closeIntro} className="text-slate-400 hover:text-white text-xl leading-none" aria-label="Close">x</button>
             </div>
             <div className="mt-4 space-y-3 text-sm text-slate-300">
-              <p>Sky can answer questions across the KPI Dashboard, Scorecard, Rocks, Issues, To-Dos, Meetings, JobNimbus, Accountability, and Forecaster tools.</p>
-              <p>Ask Sky to summarize what needs attention, explain scorecard movement, inspect JobNimbus pipeline, forecast production, model scenarios, or turn operating data into next actions.</p>
-              <p>Forecasting uses live pipeline, crews, sales forecast, capacity blocks, and JobNimbus data. Sky will ask before changing base forecast settings.</p>
+              <p>Sky can answer questions across the KPI Dashboard, Scorecard, Rocks, Issues, To-Dos, Meetings, Accountability, and Forecaster tools.</p>
+              <p>Ask Sky to summarize what needs attention, explain scorecard movement, inspect the manual pipeline, forecast production, model scenarios, or turn operating data into next actions.</p>
+              <p>Forecasting uses the manually maintained pipeline, crews, sales forecast, and capacity blocks. Sky will ask before changing base forecast settings.</p>
             </div>
             <div className="mt-5 flex justify-end gap-3">
               <button onClick={closeIntro} className="px-4 py-2 rounded-lg bg-slate-700 text-slate-200 hover:bg-slate-600">Later</button>
@@ -212,7 +212,7 @@ export default function SkyChat() {
             <div className="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
               <div>
                 <p className="text-sm font-bold text-white">Sky</p>
-                <p className="text-[11px] text-slate-400">Ask about operations, KPIs, JobNimbus, and forecasts</p>
+                <p className="text-[11px] text-slate-400">Ask about operations, KPIs, pipeline, and forecasts</p>
               </div>
               <div className="flex items-center gap-2">
                 {messages.length > 0 && <button onClick={clearHistory} className="text-[11px] text-slate-500 hover:text-red-300">Clear</button>}

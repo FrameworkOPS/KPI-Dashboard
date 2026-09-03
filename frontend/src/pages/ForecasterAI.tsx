@@ -33,7 +33,7 @@ const SUGGESTIONS = [
   'If we add a 4th shingle crew next month, what does the forecast look like?',
   'Where is our biggest pipeline risk right now?',
   'Show me a weekly breakdown of projected revenue.',
-  'How many JobNimbus contracts are still pending decision?',
+  'How much manual pipeline is waiting for production?',
   'What sales forecast do I need to hit 6-week lead time consistently?',
 ]
 
@@ -190,7 +190,7 @@ export default function ForecasterAI() {
         <div>
           <h1 className="text-2xl font-bold text-white">Forecaster AI</h1>
           <p className="text-xs text-slate-400 mt-1">
-            Ask projections, scenario questions, and data summaries. Read-only — uses live pipeline, crews, sales forecast, and JobNimbus data.
+            Ask projections, scenario questions, and data summaries. Read-only — uses the manually maintained pipeline, crews, and sales forecast.
           </p>
         </div>
         {messages.length > 0 && (

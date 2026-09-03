@@ -676,6 +676,9 @@ const Scorecard: React.FC = () => {
             <span className="text-slate-600 hidden sm:inline">Tap any row for trend & details</span>
           </div>
         </div>
+        <p className="text-xs text-slate-400">
+          Former JobNimbus rows are now manually maintained. Select a metric row to add or edit a weekly value.
+        </p>
         <p className="md:hidden text-[11px] text-slate-500 -mt-2">Swipe table horizontally · tap any row for details</p>
 
         {loading ? (

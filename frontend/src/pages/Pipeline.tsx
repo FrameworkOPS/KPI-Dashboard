@@ -18,49 +18,6 @@ interface PipelineSummary {
   combined: { total_sqs: number; total_revenue: number; job_count: number }
 }
 
-interface JnBucket {
-  job_count: number
-  contracts_sent: number
-  work_orders: number
-  work_orders_missing_sqs: number
-  weighted_contract_sqs: number
-  work_order_sqs: number
-  total_sqs: number
-  forecast_revenue: number
-  estimate_value: number
-}
-
-interface JnSummary {
-  shingle: JnBucket
-  metal: JnBucket
-  gutter: JnBucket
-  unknown: JnBucket
-  totals: JnBucket
-  by_rep: Array<{
-    sales_rep_name: string
-    job_count: number
-    contracts_sent: number
-    work_orders: number
-    total_sqs: number
-    forecast_revenue: number
-    estimate_value: number
-  }>
-  jobs: Array<{
-    jnid: string
-    name: string | null
-    sales_rep_name: string | null
-    material: 'shingle' | 'metal' | 'gutter' | 'unknown'
-    bucket: 'contract' | 'work_order'
-    weighted_sqs: number
-    sqs_source: 'avg_contract' | 'work_order_field' | 'missing_work_order_field'
-    forecast_revenue: number
-    estimate_value: number
-    url: string
-  }>
-  settings: { material_field_key: string; closing_rate: number; avg_sqs_per_contract: number }
-  generated_at: string
-}
-
 interface Crew {
   id: string
   crew_name: string
@@ -85,7 +42,6 @@ const emptyForm = {
 export default function Pipeline() {
   const { token } = useAuthStore()
   const [summary, setSummary] = useState<PipelineSummary | null>(null)
-  const [jn, setJn] = useState<JnSummary | null>(null)
   const [items, setItems] = useState<PipelineItem[]>([])
   const [crews, setCrews] = useState<Crew[]>([])
   const [loading, setLoading] = useState(false)
@@ -100,16 +56,14 @@ export default function Pipeline() {
   const loadAll = async () => {
     setLoading(true)
     try {
-      const [summaryRes, itemsRes, crewsRes, jnRes] = await Promise.all([
+      const [summaryRes, itemsRes, crewsRes] = await Promise.all([
         fetch('/api/pipeline/summary', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/pipeline', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/crews?active=true', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/forecaster-ai/jn-pipeline', { headers: { Authorization: `Bearer ${token}` } }),
       ])
       if (summaryRes.ok) { const d = await summaryRes.json(); setSummary(d.data) }
       if (itemsRes.ok) { const d = await itemsRes.json(); setItems(d.data || []) }
       if (crewsRes.ok) { const d = await crewsRes.json(); setCrews(d.data || []) }
-      if (jnRes.ok) { const d = await jnRes.json(); setJn(d.data) }
     } catch (err) { console.error(err) } finally { setLoading(false) }
   }
 
@@ -169,26 +123,24 @@ export default function Pipeline() {
     .reduce((s, c) => s + (c.weekly_sq_capacity || 0), 0)
 
   const getByType = (type: string) => summary?.byType.find((b) => b.job_type === type)
-  const manualShingle = getByType('shingle')
-  const manualMetal = getByType('metal')
-  const jnShingleSqs = (jn?.shingle.total_sqs || 0) + (jn?.unknown.total_sqs || 0) / 2
-  const jnMetalSqs = (jn?.metal.total_sqs || 0) + (jn?.unknown.total_sqs || 0) / 2
-  const shingleTotalSqs = (manualShingle?.total_sqs || 0) + jnShingleSqs
-  const metalTotalSqs = (manualMetal?.total_sqs || 0) + jnMetalSqs
+  const shinglePipeline = getByType('shingle')
+  const metalPipeline = getByType('metal')
+  const shingleTotalSqs = shinglePipeline?.total_sqs || 0
+  const metalTotalSqs = metalPipeline?.total_sqs || 0
   const shingleForecastRevenue = shingleTotalSqs * 600
   const metalForecastRevenue = metalTotalSqs * 1000
   const totalForecastRevenue = shingleForecastRevenue + metalForecastRevenue
   const totalForecastSqs = shingleTotalSqs + metalTotalSqs
-  const jnJobCount = jn?.totals.job_count || 0
-  const hasJnPipeline = jn && jnJobCount > 0
-  const money = (value: number) => `$${Math.round(value).toLocaleString()}`
   const compactMoney = (value: number) => `$${(value / 1000).toFixed(0)}k`
   const sqs = (value: number) => `${Math.round(value).toLocaleString()} SQs`
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-white">Pipeline</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-white">Pipeline</h1>
+          <p className="mt-1 text-xs text-slate-400">Forecasts use the jobs entered on this page.</p>
+        </div>
         <button
           onClick={() => { setShowForm(!showForm); if (!showForm) { setEditingId(null); setForm({ ...emptyForm }) } }}
           className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -210,21 +162,21 @@ export default function Pipeline() {
           {
             label: 'Shingle Forecast',
             value: shingleTotalSqs,
-            sub: `${manualShingle?.job_count || 0} manual · ${Math.round(jnShingleSqs)} JN SQs · $600/SQ`,
+            sub: `${shinglePipeline?.job_count || 0} manually entered jobs · $600/SQ`,
             color: 'text-cyan-400',
             rev: shingleForecastRevenue,
           },
           {
             label: 'Metal Forecast',
             value: metalTotalSqs,
-            sub: `${manualMetal?.job_count || 0} manual · ${Math.round(jnMetalSqs)} JN SQs · $1,000/SQ`,
+            sub: `${metalPipeline?.job_count || 0} manually entered jobs · $1,000/SQ`,
             color: 'text-pink-400',
             rev: metalForecastRevenue,
           },
           {
             label: 'Total Forecast',
             value: totalForecastSqs,
-            sub: `${summary?.combined.job_count || 0} manual jobs · ${jnJobCount} JobNimbus jobs`,
+            sub: `${summary?.combined.job_count || 0} manually entered jobs`,
             color: 'text-white',
             rev: totalForecastRevenue,
           },
@@ -233,129 +185,6 @@ export default function Pipeline() {
             <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">{label}</p>
             <p className={`text-2xl font-bold ${color}`}>{sqs(value)}</p>
             <p className="text-xs text-slate-500 mt-0.5">{sub} · {compactMoney(rev)} forecast</p>
-          </div>
-        ))}
-      </div>
-
-      {/* JobNimbus live pipeline */}
-      {hasJnPipeline && (
-        <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-              <h3 className="text-sm font-semibold text-slate-300">Live from JobNimbus</h3>
-            </div>
-            <span className="text-xs text-slate-500">
-              {jn.totals.job_count} jobs · Close rate {(jn.settings.closing_rate * 100).toFixed(0)}% · Contracts use avg {jn.settings.avg_sqs_per_contract} SQs
-            </span>
-          </div>
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            {(['shingle', 'metal', 'gutter', 'unknown'] as const).map((mat) => {
-              const b = jn[mat]
-              const color = mat === 'shingle' ? 'text-cyan-400' : mat === 'metal' ? 'text-pink-400' : mat === 'gutter' ? 'text-emerald-400' : 'text-slate-400'
-              return (
-                <div key={mat} className="bg-slate-700/40 rounded-lg p-3 border border-slate-700">
-                  <p className={`text-xs uppercase tracking-wide mb-1 ${color}`}>
-                    {mat === 'unknown' ? 'Unknown' : mat}
-                  </p>
-                  <p className="text-xl font-bold text-white">{mat === 'gutter' ? b.job_count : sqs(b.total_sqs)}</p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {b.job_count} jobs · {b.contracts_sent} contracts · {b.work_orders} WOs
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {mat === 'gutter' || mat === 'unknown' ? `${money(b.estimate_value)} JN estimate` : `${money(b.forecast_revenue)} forecast`}
-                  </p>
-                  {b.work_orders_missing_sqs > 0 && (
-                    <p className="text-[11px] text-yellow-300 mt-1">{b.work_orders_missing_sqs} WOs missing # of sqs</p>
-                  )}
-                </div>
-              )
-            })}
-            <div className="bg-blue-900/20 rounded-lg p-3 border border-blue-800/60">
-              <p className="text-xs uppercase tracking-wide mb-1 text-blue-300">Push to JN #</p>
-              <p className="text-xl font-bold text-white">{jn.totals.job_count}</p>
-              <p className="text-xs text-slate-400 mt-1">{jn.totals.contracts_sent} contracts · {jn.totals.work_orders} work orders</p>
-              <p className="text-xs text-slate-400">{money(jn.totals.estimate_value)} JobNimbus estimate</p>
-            </div>
-          </div>
-          {jn.by_rep.length > 0 && (
-            <div className="mt-4 grid grid-cols-1 xl:grid-cols-[1.2fr_1fr] gap-4">
-              <div>
-                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Jobs by Rep</h4>
-                <div className="overflow-x-auto rounded-lg border border-slate-700">
-                  <table className="w-full text-xs">
-                    <thead className="bg-slate-900/40 text-slate-400">
-                      <tr>
-                        {['Rep', 'Jobs', 'Contracts', 'WOs', 'SQs', 'Forecast'].map((h) => (
-                          <th key={h} className="px-3 py-2 text-left font-medium">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-700">
-                      {jn.by_rep.slice(0, 8).map((rep) => (
-                        <tr key={rep.sales_rep_name}>
-                          <td className="px-3 py-2 text-white">{rep.sales_rep_name}</td>
-                          <td className="px-3 py-2 text-slate-300">{rep.job_count}</td>
-                          <td className="px-3 py-2 text-slate-300">{rep.contracts_sent}</td>
-                          <td className="px-3 py-2 text-slate-300">{rep.work_orders}</td>
-                          <td className="px-3 py-2 text-slate-300">{Math.round(rep.total_sqs)}</td>
-                          <td className="px-3 py-2 text-slate-300">{money(rep.forecast_revenue || rep.estimate_value)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              <div>
-                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Top JobNimbus Jobs</h4>
-                <div className="space-y-2">
-                  {jn.jobs.slice(0, 5).map((job) => (
-                    <a
-                      key={job.jnid}
-                      href={job.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block rounded-lg border border-slate-700 bg-slate-900/30 px-3 py-2 hover:border-blue-500/70"
-                    >
-                      <div className="flex justify-between gap-3">
-                        <p className="text-xs font-medium text-white truncate">{job.name || job.jnid}</p>
-                        <span className="text-[11px] text-blue-300 shrink-0">#{job.jnid}</span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        {job.sales_rep_name || 'Unassigned'} · {job.material} · {job.bucket === 'work_order' ? 'work order' : 'contract'} · {job.sqs_source === 'missing_work_order_field' ? 'missing # of sqs' : money(job.forecast_revenue || job.estimate_value)}
-                      </p>
-                    </a>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-          <p className="text-xs text-slate-500 mt-3">
-            Live shingle and metal pipeline is added to manual pipeline in the production forecast.
-            {jn.unknown.contracts_sent + jn.unknown.work_orders > 0 && (
-              <span className="text-yellow-400/80"> Unknown-material jobs are split 50/50 between shingle and metal.</span>
-            )}
-            {jn.gutter.job_count > 0 && (
-              <span className="text-emerald-400/80"> Gutter jobs are shown separately and do not add to shingle/metal production SQs.</span>
-            )}
-            {jn.totals.work_orders_missing_sqs > 0 && (
-              <span className="text-yellow-400/80"> {jn.totals.work_orders_missing_sqs} work orders are missing the # of sqs field and are counted as 0 SQs until JobNimbus has that value.</span>
-            )}
-          </p>
-        </div>
-      )}
-
-      {/* Manual pipeline cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {[
-          { label: 'Manual Shingle', value: manualShingle?.total_sqs || 0, sub: `${manualShingle?.job_count || 0} jobs`, color: 'text-cyan-400', rev: manualShingle?.total_revenue || 0 },
-          { label: 'Manual Metal', value: manualMetal?.total_sqs || 0, sub: `${manualMetal?.job_count || 0} jobs`, color: 'text-pink-400', rev: manualMetal?.total_revenue || 0 },
-          { label: 'Manual Total', value: summary?.combined.total_sqs || 0, sub: `${summary?.combined.job_count || 0} jobs`, color: 'text-white', rev: summary?.combined.total_revenue || 0 },
-        ].map(({ label, value, sub, color, rev }) => (
-          <div key={label} className="bg-slate-800 rounded-lg p-4 border border-slate-700">
-            <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">{label}</p>
-            <p className={`text-2xl font-bold ${color}`}>{sqs(value)}</p>
-            <p className="text-xs text-slate-500 mt-0.5">{sub} · {compactMoney(rev)} revenue</p>
           </div>
         ))}
       </div>

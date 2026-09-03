@@ -441,7 +441,8 @@ export async function initializeDatabase(): Promise<void> {
       )
     `);
 
-    // jobnimbus_jobs table — populated by Zapier webhook pushes
+    // Archived JobNimbus snapshot table. The live dashboard no longer reads or
+    // refreshes it, but retaining the table preserves prior audit history.
     await client.query(`
       CREATE TABLE IF NOT EXISTS jobnimbus_jobs (
         id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -459,8 +460,7 @@ export async function initializeDatabase(): Promise<void> {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_jn_jobs_status_type ON jobnimbus_jobs(status_type)`);
 
-    // Analytical columns populated from the JobNimbus API (denormalized for clean
-    // grouping + value/date math). Safe to re-run on every boot.
+    // Retained analytical columns for the archived snapshot.
     await client.query(`ALTER TABLE jobnimbus_jobs ADD COLUMN IF NOT EXISTS is_lead BOOLEAN NOT NULL DEFAULT false`);
     await client.query(`ALTER TABLE jobnimbus_jobs ADD COLUMN IF NOT EXISTS sales_rep_name TEXT`);
     await client.query(`ALTER TABLE jobnimbus_jobs ADD COLUMN IF NOT EXISTS source_name TEXT`);
@@ -475,16 +475,6 @@ export async function initializeDatabase(): Promise<void> {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_jn_jobs_signed_date ON jobnimbus_jobs(signed_date)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_jn_jobs_billed_date ON jobnimbus_jobs(billed_date)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_jn_jobs_contract_sent_date ON jobnimbus_jobs(contract_sent_date)`);
-    await client.query(`
-      INSERT INTO app_settings (key, value)
-      VALUES ('forecaster_jn_material_field', 'What Material?')
-      ON CONFLICT (key) DO UPDATE
-        SET value = 'What Material?', updated_at = NOW()
-        WHERE app_settings.value IS NULL
-           OR app_settings.value = ''
-           OR app_settings.value = 'material_type'
-    `);
-
     // scorecard_templates table
     await client.query(`
       CREATE TABLE IF NOT EXISTS scorecard_templates (
@@ -557,43 +547,140 @@ export async function initializeDatabase(): Promise<void> {
       ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS sort_order INT
     `);
 
-    // 5. Migrate any legacy hubspot-sourced rows to manual (HubSpot integration removed)
+    // 5. Migrate rows from retired integrations to manual entry. Historical
+    // values are preserved as the starting point; future values are user-entered.
     await client.query(`
       UPDATE scorecard_entries SET data_source = 'manual' WHERE data_source = 'hubspot'
     `);
 
-    // Seed leadership scorecard templates. Metrics that JobNimbus auto-fills
-    // (Weekly Sales → "$ Sold (JobNimbus)", Closing Rate → "Closing Rate
-    // (JobNimbus)", Appointments → "New Leads (JobNimbus)") are intentionally
-    // omitted here so they don't get re-created on every boot after the JN
-    // dedup migration deletes them.
     await client.query(`
-      INSERT INTO scorecard_templates (team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order)
-      SELECT * FROM (VALUES
-        ('leadership', 'Total Sales (YTD)',     10000000::DECIMAL,  '$10,000,000',        'currency', false,  2),
-        ('leadership', 'Weekly Invoiced',       120000::DECIMAL,    '$120K / $230K',      'currency', false,  5),
-        ('leadership', 'Total Invoiced (YTD)',  9000000::DECIMAL,   '$9,000,000',         'currency', false,  6),
-        ('leadership', 'Backlog (Weeks)',        4::DECIMAL,        '4 weeks',            'number',   true,   7),
-        ('leadership', 'Callbacks (Weeks)',      1::DECIMAL,        '1 week',             'number',   true,   8),
-        ('leadership', 'COGS % (YTD)',           0.59::DECIMAL,     '59%',                'percent',  true,   9),
-        ('leadership', 'Net % (YTD)',            0.175::DECIMAL,    '17.5%',              'percent',  false,  10),
-        ('leadership', 'Cash Balance',          100000::DECIMAL,    'Min $100,000',       'currency', false,  11),
-        ('leadership', 'AR',                    500000::DECIMAL,    '$500,000',           'currency', false,  12),
-        ('leadership', 'DSO (Days)',             20::DECIMAL,       '20 days',            'number',   true,   13)
-      ) AS v(team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order)
-      ON CONFLICT (team, metric_name) DO NOTHING
+      WITH metric_map(old_name, new_name) AS (
+        VALUES
+          ('New Leads (JobNimbus)',      'Appointments'),
+          ('Contracts Sent (JobNimbus)', 'Contracts Sent'),
+          ('Jobs Signed (JobNimbus)',    'Jobs Signed'),
+          ('$ Sold (JobNimbus)',         'Weekly Sales'),
+          ('Jobs Billed (JobNimbus)',    'Jobs Billed'),
+          ('$ Billed (JobNimbus)',       'Weekly Billed'),
+          ('Closing Rate (JobNimbus)',   'Closing Rate')
+      )
+      INSERT INTO scorecard_templates
+        (team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order, is_active)
+      SELECT st.team, mm.new_name, st.goal, st.goal_text, st.display_format,
+             st.lower_is_better, st.sort_order, st.is_active
+        FROM scorecard_templates st
+        JOIN metric_map mm ON mm.old_name = st.metric_name
+       WHERE st.team = 'leadership'
+      ON CONFLICT (team, metric_name) DO UPDATE SET
+        goal = COALESCE(scorecard_templates.goal, EXCLUDED.goal),
+        goal_text = COALESCE(scorecard_templates.goal_text, EXCLUDED.goal_text),
+        display_format = EXCLUDED.display_format,
+        lower_is_better = EXCLUDED.lower_is_better,
+        is_active = true
     `);
 
-    // Belt-and-suspenders: if a previous boot seeded the dedup'd manual
-    // metrics, drop them now. JN sync also does this, but doing it here keeps
-    // the scorecard clean even if a JN sync hasn't run yet.
+    await client.query(`
+      WITH metric_map(old_name, new_name) AS (
+        VALUES
+          ('New Leads (JobNimbus)',      'Appointments'),
+          ('Contracts Sent (JobNimbus)', 'Contracts Sent'),
+          ('Jobs Signed (JobNimbus)',    'Jobs Signed'),
+          ('$ Sold (JobNimbus)',         'Weekly Sales'),
+          ('Jobs Billed (JobNimbus)',    'Jobs Billed'),
+          ('$ Billed (JobNimbus)',       'Weekly Billed'),
+          ('Closing Rate (JobNimbus)',   'Closing Rate')
+      )
+      INSERT INTO scorecard_entries
+        (team, week_of, metric_name, goal, actual, is_on_track, data_source,
+         notes, created_by, display_format, lower_is_better, goal_text, sort_order)
+      SELECT se.team, se.week_of, mm.new_name, se.goal, se.actual, se.is_on_track,
+             'manual', se.notes, se.created_by, se.display_format,
+             se.lower_is_better, se.goal_text, se.sort_order
+        FROM scorecard_entries se
+        JOIN metric_map mm ON mm.old_name = se.metric_name
+       WHERE se.team = 'leadership'
+      ON CONFLICT (team, week_of, metric_name) DO UPDATE SET
+        goal = COALESCE(scorecard_entries.goal, EXCLUDED.goal),
+        actual = COALESCE(scorecard_entries.actual, EXCLUDED.actual),
+        is_on_track = COALESCE(scorecard_entries.is_on_track, EXCLUDED.is_on_track),
+        data_source = 'manual',
+        notes = COALESCE(scorecard_entries.notes, EXCLUDED.notes),
+        display_format = EXCLUDED.display_format,
+        lower_is_better = EXCLUDED.lower_is_better,
+        goal_text = COALESCE(scorecard_entries.goal_text, EXCLUDED.goal_text),
+        updated_at = NOW()
+    `);
+
     await client.query(`
       DELETE FROM scorecard_entries
-       WHERE team = 'leadership' AND metric_name IN ('Weekly Sales','Closing Rate','Appointments')
+       WHERE team = 'leadership'
+         AND metric_name IN (
+           'New Leads (JobNimbus)', 'Contracts Sent (JobNimbus)',
+           'Jobs Signed (JobNimbus)', '$ Sold (JobNimbus)',
+           'Jobs Billed (JobNimbus)', '$ Billed (JobNimbus)',
+           'Closing Rate (JobNimbus)'
+         )
     `);
     await client.query(`
       DELETE FROM scorecard_templates
-       WHERE team = 'leadership' AND metric_name IN ('Weekly Sales','Closing Rate','Appointments')
+       WHERE team = 'leadership'
+         AND metric_name IN (
+           'New Leads (JobNimbus)', 'Contracts Sent (JobNimbus)',
+           'Jobs Signed (JobNimbus)', '$ Sold (JobNimbus)',
+           'Jobs Billed (JobNimbus)', '$ Billed (JobNimbus)',
+           'Closing Rate (JobNimbus)'
+         )
+    `);
+    await client.query(`
+      UPDATE scorecard_entries
+         SET data_source = 'manual', updated_at = NOW()
+       WHERE data_source = 'jobnimbus'
+    `);
+
+    // Seed the complete manually maintained leadership scorecard.
+    await client.query(`
+      INSERT INTO scorecard_templates (team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order)
+      SELECT * FROM (VALUES
+        ('leadership', 'Weekly Sales',          120000::DECIMAL,    '$120,000',           'currency', false,  1),
+        ('leadership', 'Total Sales (YTD)',     10000000::DECIMAL,  '$10,000,000',        'currency', false,  2),
+        ('leadership', 'Closing Rate',          0.40::DECIMAL,      '40%',                'percent',  false,  3),
+        ('leadership', 'Appointments',          12::DECIMAL,        '12',                 'number',   false,  4),
+        ('leadership', 'Contracts Sent',        NULL::DECIMAL,      NULL,                 'number',   false,  5),
+        ('leadership', 'Jobs Signed',           NULL::DECIMAL,      NULL,                 'number',   false,  6),
+        ('leadership', 'Jobs Billed',           NULL::DECIMAL,      NULL,                 'number',   false,  7),
+        ('leadership', 'Weekly Billed',         NULL::DECIMAL,      NULL,                 'currency', false,  8),
+        ('leadership', 'Weekly Invoiced',       120000::DECIMAL,    '$120K / $230K',      'currency', false,  9),
+        ('leadership', 'Total Invoiced (YTD)',  9000000::DECIMAL,   '$9,000,000',         'currency', false,  10),
+        ('leadership', 'Backlog (Weeks)',        4::DECIMAL,        '4 weeks',            'number',   true,   11),
+        ('leadership', 'Callbacks (Weeks)',      1::DECIMAL,        '1 week',             'number',   true,   12),
+        ('leadership', 'COGS % (YTD)',           0.59::DECIMAL,     '59%',                'percent',  true,   13),
+        ('leadership', 'Net % (YTD)',            0.175::DECIMAL,    '17.5%',              'percent',  false,  14),
+        ('leadership', 'Cash Balance',          100000::DECIMAL,    'Min $100,000',       'currency', false,  15),
+        ('leadership', 'AR',                    500000::DECIMAL,    '$500,000',           'currency', false,  16),
+        ('leadership', 'DSO (Days)',             20::DECIMAL,       '20 days',            'number',   true,   17)
+      ) AS v(team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order)
+      ON CONFLICT (team, metric_name) DO UPDATE SET
+        display_format = EXCLUDED.display_format,
+        sort_order = EXCLUDED.sort_order,
+        is_active = true
+    `);
+
+    // Ensure every leadership metric has an editable row for the current week.
+    await client.query(`
+      INSERT INTO scorecard_entries
+        (team, week_of, metric_name, goal, goal_text, actual, is_on_track,
+         display_format, lower_is_better, data_source, notes)
+      SELECT 'leadership', date_trunc('week', CURRENT_DATE)::DATE,
+             st.metric_name, st.goal, st.goal_text, NULL, NULL,
+             st.display_format, st.lower_is_better, 'manual', NULL
+        FROM scorecard_templates st
+       WHERE st.team = 'leadership' AND st.is_active = true
+         AND NOT EXISTS (
+           SELECT 1 FROM scorecard_entries se
+            WHERE se.team = 'leadership'
+              AND se.week_of = date_trunc('week', CURRENT_DATE)::DATE
+              AND se.metric_name = st.metric_name
+         )
     `);
 
     // Seed sales scorecard templates
