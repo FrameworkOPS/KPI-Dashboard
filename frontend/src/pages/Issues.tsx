@@ -7,6 +7,8 @@ import {
   createIssueApi,
   updateIssueApi,
   deleteIssueApi,
+  voteIssueApi,
+  unvoteIssueApi,
   getUsersRosterApi,
 } from '../services/api'
 import { Issue, TeamType, RosterUser } from '../types'
@@ -16,6 +18,7 @@ const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
 type StatusFilter = 'all' | 'open' | 'in_progress' | 'solved'
+type SortField = 'votes' | 'priority' | 'created_at'
 
 interface IssueModalProps {
   issue?: Issue | null
@@ -141,8 +144,9 @@ const Issues: React.FC = () => {
   const [showModal, setShowModal] = useState(false)
   const [editIssue, setEditIssue] = useState<Issue | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [sortField, setSortField] = useState<'priority' | 'created_at'>('created_at')
+  const [sortField, setSortField] = useState<SortField>('votes')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [votingId, setVotingId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [mineOnly, setMineOnly] = useState(false)
 
@@ -184,6 +188,31 @@ const Issues: React.FC = () => {
     }
   }
 
+  // Votes are toggled optimistically so the tally reorders immediately, then
+  // reconciled with the count the server returns (or rolled back on failure).
+  const toggleVote = async (issue: Issue) => {
+    const casting = !issue.voted
+    const applyTally = (voted: boolean, vote_count: number) =>
+      setIssues((prev) => prev.map((i) => (i.id === issue.id ? { ...i, voted, vote_count } : i)))
+
+    setVotingId(issue.id)
+    setError(null)
+    applyTally(casting, (issue.vote_count || 0) + (casting ? 1 : -1))
+
+    try {
+      const res = casting ? await voteIssueApi(issue.id) : await unvoteIssueApi(issue.id)
+      applyTally(res.data.voted, res.data.vote_count)
+    } catch (e: any) {
+      applyTally(issue.voted, issue.vote_count || 0)
+      setError(
+        `Could not ${casting ? 'add your vote to' : 'remove your vote from'} "${issue.title}". ` +
+        'The tally is unchanged — try again in a moment.'
+      )
+    } finally {
+      setVotingId(null)
+    }
+  }
+
   const priorityOrder = { high: 0, medium: 1, low: 2 }
   const q = search.trim().toLowerCase()
   const filtered = issues.filter((i) => {
@@ -192,6 +221,15 @@ const Issues: React.FC = () => {
     return true
   })
   const sorted = [...filtered].sort((a, b) => {
+    if (sortField === 'votes') {
+      // Equal tallies fall back to priority, then newest first, so the order is
+      // stable while votes come in.
+      const diff = (a.vote_count || 0) - (b.vote_count || 0)
+      if (diff !== 0) return sortDir === 'asc' ? diff : -diff
+      const byPriority = priorityOrder[a.priority] - priorityOrder[b.priority]
+      if (byPriority !== 0) return byPriority
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    }
     if (sortField === 'priority') {
       const diff = priorityOrder[a.priority] - priorityOrder[b.priority]
       return sortDir === 'asc' ? diff : -diff
@@ -200,9 +238,12 @@ const Issues: React.FC = () => {
     return sortDir === 'asc' ? diff : -diff
   })
 
-  const toggleSort = (field: 'priority' | 'created_at') => {
+  // Rank badges only make sense while the list is actually ordered by tally.
+  const rankedByVotes = sortField === 'votes' && sortDir === 'desc'
+
+  const toggleSort = (field: SortField) => {
     if (sortField === field) setSortDir((d) => d === 'asc' ? 'desc' : 'asc')
-    else { setSortField(field); setSortDir('asc') }
+    else { setSortField(field); setSortDir(field === 'votes' ? 'desc' : 'asc') }
   }
 
   const statusTabs: { key: StatusFilter; label: string }[] = [
@@ -280,26 +321,38 @@ const Issues: React.FC = () => {
               <thead>
                 <tr className="border-b border-slate-700">
                   <th
-                    onClick={() => toggleSort('priority')}
-                    className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide cursor-pointer hover:text-white transition-colors"
+                    className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide"
+                    aria-sort={sortField === 'votes' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                   >
-                    Priority {sortField === 'priority' && (sortDir === 'asc' ? '↑' : '↓')}
+                    <button type="button" onClick={() => toggleSort('votes')} className="flex items-center gap-1 uppercase tracking-wide hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 rounded">
+                      Votes {sortField === 'votes' && (sortDir === 'asc' ? '↑' : '↓')}
+                    </button>
+                  </th>
+                  <th
+                    className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide"
+                    aria-sort={sortField === 'priority' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  >
+                    <button type="button" onClick={() => toggleSort('priority')} className="flex items-center gap-1 uppercase tracking-wide hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 rounded">
+                      Priority {sortField === 'priority' && (sortDir === 'asc' ? '↑' : '↓')}
+                    </button>
                   </th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide">Title</th>
                   {user?.role !== 'manager' && <th className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide">Team</th>}
                   <th className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide">Owner</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide">Status</th>
                   <th
-                    onClick={() => toggleSort('created_at')}
-                    className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide cursor-pointer hover:text-white transition-colors"
+                    className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide"
+                    aria-sort={sortField === 'created_at' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                   >
-                    Created {sortField === 'created_at' && (sortDir === 'asc' ? '↑' : '↓')}
+                    <button type="button" onClick={() => toggleSort('created_at')} className="flex items-center gap-1 uppercase tracking-wide hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 rounded">
+                      Created {sortField === 'created_at' && (sortDir === 'asc' ? '↑' : '↓')}
+                    </button>
                   </th>
                   <th className="px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/50">
-                {sorted.map((issue) => {
+                {sorted.map((issue, index) => {
                   const ownerName = issue.owner
                     ? `${issue.owner.first_name} ${issue.owner.last_name}`
                     : users.find((u) => u.id === issue.owner_id)
@@ -311,6 +364,34 @@ const Issues: React.FC = () => {
                         className="hover:bg-slate-700/20 transition-colors cursor-pointer"
                         onClick={() => setExpandedId(expandedId === issue.id ? null : issue.id)}
                       >
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => toggleVote(issue)}
+                              disabled={votingId === issue.id}
+                              aria-pressed={issue.voted}
+                              aria-label={issue.voted
+                                ? `Remove your vote from ${issue.title}. ${issue.vote_count || 0} votes`
+                                : `Vote for ${issue.title}. ${issue.vote_count || 0} votes`}
+                              title={issue.voted ? 'Remove your vote' : 'Vote for this issue'}
+                              className={`flex flex-col items-center justify-center min-w-[44px] min-h-[44px] rounded-lg border transition-colors disabled:opacity-60 ${
+                                issue.voted
+                                  ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
+                                  : 'bg-slate-700/40 border-slate-600 text-slate-300 hover:text-white hover:border-slate-500'
+                              }`}
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.25} d="M5 15l7-7 7 7" />
+                              </svg>
+                              <span className="text-sm font-semibold tabular-nums">{issue.vote_count || 0}</span>
+                            </button>
+                            {rankedByVotes && index < 3 && (issue.vote_count || 0) > 0 && (
+                              <span className="text-xs font-semibold text-blue-400" title={`Ranked #${index + 1} by votes`}>
+                                #{index + 1}
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-4 py-3">
                           <StatusBadge status={issue.priority} />
                         </td>
@@ -357,7 +438,7 @@ const Issues: React.FC = () => {
                       </tr>
                       {expandedId === issue.id && issue.description && (
                         <tr className="bg-slate-700/10">
-                          <td colSpan={user?.role !== 'manager' ? 7 : 6} className="px-8 py-3">
+                          <td colSpan={user?.role !== 'manager' ? 8 : 7} className="px-8 py-3">
                             <p className="text-sm text-slate-300 whitespace-pre-wrap">{issue.description}</p>
                           </td>
                         </tr>
