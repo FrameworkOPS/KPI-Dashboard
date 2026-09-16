@@ -129,6 +129,18 @@ export async function initializeDatabase(): Promise<void> {
       )
     `);
 
+    // issue_votes table: one row per user per issue. The primary key keeps a
+    // second vote from the same person idempotent instead of double-counting.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS issue_votes (
+        issue_id UUID NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (issue_id, user_id)
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_issue_votes_issue ON issue_votes(issue_id)`);
+
     // todos table
     await client.query(`
       CREATE TABLE IF NOT EXISTS todos (

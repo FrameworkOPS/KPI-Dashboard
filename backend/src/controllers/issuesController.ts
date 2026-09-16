@@ -9,8 +9,9 @@ export async function getIssues(req: AuthRequest, res: Response, next: NextFunct
     const user = req.user!;
 
     const conditions: string[] = [];
-    const values: unknown[] = [];
-    let paramCount = 1;
+    // $1 is always the viewer, used to flag which issues they have already voted on.
+    const values: unknown[] = [user.id];
+    let paramCount = 2;
 
     if (team) {
       if (!canAccessTeam(user.role, user.team, team as string, user.teams)) {
@@ -34,12 +35,19 @@ export async function getIssues(req: AuthRequest, res: Response, next: NextFunct
     const result = await pool.query(
       `SELECT i.*,
          o.first_name AS owner_first_name, o.last_name AS owner_last_name, o.email AS owner_email,
-         c.first_name AS creator_first_name, c.last_name AS creator_last_name
+         c.first_name AS creator_first_name, c.last_name AS creator_last_name,
+         COALESCE(v.vote_count, 0)::int AS vote_count,
+         (uv.user_id IS NOT NULL) AS voted
        FROM issues i
        LEFT JOIN users o ON i.owner_id = o.id
        LEFT JOIN users c ON i.created_by = c.id
+       LEFT JOIN (
+         SELECT issue_id, COUNT(*)::int AS vote_count FROM issue_votes GROUP BY issue_id
+       ) v ON v.issue_id = i.id
+       LEFT JOIN issue_votes uv ON uv.issue_id = i.id AND uv.user_id = $1
        ${whereClause}
        ORDER BY
+         COALESCE(v.vote_count, 0) DESC,
          CASE i.priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END,
          i.created_at DESC`,
       values
@@ -145,6 +153,78 @@ export async function deleteIssue(req: AuthRequest, res: Response, next: NextFun
 
     await pool.query('DELETE FROM issues WHERE id = $1', [id]);
     res.json({ message: 'Issue deleted' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Loads an issue and confirms the caller may act on its team, returning null
+ * (after sending the response) when it is missing or off limits.
+ */
+async function loadVotableIssue(req: AuthRequest, res: Response): Promise<{ id: string } | null> {
+  const { id } = req.params;
+  const user = req.user!;
+
+  const existing = await pool.query('SELECT id, team FROM issues WHERE id = $1', [id]);
+  if (!existing.rows[0]) {
+    res.status(404).json({ error: 'Issue not found' });
+    return null;
+  }
+
+  if (!canAccessTeam(user.role, user.team, existing.rows[0].team, user.teams)) {
+    res.status(403).json({ error: 'Access to this team is not allowed' });
+    return null;
+  }
+
+  return existing.rows[0];
+}
+
+async function sendTally(res: Response, issueId: string, userId: string): Promise<void> {
+  const tally = await pool.query(
+    `SELECT COUNT(*)::int AS vote_count,
+            COUNT(*) FILTER (WHERE user_id = $2)::int AS own_votes
+       FROM issue_votes WHERE issue_id = $1`,
+    [issueId, userId]
+  );
+
+  res.json({
+    issue_id: issueId,
+    vote_count: tally.rows[0].vote_count,
+    voted: tally.rows[0].own_votes > 0,
+  });
+}
+
+export async function voteIssue(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const issue = await loadVotableIssue(req, res);
+    if (!issue) return;
+
+    const user = req.user!;
+
+    // ON CONFLICT keeps a repeated or retried vote from counting twice.
+    await pool.query(
+      `INSERT INTO issue_votes (issue_id, user_id) VALUES ($1, $2)
+       ON CONFLICT (issue_id, user_id) DO NOTHING`,
+      [issue.id, user.id]
+    );
+
+    await sendTally(res, issue.id, user.id);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function unvoteIssue(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const issue = await loadVotableIssue(req, res);
+    if (!issue) return;
+
+    const user = req.user!;
+
+    await pool.query('DELETE FROM issue_votes WHERE issue_id = $1 AND user_id = $2', [issue.id, user.id]);
+
+    await sendTally(res, issue.id, user.id);
   } catch (err) {
     next(err);
   }

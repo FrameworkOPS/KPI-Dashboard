@@ -115,6 +115,12 @@ export const updateIssueApi = (id: string, data: any) =>
 export const deleteIssueApi = (id: string) =>
   api.delete(`/issues/${id}`)
 
+export const voteIssueApi = (id: string) =>
+  api.post(`/issues/${id}/vote`)
+
+export const unvoteIssueApi = (id: string) =>
+  api.delete(`/issues/${id}/vote`)
+
 // ── Todos ─────────────────────────────────────────────────────────────────────
 export const getTodosApi = (team?: string, status?: string) =>
   api.get('/todos', { params: { team, status } })
