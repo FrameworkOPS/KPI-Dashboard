@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import { pool } from '../config/database';
 import { signToken } from '../utils/auth';
 import { AuthRequest } from '../middleware/auth';
+import { TEAMS_WITH_ALL } from '../constants/teams';
 
 export async function login(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -93,7 +94,7 @@ export async function createUser(req: AuthRequest, res: Response, next: NextFunc
     }
 
     const validRoles = ['admin', 'leadership', 'manager', 'team_member'];
-    const validTeams = ['sales', 'production', 'office', 'leadership', 'all'];
+    const validTeams = TEAMS_WITH_ALL;
 
     if (role && !validRoles.includes(role)) {
       res.status(400).json({ error: `Role must be one of: ${validRoles.join(', ')}` });

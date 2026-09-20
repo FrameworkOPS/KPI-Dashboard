@@ -1,6 +1,7 @@
 import React from 'react'
 import { useAuthStore } from '../store/authStore'
 import { TeamType } from '../types'
+import { TEAMS } from '../utils/teams'
 
 interface TeamFilterProps {
   value: TeamType | 'all'
@@ -10,10 +11,7 @@ interface TeamFilterProps {
 
 const teams: { value: TeamType | 'all'; label: string }[] = [
   { value: 'all', label: 'All Teams' },
-  { value: 'sales', label: 'Sales' },
-  { value: 'production', label: 'Production' },
-  { value: 'office', label: 'Office' },
-  { value: 'leadership', label: 'Leadership' },
+  ...TEAMS,
 ]
 
 const TeamFilter: React.FC<TeamFilterProps> = ({

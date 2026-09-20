@@ -292,6 +292,16 @@ export async function initializeDatabase(): Promise<void> {
             'Ensure tax and compliance hygiene',
           ],
         },
+        {
+          name: 'Estimating', desc: 'Owns takeoffs, bids, and pricing accuracy',
+          duties: [
+            'Deliver complete bids by the GC deadline',
+            'Own bid hit rate and outstanding bid volume',
+            'Keep material and labor pricing current',
+            'Flag scope gaps and spec risk before bid',
+            'Hand won jobs to production with full scope',
+          ],
+        },
       ];
       for (let i = 0; i < departments.length; i++) {
         const d = departments[i];
@@ -671,10 +681,7 @@ export async function initializeDatabase(): Promise<void> {
         ('leadership', 'AR',                    500000::DECIMAL,    '$500,000',           'currency', false,  16),
         ('leadership', 'DSO (Days)',             20::DECIMAL,       '20 days',            'number',   true,   17)
       ) AS v(team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order)
-      ON CONFLICT (team, metric_name) DO UPDATE SET
-        display_format = EXCLUDED.display_format,
-        sort_order = EXCLUDED.sort_order,
-        is_active = true
+      ON CONFLICT (team, metric_name) DO NOTHING
     `);
 
     // Ensure every leadership metric has an editable row for the current week.
@@ -753,6 +760,34 @@ export async function initializeDatabase(): Promise<void> {
         AND NOT EXISTS (
           SELECT 1 FROM scorecard_entries
           WHERE team = 'production' AND week_of = date_trunc('week', CURRENT_DATE)::DATE
+            AND metric_name = scorecard_templates.metric_name
+        )
+    `);
+
+    // Seed estimating scorecard templates (idempotent per metric_name).
+    // Goals stay NULL on purpose: the department sets its own targets in the
+    // metric admin UI rather than inheriting numbers from a seed.
+    await client.query(`
+      INSERT INTO scorecard_templates (team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order)
+      VALUES
+        ('estimating', 'Bids Submitted',         NULL::DECIMAL, NULL, 'number',   false, 1),
+        ('estimating', 'Bid Volume',             NULL::DECIMAL, NULL, 'currency', false, 2),
+        ('estimating', 'Bid Hit Rate',           NULL::DECIMAL, NULL, 'percent',  false, 3),
+        ('estimating', 'Takeoffs Completed',     NULL::DECIMAL, NULL, 'number',   false, 4),
+        ('estimating', 'Avg Turnaround (Days)',  NULL::DECIMAL, NULL, 'number',   true,  5),
+        ('estimating', 'Outstanding Bid Value',  NULL::DECIMAL, NULL, 'currency', false, 6)
+      ON CONFLICT (team, metric_name) DO NOTHING
+    `);
+
+    // Seed current week estimating scorecard entries (blank actuals).
+    await client.query(`
+      INSERT INTO scorecard_entries (team, week_of, metric_name, goal, goal_text, actual, is_on_track, display_format, lower_is_better, data_source, notes)
+      SELECT 'estimating', date_trunc('week', CURRENT_DATE)::DATE, metric_name, goal, goal_text, NULL, NULL, display_format, lower_is_better, 'manual', NULL
+      FROM scorecard_templates
+      WHERE team = 'estimating' AND is_active = true
+        AND NOT EXISTS (
+          SELECT 1 FROM scorecard_entries
+          WHERE team = 'estimating' AND week_of = date_trunc('week', CURRENT_DATE)::DATE
             AND metric_name = scorecard_templates.metric_name
         )
     `);

@@ -8,6 +8,7 @@ import {
   resendInviteApi,
 } from '../services/api'
 import { User } from '../types'
+import { TEAM_VALUES } from '../utils/teams'
 
 interface UserModalProps {
   user?: User | null
@@ -186,7 +187,7 @@ const UserModal: React.FC<UserModalProps> = ({ user, onClose, onSave }) => {
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">Teams</label>
               <div className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 space-y-1.5">
-                {(['sales','production','office','leadership','all'] as const).map((t) => {
+                {([...TEAM_VALUES, 'all'] as const).map((t) => {
                   const checked = teams.includes(t)
                   const isPrimary = teams[0] === t
                   return (

@@ -11,9 +11,15 @@ import {
   deleteScorecardEntryApi,
   createScorecardEntryApi,
   createWeekFromTemplateApi,
+  getScorecardTemplatesAdminApi,
+  createScorecardTemplateApi,
+  updateScorecardTemplateApi,
+  deleteScorecardTemplateApi,
+  reorderScorecardTemplatesApi,
 } from '../services/api'
 import { TeamType } from '../types'
 import { useAuthStore } from '../store/authStore'
+import { TEAMS, teamLabel } from '../utils/teams'
 
 // ── Local types ───────────────────────────────────────────────────────────────
 
@@ -39,6 +45,18 @@ interface MetricHistory {
 interface ScorecardHistory {
   weeks: string[]
   metrics: MetricHistory[]
+}
+
+interface MetricTemplate {
+  id: string
+  team: string
+  metric_name: string
+  goal: number | null
+  goal_text: string | null
+  display_format: string
+  lower_is_better: boolean
+  sort_order: number
+  is_active: boolean
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -434,10 +452,9 @@ function NewWeekModal({ defaultTeam, onClose, onCreated }: NewWeekModalProps) {
             <label className="block text-xs text-slate-400 mb-1">Team</label>
             <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)}
               className="bg-slate-700 border border-slate-600 text-white text-sm rounded px-3 py-2 w-full focus:outline-none focus:ring-1 focus:ring-blue-500">
-              <option value="leadership">Leadership</option>
-              <option value="sales">Sales</option>
-              <option value="production">Production</option>
-              <option value="office">Office</option>
+              {TEAMS.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
             </select>
           </div>
           <div>
@@ -510,10 +527,9 @@ function AddEntryModal({ defaultTeam, onClose, onCreated, userId }: AddEntryModa
             <div>
               <label className="block text-xs text-slate-400 mb-1">Team</label>
               <select value={form.team} onChange={e => setForm({ ...form, team: e.target.value })} className={inputCls}>
-                <option value="leadership">Leadership</option>
-                <option value="sales">Sales</option>
-                <option value="production">Production</option>
-              <option value="office">Office</option>
+                {TEAMS.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -551,6 +567,357 @@ function AddEntryModal({ defaultTeam, onClose, onCreated, userId }: AddEntryModa
   )
 }
 
+
+// ── Metrics Admin Modal ────────────────────────────────────────────────────────
+// Leadership/admin edit which metrics a team's scorecard carries. Changes here
+// affect future weeks: recorded weekly values are keyed by metric name and are
+// never deleted by removing a template row.
+
+interface MetricsAdminModalProps {
+  defaultTeam: string
+  onClose: () => void
+  onChanged: () => void
+}
+
+const EMPTY_DRAFT = {
+  metric_name: '',
+  goal: '',
+  goal_text: '',
+  display_format: 'number',
+  lower_is_better: false,
+}
+
+function MetricsAdminModal({ defaultTeam, onClose, onChanged }: MetricsAdminModalProps) {
+  const [team, setTeam] = useState<string>(defaultTeam === 'all' ? 'leadership' : defaultTeam)
+  const [rows, setRows] = useState<MetricTemplate[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState(EMPTY_DRAFT)
+  const [adding, setAdding] = useState(false)
+  const [touched, setTouched] = useState(false)
+
+  const inputCls = 'bg-slate-700 border border-slate-600 text-white text-sm rounded px-3 py-2 w-full min-h-[40px] focus:outline-none focus:ring-2 focus:ring-blue-500'
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    try {
+      const res = await getScorecardTemplatesAdminApi(team)
+      setRows(res.data)
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Could not load metrics')
+    } finally {
+      setLoading(false)
+    }
+  }, [team])
+
+  useEffect(() => { load() }, [load])
+
+  // Everything the parent needs to know is "did anything change" — it reloads
+  // the scorecard on close rather than on every keystroke.
+  const finish = () => { if (touched) onChanged(); onClose() }
+
+  const startEdit = (row: MetricTemplate) => {
+    setEditingId(row.id)
+    setAdding(false)
+    setDraft({
+      metric_name: row.metric_name,
+      goal: row.goal === null ? '' : String(row.goal),
+      goal_text: row.goal_text || '',
+      display_format: row.display_format,
+      lower_is_better: row.lower_is_better,
+    })
+  }
+
+  const draftPayload = () => ({
+    metric_name: draft.metric_name.trim(),
+    goal: draft.goal.trim() === '' ? null : parseFloat(draft.goal),
+    goal_text: draft.goal_text.trim() || null,
+    display_format: draft.display_format,
+    lower_is_better: draft.lower_is_better,
+  })
+
+  const saveEdit = async (id: string) => {
+    if (!draft.metric_name.trim()) { setError('Metric name is required'); return }
+    setBusyId(id); setError(null)
+    try {
+      await updateScorecardTemplateApi(id, draftPayload())
+      setEditingId(null); setTouched(true)
+      await load()
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Could not save this metric — nothing was changed')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const addMetric = async () => {
+    if (!draft.metric_name.trim()) { setError('Metric name is required'); return }
+    setBusyId('new'); setError(null)
+    try {
+      await createScorecardTemplateApi({ team, ...draftPayload() })
+      setAdding(false); setDraft(EMPTY_DRAFT); setTouched(true)
+      await load()
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Could not add this metric — nothing was saved')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const toggleActive = async (row: MetricTemplate) => {
+    setBusyId(row.id); setError(null)
+    try {
+      await updateScorecardTemplateApi(row.id, { is_active: !row.is_active })
+      setTouched(true)
+      await load()
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || `Could not ${row.is_active ? 'pause' : 'resume'} this metric`)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const remove = async (row: MetricTemplate) => {
+    if (!confirm(
+      `Remove "${row.metric_name}" from the ${teamLabel(team)} scorecard template?\n\n` +
+      'Weekly values already recorded for this metric are kept — it just stops appearing in new weeks.'
+    )) return
+    setBusyId(row.id); setError(null)
+    try {
+      await deleteScorecardTemplateApi(row.id)
+      setTouched(true)
+      await load()
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Could not remove this metric')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const move = async (index: number, direction: -1 | 1) => {
+    const target = index + direction
+    if (target < 0 || target >= rows.length) return
+    const reordered = [...rows]
+    const [moved] = reordered.splice(index, 1)
+    reordered.splice(target, 0, moved)
+    const previous = rows
+    setRows(reordered) // optimistic: the list reorders under the cursor
+    setBusyId(moved.id); setError(null)
+    try {
+      await reorderScorecardTemplatesApi(team, reordered.map((r) => r.id))
+      setTouched(true)
+    } catch (e: any) {
+      setRows(previous)
+      setError(e.response?.data?.error || e.message || 'Could not reorder — the list is unchanged')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 backdrop-blur-sm overflow-y-auto py-8 px-4">
+      <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-3xl">
+        <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-white font-semibold text-base">Scorecard Metrics</h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Defines the rows each new week starts with. Recorded weeks are never changed here.
+            </p>
+          </div>
+          <button onClick={finish} aria-label="Close metrics editor"
+            className="text-slate-400 hover:text-white transition-colors p-2 rounded">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded px-3 py-2 text-red-400 text-sm" role="alert">
+              {error}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <label htmlFor="metrics-team" className="text-sm text-slate-400">Team:</label>
+              <select id="metrics-team" value={team}
+                onChange={(e) => { setTeam(e.target.value); setEditingId(null); setAdding(false) }}
+                className="bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 min-h-[40px] focus:outline-none focus:ring-2 focus:ring-blue-500">
+                {TEAMS.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={() => { setAdding(true); setEditingId(null); setDraft(EMPTY_DRAFT) }}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 min-h-[40px] rounded-lg transition-colors">
+              Add metric
+            </button>
+          </div>
+
+          {adding && (
+            <div className="bg-slate-700/30 border border-slate-600 rounded-lg p-4 space-y-3">
+              <h3 className="text-sm font-medium text-white">New {teamLabel(team)} metric</h3>
+              <MetricFields draft={draft} setDraft={setDraft} inputCls={inputCls} />
+              <div className="flex justify-end gap-2">
+                <button onClick={() => { setAdding(false); setDraft(EMPTY_DRAFT) }}
+                  className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 min-h-[40px] rounded-lg transition-colors">
+                  Cancel
+                </button>
+                <button onClick={addMetric} disabled={busyId === 'new'}
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 min-h-[40px] rounded-lg transition-colors disabled:opacity-60">
+                  {busyId === 'new' ? 'Adding…' : 'Add metric'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="flex items-center justify-center h-32">
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500" />
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="text-center py-10 text-slate-500 text-sm">
+              {teamLabel(team)} has no metrics yet. Add the first one above.
+            </div>
+          ) : (
+            <ul className="divide-y divide-slate-700/60 border border-slate-700 rounded-lg overflow-hidden">
+              {rows.map((row, index) => (
+                <li key={row.id} className={`p-4 ${row.is_active ? '' : 'bg-slate-900/40'}`}>
+                  {editingId === row.id ? (
+                    <div className="space-y-3">
+                      <MetricFields draft={draft} setDraft={setDraft} inputCls={inputCls} />
+                      <div className="flex justify-end gap-2">
+                        <button onClick={() => setEditingId(null)}
+                          className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 min-h-[40px] rounded-lg transition-colors">
+                          Cancel
+                        </button>
+                        <button onClick={() => saveEdit(row.id)} disabled={busyId === row.id}
+                          className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 min-h-[40px] rounded-lg transition-colors disabled:opacity-60">
+                          {busyId === row.id ? 'Saving…' : 'Save metric'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-sm font-medium ${row.is_active ? 'text-white' : 'text-slate-500'}`}>
+                            {row.metric_name}
+                          </span>
+                          {!row.is_active && (
+                            <span className="text-[11px] uppercase tracking-wide text-amber-400 border border-amber-400/40 rounded px-1.5 py-0.5">
+                              Paused
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">
+                          {row.goal_text || (row.goal !== null ? formatValue(row.goal, row.display_format) : 'No goal set')}
+                          {' · '}{row.display_format}
+                          {row.lower_is_better ? ' · lower is better' : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button onClick={() => move(index, -1)} disabled={index === 0 || busyId === row.id}
+                          aria-label={`Move ${row.metric_name} up`} title="Move up"
+                          className="text-slate-400 hover:text-white disabled:opacity-30 transition-colors p-2 rounded min-h-[40px] min-w-[40px] flex items-center justify-center">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                          </svg>
+                        </button>
+                        <button onClick={() => move(index, 1)} disabled={index === rows.length - 1 || busyId === row.id}
+                          aria-label={`Move ${row.metric_name} down`} title="Move down"
+                          className="text-slate-400 hover:text-white disabled:opacity-30 transition-colors p-2 rounded min-h-[40px] min-w-[40px] flex items-center justify-center">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                        <button onClick={() => startEdit(row)}
+                          className="text-slate-400 hover:text-blue-400 transition-colors text-sm px-3 py-2 min-h-[40px] rounded">
+                          Edit
+                        </button>
+                        <button onClick={() => toggleActive(row)} disabled={busyId === row.id}
+                          className="text-slate-400 hover:text-amber-400 transition-colors text-sm px-3 py-2 min-h-[40px] rounded disabled:opacity-60">
+                          {row.is_active ? 'Pause' : 'Resume'}
+                        </button>
+                        <button onClick={() => remove(row)} disabled={busyId === row.id}
+                          className="text-slate-400 hover:text-red-400 transition-colors text-sm px-3 py-2 min-h-[40px] rounded disabled:opacity-60">
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <p className="text-xs text-slate-500">
+            Paused metrics stay out of new weeks but keep their history. Use <span className="text-slate-400">New Week</span> to
+            apply the current template to a week.
+          </p>
+        </div>
+
+        <div className="px-6 py-4 border-t border-slate-700 flex justify-end">
+          <button onClick={finish}
+            className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 min-h-[40px] rounded-lg transition-colors">
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Shared field set for the add and edit forms.
+function MetricFields({ draft, setDraft, inputCls }: {
+  draft: typeof EMPTY_DRAFT
+  setDraft: (d: typeof EMPTY_DRAFT) => void
+  inputCls: string
+}) {
+  return (
+    <>
+      <div>
+        <label className="block text-xs text-slate-400 mb-1">Metric name *</label>
+        <input value={draft.metric_name} onChange={(e) => setDraft({ ...draft, metric_name: e.target.value })}
+          className={inputCls} placeholder="e.g. Bid Hit Rate" />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">Goal</label>
+          <input type="text" inputMode="decimal" value={draft.goal}
+            onChange={(e) => setDraft({ ...draft, goal: e.target.value })}
+            className={inputCls} placeholder="0.4 for 40%" />
+        </div>
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">Goal label</label>
+          <input value={draft.goal_text} onChange={(e) => setDraft({ ...draft, goal_text: e.target.value })}
+            className={inputCls} placeholder="40%" />
+        </div>
+        <div>
+          <label className="block text-xs text-slate-400 mb-1">Format</label>
+          <select value={draft.display_format} onChange={(e) => setDraft({ ...draft, display_format: e.target.value })}
+            className={inputCls}>
+            <option value="number">Number</option>
+            <option value="currency">Currency</option>
+            <option value="percent">Percent</option>
+          </select>
+        </div>
+      </div>
+      <label className="flex items-center gap-2 text-sm text-slate-300">
+        <input type="checkbox" checked={draft.lower_is_better}
+          onChange={(e) => setDraft({ ...draft, lower_is_better: e.target.checked })}
+          className="rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500" />
+        Lower is better (e.g. turnaround days, callbacks)
+      </label>
+    </>
+  )
+}
+
 // ── Main Scorecard Component ───────────────────────────────────────────────────
 
 const Scorecard: React.FC = () => {
@@ -564,6 +931,7 @@ const Scorecard: React.FC = () => {
   const [selectedMetric, setSelectedMetric] = useState<MetricHistory | null>(null)
   const [showNewWeekModal, setShowNewWeekModal] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [showMetricsModal, setShowMetricsModal] = useState(false)
   const [aggregateMode, setAggregateMode] = useState<'total' | 'average'>('total')
 
   const isLeadershipOrAdmin = user?.role === 'admin' || user?.role === 'leadership'
@@ -627,6 +995,17 @@ const Scorecard: React.FC = () => {
                 New Week
               </button>
             )}
+            {isLeadershipOrAdmin && (
+              <button onClick={() => setShowMetricsModal(true)}
+                className="flex-1 md:flex-none bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium px-3 py-2 min-h-[40px] rounded-lg transition-colors flex items-center justify-center gap-2">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Metrics
+              </button>
+            )}
             {canEdit && (
               <button onClick={() => setShowAddModal(true)}
                 className="flex-1 md:flex-none bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 min-h-[40px] rounded-lg transition-colors flex items-center justify-center gap-2">
@@ -642,6 +1021,13 @@ const Scorecard: React.FC = () => {
 
       {showNewWeekModal && (
         <NewWeekModal defaultTeam={team} onClose={() => setShowNewWeekModal(false)} onCreated={loadHistory} />
+      )}
+      {showMetricsModal && (
+        <MetricsAdminModal
+          defaultTeam={team}
+          onClose={() => setShowMetricsModal(false)}
+          onChanged={loadHistory}
+        />
       )}
       {showAddModal && (
         <AddEntryModal

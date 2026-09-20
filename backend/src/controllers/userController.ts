@@ -4,9 +4,10 @@ import crypto from 'crypto';
 import { pool } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
 import { sendInvitationEmail, isEmailConfigured } from '../services/emailService';
+import { TEAMS_WITH_ALL } from '../constants/teams';
 
 const VALID_ROLES = ['admin', 'leadership', 'manager', 'team_member'];
-const VALID_TEAMS = ['sales', 'production', 'office', 'leadership', 'all'];
+const VALID_TEAMS = TEAMS_WITH_ALL;
 
 function appUrl(): string {
   return process.env.APP_URL || 'https://web-production-c3567.up.railway.app';
