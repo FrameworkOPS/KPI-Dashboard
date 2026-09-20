@@ -13,6 +13,7 @@ import {
 } from '../services/api'
 import { Issue, TeamType, RosterUser } from '../types'
 import { useAuthStore } from '../store/authStore'
+import { TEAMS } from '../utils/teams'
 
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -103,10 +104,9 @@ const IssueModal: React.FC<IssueModalProps> = ({ issue, users, onClose, onSave }
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">Team</label>
               <select className={inputCls} value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })} disabled={user?.role === 'manager'}>
-                <option value="sales">Sales</option>
-                <option value="production">Production</option>
-                <option value="office">Office</option>
-                <option value="leadership">Leadership</option>
+                {TEAMS.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
               </select>
             </div>
             <div>

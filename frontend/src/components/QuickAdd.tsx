@@ -2,10 +2,11 @@ import React, { useEffect, useRef, useState } from 'react'
 import { createIssueApi, createTodoApi, getUsersRosterApi } from '../services/api'
 import { useAuthStore } from '../store/authStore'
 import { RosterUser } from '../types'
+import { TEAM_VALUES } from '../utils/teams'
 
 type Mode = 'issue' | 'todo'
 
-const TEAMS = ['leadership', 'sales', 'production', 'office'] as const
+const TEAMS = TEAM_VALUES
 
 // The logged-in user's team can be 'all' (admin) or blank, neither of which is
 // a valid team to file an issue/todo under — fall back to a real team so

@@ -6,6 +6,7 @@ import { getRocksApi, createRockApi, updateRockApi, deleteRockApi, getUsersRoste
 import { Rock, TeamType, RosterUser } from '../types'
 import { useAuthStore } from '../store/authStore'
 import { fireRockDoneConfetti } from '../utils/confetti'
+import { TEAM_VALUES } from '../utils/teams'
 
 const statusColumns: { key: Rock['status']; label: string }[] = [
   { key: 'not_started', label: 'Not Started' },
@@ -347,7 +348,7 @@ const Rocks: React.FC = () => {
         <RockModal
           rock={editRock}
           users={users}
-          teams={['sales', 'production', 'office', 'leadership']}
+          teams={TEAM_VALUES}
           onClose={() => setShowModal(false)}
           onSave={loadRocks}
         />

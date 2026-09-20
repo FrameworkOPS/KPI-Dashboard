@@ -14,6 +14,7 @@ import {
 import { Meeting, TeamType } from '../types'
 import { useAuthStore } from '../store/authStore'
 import { isoDate, parseLocalDate } from '../utils/dates'
+import { TEAMS } from '../utils/teams'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmtDate = (d: string) =>
@@ -382,13 +383,12 @@ const Meetings: React.FC = () => {
                 <select
                   className={inputCls}
                   value={createForm.team}
-                  onChange={(e) => setCreateForm({ ...createForm, team: e.target.value as 'leadership' | 'sales' | 'production' | 'office' })}
+                  onChange={(e) => setCreateForm({ ...createForm, team: e.target.value as Exclude<TeamType, 'all'> })}
                   disabled={user?.role === 'manager'}
                 >
-                  <option value="leadership">Leadership</option>
-                  <option value="sales">Sales</option>
-                  <option value="production">Production</option>
-                  <option value="office">Office</option>
+                  {TEAMS.map((t) => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
                 </select>
               </div>
               <div>

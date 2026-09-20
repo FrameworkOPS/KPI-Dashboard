@@ -89,6 +89,23 @@ export const createWeekFromTemplateApi = (team: string, week_of: string) =>
 export const getScorecardHistoryApi = (team?: string, weeks = 13) =>
   api.get('/scorecard/history', { params: { team, weeks } })
 
+// Metric templates define which rows a team's scorecard has. Writes are
+// leadership/admin only, enforced server-side.
+export const getScorecardTemplatesAdminApi = (team: string) =>
+  api.get('/scorecard/templates', { params: { team, include_inactive: true } })
+
+export const createScorecardTemplateApi = (data: any) =>
+  api.post('/scorecard/templates', data)
+
+export const updateScorecardTemplateApi = (id: string, data: any) =>
+  api.put(`/scorecard/templates/${id}`, data)
+
+export const deleteScorecardTemplateApi = (id: string) =>
+  api.delete(`/scorecard/templates/${id}`)
+
+export const reorderScorecardTemplatesApi = (team: string, ordered_ids: string[]) =>
+  api.put('/scorecard/templates/reorder', { team, ordered_ids })
+
 // ── Rocks ─────────────────────────────────────────────────────────────────────
 export const getRocksApi = (team?: string, quarter?: number, year?: number) =>
   api.get('/rocks', { params: { team, quarter, year } })

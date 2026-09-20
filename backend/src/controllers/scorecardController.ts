@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { pool, query } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
 import { canAccessTeam } from '../utils/auth';
+import { isTeam, TEAMS } from '../constants/teams';
 
 export async function getScorecardEntries(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -176,7 +177,13 @@ export async function getTemplates(req: AuthRequest, res: Response, next: NextFu
       targetTeam = userTeam;
     }
 
-    const whereClause = targetTeam ? 'WHERE team = $1 AND is_active = true' : 'WHERE is_active = true';
+    // The admin view needs deactivated metrics too, otherwise a metric switched
+    // off can never be switched back on.
+    const includeInactive = req.query.include_inactive === 'true';
+    const activeClause = includeInactive ? '' : ' AND is_active = true';
+    const whereClause = targetTeam
+      ? `WHERE team = $1${activeClause}`
+      : `WHERE true${activeClause}`;
     const params = targetTeam ? [targetTeam] : [];
 
     const result = await query(
@@ -333,5 +340,200 @@ export async function createWeekFromTemplate(req: AuthRequest, res: Response, ne
     res.json({ message: `Created ${created} entries for week of ${week_of}`, created });
   } catch (err) {
     next(err);
+  }
+}
+
+// ── Metric templates (admin) ──────────────────────────────────────────────────
+// A team's template rows define which metrics its scorecard has. Editing them
+// is gated to leadership/admin at the route layer; these handlers validate the
+// shape and keep sort_order contiguous.
+
+const DISPLAY_FORMATS = ['number', 'currency', 'percent'];
+
+/** Validates the fields shared by template create and update. */
+function validateTemplateBody(body: any): string | null {
+  if (body.team !== undefined && !isTeam(body.team)) {
+    return `team must be one of: ${TEAMS.join(', ')}`;
+  }
+  if (body.metric_name !== undefined) {
+    if (typeof body.metric_name !== 'string' || !body.metric_name.trim()) {
+      return 'metric_name is required';
+    }
+    if (body.metric_name.length > 255) {
+      return 'metric_name must be 255 characters or fewer';
+    }
+  }
+  if (body.display_format !== undefined && !DISPLAY_FORMATS.includes(body.display_format)) {
+    return `display_format must be one of: ${DISPLAY_FORMATS.join(', ')}`;
+  }
+  if (body.goal !== undefined && body.goal !== null && Number.isNaN(Number(body.goal))) {
+    return 'goal must be a number';
+  }
+  return null;
+}
+
+export async function createTemplate(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { team, metric_name, goal, goal_text, display_format, lower_is_better } = req.body;
+
+    if (!team || !metric_name) {
+      res.status(400).json({ error: 'team and metric_name are required' });
+      return;
+    }
+    const invalid = validateTemplateBody(req.body);
+    if (invalid) {
+      res.status(400).json({ error: invalid });
+      return;
+    }
+
+    // New metrics land at the bottom of the team's list.
+    const next_order = await pool.query(
+      'SELECT COALESCE(MAX(sort_order), 0) + 1 AS next FROM scorecard_templates WHERE team = $1',
+      [team]
+    );
+
+    const result = await pool.query(
+      `INSERT INTO scorecard_templates
+         (team, metric_name, goal, goal_text, display_format, lower_is_better, sort_order, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+       RETURNING *`,
+      [
+        team,
+        metric_name.trim(),
+        goal ?? null,
+        goal_text || null,
+        display_format || 'number',
+        lower_is_better === true,
+        next_order.rows[0].next,
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err: any) {
+    // UNIQUE(team, metric_name)
+    if (err?.code === '23505') {
+      res.status(409).json({ error: 'That team already has a metric with this name' });
+      return;
+    }
+    next(err);
+  }
+}
+
+export async function updateTemplate(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const { metric_name, goal, goal_text, display_format, lower_is_better, is_active } = req.body;
+
+    const invalid = validateTemplateBody(req.body);
+    if (invalid) {
+      res.status(400).json({ error: invalid });
+      return;
+    }
+
+    const existing = await pool.query('SELECT * FROM scorecard_templates WHERE id = $1', [id]);
+    if (!existing.rows[0]) {
+      res.status(404).json({ error: 'Metric not found' });
+      return;
+    }
+
+    const result = await pool.query(
+      `UPDATE scorecard_templates SET
+         metric_name = COALESCE($1, metric_name),
+         goal = $2,
+         goal_text = $3,
+         display_format = COALESCE($4, display_format),
+         lower_is_better = COALESCE($5, lower_is_better),
+         is_active = COALESCE($6, is_active)
+       WHERE id = $7
+       RETURNING *`,
+      [
+        metric_name ? metric_name.trim() : null,
+        goal === undefined ? existing.rows[0].goal : (goal ?? null),
+        goal_text === undefined ? existing.rows[0].goal_text : (goal_text || null),
+        display_format ?? null,
+        lower_is_better === undefined ? null : lower_is_better,
+        is_active === undefined ? null : is_active,
+        id,
+      ]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err: any) {
+    if (err?.code === '23505') {
+      res.status(409).json({ error: 'That team already has a metric with this name' });
+      return;
+    }
+    next(err);
+  }
+}
+
+export async function deleteTemplate(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+
+    const existing = await pool.query('SELECT * FROM scorecard_templates WHERE id = $1', [id]);
+    if (!existing.rows[0]) {
+      res.status(404).json({ error: 'Metric not found' });
+      return;
+    }
+
+    // Weekly entries are keyed by name, not by template id, so deleting a
+    // template never destroys recorded history — it only stops the metric from
+    // being carried into future weeks.
+    await pool.query('DELETE FROM scorecard_templates WHERE id = $1', [id]);
+
+    res.json({
+      message: 'Metric removed from the template',
+      recorded_weeks_kept: true,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function reorderTemplates(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  const client = await pool.connect();
+  try {
+    const { team, ordered_ids } = req.body;
+
+    if (!isTeam(team)) {
+      res.status(400).json({ error: `team must be one of: ${TEAMS.join(', ')}` });
+      return;
+    }
+    if (!Array.isArray(ordered_ids) || ordered_ids.length === 0) {
+      res.status(400).json({ error: 'ordered_ids must be a non-empty array' });
+      return;
+    }
+
+    const owned = await client.query(
+      'SELECT id FROM scorecard_templates WHERE team = $1',
+      [team]
+    );
+    const ownedIds = new Set(owned.rows.map((r: any) => r.id));
+    const unknown = ordered_ids.filter((id: string) => !ownedIds.has(id));
+    if (unknown.length > 0) {
+      res.status(400).json({ error: 'ordered_ids must all belong to this team' });
+      return;
+    }
+
+    await client.query('BEGIN');
+    for (let i = 0; i < ordered_ids.length; i++) {
+      await client.query(
+        'UPDATE scorecard_templates SET sort_order = $1 WHERE id = $2 AND team = $3',
+        [i + 1, ordered_ids[i], team]
+      );
+    }
+    await client.query('COMMIT');
+
+    const result = await client.query(
+      'SELECT * FROM scorecard_templates WHERE team = $1 ORDER BY sort_order',
+      [team]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(err);
+  } finally {
+    client.release();
   }
 }
