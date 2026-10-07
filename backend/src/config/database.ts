@@ -529,6 +529,22 @@ export async function initializeDatabase(): Promise<void> {
       ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS goal_text VARCHAR(100)
     `);
 
+    // Percent goals are stored as fractions, so two decimal places rounded
+    // 17.5% to 18%. Widen to four; the scale check makes this a no-op once applied.
+    await client.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'scorecard_templates' AND column_name = 'goal' AND numeric_scale < 4) THEN
+          ALTER TABLE scorecard_templates ALTER COLUMN goal TYPE DECIMAL(16,4);
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'scorecard_entries' AND column_name = 'goal' AND numeric_scale < 4) THEN
+          ALTER TABLE scorecard_entries ALTER COLUMN goal TYPE DECIMAL(16,4);
+        END IF;
+      END $$
+    `);
+
     // ── Deduplication migrations ──────────────────────────────────────────────
     // Safe to run on every boot: CTE + DELETE only removes true duplicates.
 
@@ -791,6 +807,32 @@ export async function initializeDatabase(): Promise<void> {
             AND metric_name = scorecard_templates.metric_name
         )
     `);
+
+    // One-time: the scorecard now reads a metric's goal from its template, so
+    // a template without a goal adopts the latest goal recorded on its weekly
+    // entries (what the grid showed before). Guarded so a goal cleared later
+    // stays cleared.
+    const templateGoalsBackfilled = await client.query(
+      `SELECT 1 FROM app_settings WHERE key = 'scorecard_template_goal_backfill_done'`
+    );
+    if (templateGoalsBackfilled.rows.length === 0) {
+      await client.query(`
+        UPDATE scorecard_templates st
+           SET goal = latest.goal, goal_text = latest.goal_text
+          FROM (
+            SELECT DISTINCT ON (team, metric_name) team, metric_name, goal, goal_text
+              FROM scorecard_entries
+             WHERE goal IS NOT NULL
+             ORDER BY team, metric_name, week_of DESC
+          ) latest
+         WHERE st.team = latest.team AND st.metric_name = latest.metric_name
+           AND st.goal IS NULL AND st.goal_text IS NULL
+      `);
+      await client.query(
+        `INSERT INTO app_settings (key, value) VALUES ('scorecard_template_goal_backfill_done', 'true')
+         ON CONFLICT (key) DO NOTHING`
+      );
+    }
 
     // One-time cleanup: recurring IDS issues used to be reseeded on every boot
     // whenever 'People' was missing, so deleting any of the five brought all

@@ -106,6 +106,15 @@ export const deleteScorecardTemplateApi = (id: string) =>
 export const reorderScorecardTemplatesApi = (team: string, ordered_ids: string[]) =>
   api.put('/scorecard/templates/reorder', { team, ordered_ids })
 
+// Sets a metric's goal on its template and on recorded weeks from
+// effective_from (default: this week) on, re-scoring those weeks.
+export const updateScorecardGoalApi = (data: {
+  team: string
+  metric_name: string
+  goal: number | null
+  effective_from?: string
+}) => api.put('/scorecard/goal', data)
+
 // ── Rocks ─────────────────────────────────────────────────────────────────────
 export const getRocksApi = (team?: string, quarter?: number, year?: number) =>
   api.get('/rocks', { params: { team, quarter, year } })
