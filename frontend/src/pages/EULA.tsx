@@ -1,9 +1,11 @@
 import React from 'react'
+import { usePageTitle } from '../utils/pageTitle'
 import { Link } from 'react-router-dom'
 
 const EULA: React.FC = () => {
+  usePageTitle('End User License Agreement')
   return (
-    <div className="min-h-screen bg-slate-900 text-white py-12 px-4">
+    <main className="min-h-screen bg-slate-900 text-white py-12 px-4">
       <div className="max-w-4xl mx-auto">
 
         {/* Header */}
@@ -335,7 +337,7 @@ const EULA: React.FC = () => {
                   Email:{' '}
                   <a
                     href="mailto:legal@frameworkops.com"
-                    className="text-blue-400 hover:text-blue-300 transition-colors"
+                    className="text-blue-300 hover:text-blue-200 underline transition-colors"
                   >
                     legal@frameworkops.com
                   </a>
@@ -347,7 +349,7 @@ const EULA: React.FC = () => {
 
           {/* Footer */}
           <div className="mt-12 pt-6 border-t border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p className="text-slate-500 text-sm">
+            <p className="text-slate-400 text-sm">
               © 2025 FrameworkOPS LLC. All rights reserved.
             </p>
             <div className="flex gap-4 text-sm">
@@ -362,7 +364,7 @@ const EULA: React.FC = () => {
 
         </div>
       </div>
-    </div>
+    </main>
   )
 }
 

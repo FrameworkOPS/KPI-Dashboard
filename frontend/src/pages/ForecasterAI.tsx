@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { useAuthStore } from '../store/authStore'
+import Header from '../components/Header'
+import { getForecasterAiStatusApi, forecasterAiChatApi } from '../services/api'
+import { emitDataChanged } from '../utils/dataEvents'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -53,7 +55,6 @@ function saveHistory(msgs: ChatMessage[]) {
 
 // Lightweight markdown renderer — bold, italic, inline code, line breaks, tables
 function MarkdownText({ text }: { text: string }) {
-  // Split on tables (lines containing |) and treat them separately
   const blocks = text.split(/\n\n+/)
   return (
     <div className="space-y-3">
@@ -67,7 +68,7 @@ function MarkdownText({ text }: { text: string }) {
             <div key={i} className="overflow-x-auto">
               <table className="min-w-full text-sm border border-slate-700 rounded">
                 <thead className="bg-slate-700/50">
-                  <tr>{headers.map((h, j) => <th key={j} className="px-3 py-2 text-left font-medium text-slate-200">{inline(h)}</th>)}</tr>
+                  <tr>{headers.map((h, j) => <th scope="col" key={j} className="px-3 py-2 text-left font-medium text-slate-200">{inline(h)}</th>)}</tr>
                 </thead>
                 <tbody className="divide-y divide-slate-700/50">
                   {rows.map((r, ri) => (
@@ -108,20 +109,22 @@ function inline(text: string): React.ReactNode {
 }
 
 export default function ForecasterAI() {
-  const { token } = useAuthStore()
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadHistory())
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [enabled, setEnabled] = useState<boolean | null>(null)
+  // null = still checking, 'unknown' = the status call failed
+  const [enabled, setEnabled] = useState<boolean | 'unknown' | null>(null)
   const scrollerRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    fetch('/api/forecaster-ai/status', { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json()).then((d) => setEnabled(!!d.enabled))
-      .catch(() => setEnabled(false))
-  }, [token])
+    let cancelled = false
+    getForecasterAiStatusApi()
+      .then((r) => { if (!cancelled) setEnabled(!!r.data?.enabled) })
+      .catch(() => { if (!cancelled) setEnabled('unknown') })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => { saveHistory(messages) }, [messages])
 
@@ -129,9 +132,11 @@ export default function ForecasterAI() {
     if (scrollerRef.current) scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight
   }, [messages, sending])
 
+  const canChat = enabled === true
+
   const send = async (text: string) => {
     const content = text.trim()
-    if (!content || sending) return
+    if (!content || sending || !canChat) return
     setError(null)
     const userMsg: ChatMessage = { role: 'user', content, timestamp: Date.now() }
     const newMessages = [...messages, userMsg]
@@ -139,27 +144,25 @@ export default function ForecasterAI() {
     setInput('')
     setSending(true)
     try {
-      const res = await fetch('/api/forecaster-ai/chat', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
-        }),
-      })
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}))
-        throw new Error(d.error || `Request failed (${res.status})`)
-      }
-      const d = await res.json()
+      const res = await forecasterAiChatApi(newMessages.map((m) => ({ role: m.role, content: m.content })))
+      const d = res.data
+      const toolCalls = d.data?.tool_calls || []
       const reply: ChatMessage = {
         role: 'assistant',
         content: d.data?.reply || '(empty response)',
-        tool_calls: d.data?.tool_calls || [],
+        tool_calls: toolCalls,
         timestamp: Date.now(),
       }
       setMessages((prev) => [...prev, reply])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Request failed')
+      // A tool that wrote data means other open pages are stale.
+      if (toolCalls.some((tc: { name: string }) => WRITE_TOOLS.has(tc.name) || CONFIG_TOOLS.has(tc.name))) {
+        emitDataChanged(['pipeline', 'crews', 'forecast'])
+      }
+    } catch (e: any) {
+      setError(e.message || 'Request failed')
+      // Put the question back so it isn't lost.
+      setMessages(messages)
+      setInput(content)
     } finally {
       setSending(false)
       setTimeout(() => taRef.current?.focus(), 50)
@@ -179,132 +182,142 @@ export default function ForecasterAI() {
   }
 
   const clearHistory = () => {
-    if (!confirm('Clear conversation history?')) return
+    if (!confirm('Clear this conversation? The AI will not remember earlier questions.')) return
     setMessages([])
     localStorage.removeItem(STORAGE_KEY)
   }
 
   return (
-    <div className="space-y-4 max-w-4xl mx-auto">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Forecaster AI</h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Ask projections, scenario questions, and data summaries. Read-only — uses the manually maintained pipeline, crews, and sales forecast.
-          </p>
-        </div>
-        {messages.length > 0 && (
-          <button onClick={clearHistory} className="text-xs text-slate-400 hover:text-red-400 underline">Clear history</button>
+    <>
+      <Header
+        title="Forecaster AI"
+        actions={messages.length > 0 ? (
+          <button type="button" onClick={clearHistory} className="text-xs text-slate-300 hover:text-red-400 underline min-h-[44px] px-2">Clear conversation</button>
+        ) : undefined}
+      />
+      <div className="p-4 md:p-6 space-y-4 max-w-4xl mx-auto">
+        <p className="text-sm text-slate-400">
+          Ask for projections, what-if scenarios, and data summaries. Answers come from the pipeline, crews, and sales forecast maintained on their own pages.
+        </p>
+
+        {enabled === false && (
+          <div role="status" className="bg-yellow-900/30 border border-yellow-500/50 rounded-lg p-3 text-sm text-yellow-300">
+            The Forecaster AI is not configured on this server. An admin needs to set the AI API key before it can answer questions.
+          </div>
         )}
-      </div>
+        {enabled === 'unknown' && (
+          <div role="alert" className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-sm text-red-400">
+            Could not check whether the Forecaster AI is available. Reload the page to try again.
+          </div>
+        )}
 
-      {enabled === false && (
-        <div className="bg-yellow-900/30 border border-yellow-500/50 rounded-lg p-3 text-sm text-yellow-300">
-          The Forecaster AI is not configured. An admin needs to set the <code className="px-1 bg-slate-800 rounded">ANTHROPIC_API_KEY</code> environment variable on the server.
-        </div>
-      )}
+        {error && (
+          <div role="alert" className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 flex justify-between items-center gap-3">
+            <p className="text-sm text-red-400">{error}</p>
+            <button type="button" onClick={() => setError(null)} className="text-xs text-red-300 underline min-h-[44px] px-2">Dismiss</button>
+          </div>
+        )}
 
-      {error && (
-        <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-3 flex justify-between">
-          <p className="text-sm text-red-300">{error}</p>
-          <button onClick={() => setError(null)} className="text-xs text-red-400 underline ml-4">Dismiss</button>
-        </div>
-      )}
-
-      <div className="bg-slate-800 border border-slate-700 rounded-2xl flex flex-col h-[calc(100vh-220px)] min-h-[400px]">
-        {/* Messages */}
-        <div ref={scrollerRef} className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.length === 0 && (
-            <div className="text-center py-8">
-              <p className="text-slate-400 text-sm mb-4">Try one of these to get started:</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {SUGGESTIONS.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => send(s)}
-                    disabled={!enabled || sending}
-                    className="text-left text-sm text-slate-300 bg-slate-700/40 hover:bg-slate-700 border border-slate-700 rounded-lg px-3 py-2 transition-colors disabled:opacity-50"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div
-                className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm ${
-                  m.role === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-700/60 text-slate-100 border border-slate-700'
-                }`}
-              >
-                {m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0 && (
-                  <div className="mb-2 pb-2 border-b border-slate-600/50 space-y-1">
-                    <div className="flex flex-wrap gap-1">
-                      {m.tool_calls.map((tc, j) => {
-                        const b = toolBadge(tc.name)
-                        return (
-                          <span key={j} className={`px-1.5 py-0.5 text-[10px] rounded font-mono ${b.cls}`}>
-                            <span className="opacity-70">[{b.label}]</span> {tc.name}
-                          </span>
-                        )
-                      })}
-                    </div>
-                    {m.tool_calls.filter((tc) => tc.warning).map((tc, j) => (
-                      <div key={`w${j}`} className="text-[11px] text-red-300 bg-red-900/30 border border-red-500/40 rounded px-2 py-1">
-                        ⚠️ <strong className="font-semibold">{tc.name}</strong>: {tc.warning}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <MarkdownText text={m.content} />
-              </div>
-            </div>
-          ))}
-
-          {sending && (
-            <div className="flex justify-start">
-              <div className="bg-slate-700/60 text-slate-300 border border-slate-700 rounded-2xl px-4 py-3 text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" />
-                  <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }} />
-                  <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }} />
-                  <span className="text-xs text-slate-400 ml-2">Analyzing…</span>
+        <div className="bg-slate-800 border border-slate-700 rounded-2xl flex flex-col h-[calc(100vh-300px)] min-h-[400px]">
+          {/* Messages */}
+          <div ref={scrollerRef} role="log" aria-live="polite" aria-label="Conversation" tabIndex={0} className="flex-1 overflow-y-auto p-4 space-y-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">
+            {messages.length === 0 && (
+              <div className="text-center py-8">
+                <p className="text-slate-400 text-sm mb-4">Try one of these to get started:</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {SUGGESTIONS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => send(s)}
+                      disabled={!canChat || sending}
+                      className="text-left text-sm text-slate-300 bg-slate-700/40 hover:bg-slate-700 border border-slate-700 rounded-lg px-3 py-2 min-h-[44px] transition-colors disabled:opacity-50"
+                    >
+                      {s}
+                    </button>
+                  ))}
                 </div>
               </div>
-            </div>
-          )}
+            )}
+
+            {messages.map((m, i) => (
+              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm ${
+                    m.role === 'user'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-700/60 text-slate-100 border border-slate-700'
+                  }`}
+                >
+                  <span className="sr-only">{m.role === 'user' ? 'You said:' : 'Forecaster AI said:'}</span>
+                  {m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0 && (
+                    <div className="mb-2 pb-2 border-b border-slate-600/50 space-y-1">
+                      <p className="sr-only">Data used:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {m.tool_calls.map((tc, j) => {
+                          const b = toolBadge(tc.name)
+                          return (
+                            <span key={j} className={`px-1.5 py-0.5 text-[11px] rounded font-mono ${b.cls}`}>
+                              <span className="opacity-80">[{b.label}]</span> {tc.name}
+                            </span>
+                          )
+                        })}
+                      </div>
+                      {m.tool_calls.filter((tc) => tc.warning).map((tc, j) => (
+                        <div key={`w${j}`} className="text-[11px] text-red-300 bg-red-900/30 border border-red-500/40 rounded px-2 py-1">
+                          <strong className="font-semibold">{tc.name}</strong>: {tc.warning}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <MarkdownText text={m.content} />
+                </div>
+              </div>
+            ))}
+
+            {sending && (
+              <div className="flex justify-start">
+                <div className="bg-slate-700/60 text-slate-300 border border-slate-700 rounded-2xl px-4 py-3 text-sm">
+                  <div className="flex items-center gap-2" role="status">
+                    <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse motion-reduce:animate-none" aria-hidden="true" />
+                    <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse motion-reduce:animate-none" style={{ animationDelay: '0.2s' }} aria-hidden="true" />
+                    <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse motion-reduce:animate-none" style={{ animationDelay: '0.4s' }} aria-hidden="true" />
+                    <span className="text-xs text-slate-300 ml-2">Analyzing…</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Input */}
+          <form onSubmit={handleSubmit} className="border-t border-slate-700 p-3 flex gap-2 items-end">
+            <label htmlFor="forecaster-input" className="sr-only">Ask the Forecaster AI</label>
+            <textarea
+              id="forecaster-input"
+              ref={taRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKey}
+              placeholder={canChat ? 'Ask about the forecast… (Enter to send, Shift+Enter for a new line)' : enabled === null ? 'Checking availability…' : 'Forecaster AI is unavailable'}
+              disabled={!canChat || sending}
+              rows={1}
+              className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 min-h-[44px] text-sm text-white placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              style={{ maxHeight: 120 }}
+            />
+            <button
+              type="submit"
+              disabled={!canChat || sending || !input.trim()}
+              className="px-4 min-h-[44px] bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50"
+            >
+              {sending ? 'Sending…' : 'Send'}
+            </button>
+          </form>
         </div>
 
-        {/* Input */}
-        <form onSubmit={handleSubmit} className="border-t border-slate-700 p-3 flex gap-2">
-          <textarea
-            ref={taRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKey}
-            placeholder={enabled ? 'Ask about the forecast…  (Enter to send, Shift+Enter for newline)' : 'AI disabled'}
-            disabled={!enabled || sending}
-            rows={1}
-            className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-            style={{ minHeight: 38, maxHeight: 120 }}
-          />
-          <button
-            type="submit"
-            disabled={!enabled || sending || !input.trim()}
-            className="px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 self-end"
-          >
-            {sending ? '…' : 'Send'}
-          </button>
-        </form>
+        <p className="text-xs text-slate-400 text-center">
+          Answers are generated by AI and can be wrong. Check important numbers against the Pipeline, Crews, and Sales Forecast pages.
+        </p>
       </div>
-
-      <p className="text-xs text-slate-500 text-center">
-        Read-only AI. To change pipeline, sales forecast, or crews, use the dedicated pages.
-      </p>
-    </div>
+    </>
   )
 }

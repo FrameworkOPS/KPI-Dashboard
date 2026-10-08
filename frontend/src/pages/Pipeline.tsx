@@ -1,5 +1,9 @@
-import React, { useState, useEffect } from 'react'
-import { useAuthStore } from '../store/authStore'
+import React, { useState, useEffect, useCallback } from 'react'
+import Header from '../components/Header'
+import {
+  getPipelineApi, getPipelineSummaryApi, createPipelineItemApi, updatePipelineItemApi, deletePipelineItemApi, getCrewsApi,
+} from '../services/api'
+import { formatDate, todayISO } from '../utils/dates'
 
 interface PipelineItem {
   id: string
@@ -7,6 +11,7 @@ interface PipelineItem {
   square_footage: number
   revenue_per_sq: number
   total_revenue: number
+  estimated_days_to_completion: number
   status: string
   added_date: string
   target_start_date?: string
@@ -28,312 +33,292 @@ interface Crew {
   is_active: boolean
 }
 
-const emptyForm = {
+const RATE_DEFAULTS = { shingle: 600, metal: 1000 }
+const STATUS_LABELS: Record<string, string> = {
+  pending: 'Pending', scheduled: 'Scheduled', in_progress: 'In progress', completed: 'Completed',
+}
+
+const emptyForm = () => ({
   jobType: 'shingle' as 'shingle' | 'metal',
   squareFootage: 0,
-  revenuePerSq: 600,
+  revenuePerSq: RATE_DEFAULTS.shingle,
   estimatedDaysToCompletion: 14,
-  addedDate: new Date().toISOString().split('T')[0],
+  addedDate: todayISO(),
   targetStartDate: '',
   notes: '',
   status: 'pending',
-}
+})
+
+const inputCls = 'w-full px-3 py-2 min-h-[44px] bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500'
+const btn = 'px-4 py-2 min-h-[44px] rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+const money = (n: number) => `$${Math.round(n).toLocaleString()}`
+const compactMoney = (value: number) => (value >= 1000 ? `$${(value / 1000).toFixed(0)}k` : money(value))
+const sqs = (value: number) => `${Math.round(value).toLocaleString()} SQs`
 
 export default function Pipeline() {
-  const { token } = useAuthStore()
   const [summary, setSummary] = useState<PipelineSummary | null>(null)
   const [items, setItems] = useState<PipelineItem[]>([])
   const [crews, setCrews] = useState<Crew[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [form, setForm] = useState({ ...emptyForm })
+  const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => { loadAll() }, [])
-
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
       const [summaryRes, itemsRes, crewsRes] = await Promise.all([
-        fetch('/api/pipeline/summary', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/pipeline', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/crews?active=true', { headers: { Authorization: `Bearer ${token}` } }),
+        getPipelineSummaryApi(), getPipelineApi(), getCrewsApi(true),
       ])
-      if (summaryRes.ok) { const d = await summaryRes.json(); setSummary(d.data) }
-      if (itemsRes.ok) { const d = await itemsRes.json(); setItems(d.data || []) }
-      if (crewsRes.ok) { const d = await crewsRes.json(); setCrews(d.data || []) }
-    } catch (err) { console.error(err) } finally { setLoading(false) }
-  }
+      setSummary(summaryRes.data?.data || null)
+      setItems(itemsRes.data?.data || [])
+      setCrews(crewsRes.data?.data || [])
+    } catch (e: any) {
+      setLoadError(e.message || 'Could not load the pipeline')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadAll() }, [loadAll])
+
+  const openNew = () => { setEditingId(null); setForm(emptyForm()); setError(null); setShowForm(true) }
+  const closeForm = () => { setShowForm(false); setEditingId(null); setError(null) }
 
   const handleTypeChange = (type: 'shingle' | 'metal') => {
-    setForm({ ...form, jobType: type, revenuePerSq: type === 'shingle' ? 600 : 1000 })
+    setForm({ ...form, jobType: type, revenuePerSq: RATE_DEFAULTS[type] })
   }
 
-  const handleSave = async () => {
-    setError(null); setSaving(true)
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    if (!(form.squareFootage > 0)) { setError('Enter the job size in squares (more than 0).'); return }
+    if (!(form.revenuePerSq > 0)) { setError('Enter the revenue per square.'); return }
+    if (!(form.estimatedDaysToCompletion > 0)) { setError('Enter the estimated days to complete.'); return }
+    if (!form.addedDate) { setError('Enter the date the job was added.'); return }
+    setSaving(true)
     try {
-      const url = editingId ? `/api/pipeline/${editingId}` : '/api/pipeline'
-      const method = editingId ? 'PUT' : 'POST'
-      const res = await fetch(url, {
-        method,
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...form,
-          targetStartDate: form.targetStartDate || null,
-          notes: form.notes || null,
-        }),
-      })
-      if (res.ok) {
-        setShowForm(false); setEditingId(null); setForm({ ...emptyForm })
-        loadAll()
-      } else {
-        const d = await res.json().catch(() => ({}))
-        setError(d.error || `Failed (${res.status})`)
-      }
-    } catch (err) { setError('An error occurred') } finally { setSaving(false) }
+      const payload = { ...form, targetStartDate: form.targetStartDate || null, notes: form.notes.trim() || null }
+      if (editingId) await updatePipelineItemApi(editingId, payload)
+      else await createPipelineItemApi(payload)
+      closeForm()
+      setForm(emptyForm())
+      await loadAll()
+    } catch (e: any) {
+      setError(e.message || 'Could not save the job')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Remove this pipeline item?')) return
-    await fetch(`/api/pipeline/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
-    loadAll()
+  const handleDelete = async (item: PipelineItem) => {
+    if (!confirm(`Remove this ${item.job_type} job (${sqs(item.square_footage)}) from the pipeline? It will stop counting toward the forecast.`)) return
+    setError(null)
+    try {
+      await deletePipelineItemApi(item.id)
+      await loadAll()
+    } catch (e: any) {
+      setError(e.message || 'Could not remove the job')
+    }
   }
 
   const handleEdit = (item: PipelineItem) => {
     setForm({
       jobType: item.job_type,
-      squareFootage: item.square_footage,
-      revenuePerSq: item.revenue_per_sq,
-      estimatedDaysToCompletion: 14,
+      squareFootage: Number(item.square_footage) || 0,
+      revenuePerSq: Number(item.revenue_per_sq) || RATE_DEFAULTS[item.job_type],
+      estimatedDaysToCompletion: Number(item.estimated_days_to_completion) || 14,
       addedDate: String(item.added_date).slice(0, 10),
       targetStartDate: item.target_start_date ? String(item.target_start_date).slice(0, 10) : '',
       notes: item.notes || '',
       status: item.status,
     })
+    setError(null)
     setEditingId(item.id); setShowForm(true)
   }
 
-  const shingleCapacity = crews
-    .filter((c) => c.crew_type === 'shingle')
-    .reduce((s, c) => s + (c.weekly_sq_capacity || 0), 0)
-  const metalCapacity = crews
-    .filter((c) => c.crew_type === 'metal')
-    .reduce((s, c) => s + (c.weekly_sq_capacity || 0), 0)
+  const numField = (key: 'squareFootage' | 'revenuePerSq' | 'estimatedDaysToCompletion') => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm({ ...form, [key]: e.target.value === '' ? 0 : Math.max(0, parseFloat(e.target.value) || 0) })
 
-  const getByType = (type: string) => summary?.byType.find((b) => b.job_type === type)
-  const shinglePipeline = getByType('shingle')
-  const metalPipeline = getByType('metal')
-  const shingleTotalSqs = shinglePipeline?.total_sqs || 0
-  const metalTotalSqs = metalPipeline?.total_sqs || 0
-  const shingleForecastRevenue = shingleTotalSqs * 600
-  const metalForecastRevenue = metalTotalSqs * 1000
-  const totalForecastRevenue = shingleForecastRevenue + metalForecastRevenue
-  const totalForecastSqs = shingleTotalSqs + metalTotalSqs
-  const compactMoney = (value: number) => `$${(value / 1000).toFixed(0)}k`
-  const sqs = (value: number) => `${Math.round(value).toLocaleString()} SQs`
+  const shingleCrews = crews.filter((c) => c.crew_type === 'shingle')
+  const metalCrews = crews.filter((c) => c.crew_type === 'metal')
+  const shingleCapacity = shingleCrews.reduce((s, c) => s + (Number(c.weekly_sq_capacity) || 0), 0)
+  const metalCapacity = metalCrews.reduce((s, c) => s + (Number(c.weekly_sq_capacity) || 0), 0)
+
+  const byType = (type: string) => summary?.byType.find((b) => b.job_type === type)
+  const shinglePipeline = byType('shingle')
+  const metalPipeline = byType('metal')
+  // Revenue comes from the jobs' own rates, so a job entered at a custom $/SQ counts correctly.
+  const cards = [
+    { label: 'Shingle Pipeline', value: shinglePipeline?.total_sqs || 0, jobs: shinglePipeline?.job_count || 0, rev: shinglePipeline?.total_revenue || 0, color: 'text-cyan-300' },
+    { label: 'Metal Pipeline', value: metalPipeline?.total_sqs || 0, jobs: metalPipeline?.job_count || 0, rev: metalPipeline?.total_revenue || 0, color: 'text-pink-300' },
+    { label: 'Total Pipeline', value: summary?.combined.total_sqs || 0, jobs: summary?.combined.job_count || 0, rev: summary?.combined.total_revenue || 0, color: 'text-white' },
+  ]
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Pipeline</h1>
-          <p className="mt-1 text-xs text-slate-400">Forecasts use the jobs entered on this page.</p>
-        </div>
-        <button
-          onClick={() => { setShowForm(!showForm); if (!showForm) { setEditingId(null); setForm({ ...emptyForm }) } }}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-        >
-          {showForm ? 'Cancel' : '+ Add Job'}
-        </button>
-      </div>
+    <>
+      <Header
+        title="Pipeline"
+        actions={
+          <button type="button" onClick={showForm ? closeForm : openNew} className={`${btn} bg-blue-600 text-white hover:bg-blue-700`}>
+            {showForm ? 'Cancel' : '+ Add Job'}
+          </button>
+        }
+      />
+      <div className="p-4 md:p-6 space-y-5">
+        <p className="text-sm text-slate-400">Open jobs entered here feed the production forecast and lead times. Completed jobs drop out of the totals.</p>
 
-      {error && (
-        <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-3 flex justify-between">
-          <p className="text-sm text-red-300">{error}</p>
-          <button onClick={() => setError(null)} className="text-xs text-red-400 underline ml-4">Dismiss</button>
-        </div>
-      )}
-
-      {/* Forecast cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {[
-          {
-            label: 'Shingle Forecast',
-            value: shingleTotalSqs,
-            sub: `${shinglePipeline?.job_count || 0} manually entered jobs · $600/SQ`,
-            color: 'text-cyan-400',
-            rev: shingleForecastRevenue,
-          },
-          {
-            label: 'Metal Forecast',
-            value: metalTotalSqs,
-            sub: `${metalPipeline?.job_count || 0} manually entered jobs · $1,000/SQ`,
-            color: 'text-pink-400',
-            rev: metalForecastRevenue,
-          },
-          {
-            label: 'Total Forecast',
-            value: totalForecastSqs,
-            sub: `${summary?.combined.job_count || 0} manually entered jobs`,
-            color: 'text-white',
-            rev: totalForecastRevenue,
-          },
-        ].map(({ label, value, sub, color, rev }) => (
-          <div key={label} className="bg-slate-800 rounded-lg p-4 border border-slate-700">
-            <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">{label}</p>
-            <p className={`text-2xl font-bold ${color}`}>{sqs(value)}</p>
-            <p className="text-xs text-slate-500 mt-0.5">{sub} · {compactMoney(rev)} forecast</p>
+        {error && (
+          <div role="alert" className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 flex justify-between items-center gap-3">
+            <p className="text-sm text-red-400">{error}</p>
+            <button type="button" onClick={() => setError(null)} className="text-xs text-red-300 underline min-h-[44px] px-2">Dismiss</button>
           </div>
-        ))}
-      </div>
+        )}
 
-      {/* Crew capacity */}
-      {crews.length > 0 && (
-        <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
-          <h3 className="text-sm font-semibold text-slate-300 mb-3">Weekly Production Capacity</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div>
-              <p className="text-xs text-slate-400">Shingle Crews</p>
-              <p className="text-lg font-bold text-cyan-400">{crews.filter((c) => c.crew_type === 'shingle').length}</p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-400">Shingle SQs/wk</p>
-              <p className="text-lg font-bold text-cyan-400">{shingleCapacity.toFixed(0)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-400">Metal Crews</p>
-              <p className="text-lg font-bold text-pink-400">{crews.filter((c) => c.crew_type === 'metal').length}</p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-400">Metal SQs/wk</p>
-              <p className="text-lg font-bold text-pink-400">{metalCapacity.toFixed(0)}</p>
-            </div>
+        {loadError && (
+          <div role="alert" className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm flex items-center justify-between gap-3 flex-wrap">
+            <span>{loadError}</span>
+            <button type="button" onClick={loadAll} className="text-white bg-slate-700 hover:bg-slate-600 text-xs px-3 py-2 min-h-[44px] rounded-lg">Retry</button>
           </div>
-          {shingleCapacity > 0 && shingleTotalSqs > 0 && (
-            <p className="text-xs text-slate-500 mt-2">
-              Shingle lead time: ~{(shingleTotalSqs / shingleCapacity).toFixed(1)} weeks at current capacity
-            </p>
-          )}
-          {metalCapacity > 0 && metalTotalSqs > 0 && (
-            <p className="text-xs text-slate-500">
-              Metal lead time: ~{(metalTotalSqs / metalCapacity).toFixed(1)} weeks at current capacity
-            </p>
-          )}
-        </div>
-      )}
+        )}
 
-      {/* Add/Edit form */}
-      {showForm && (
-        <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-          <h3 className="text-lg font-bold text-white mb-4">{editingId ? 'Edit Pipeline Item' : 'Add Pipeline Item'}</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Job Type *</label>
-              <select
-                value={form.jobType}
-                onChange={(e) => handleTypeChange(e.target.value as 'shingle' | 'metal')}
-                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="shingle">Shingle</option>
-                <option value="metal">Metal</option>
-              </select>
+        {/* Summary cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {cards.map(({ label, value, jobs, rev, color }) => (
+            <div key={label} className="bg-slate-800 rounded-xl p-4 border border-slate-700">
+              <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">{label}</p>
+              <p className={`text-2xl font-bold ${color}`}>{sqs(value)}</p>
+              <p className="text-xs text-slate-400 mt-0.5">{jobs} open {jobs === 1 ? 'job' : 'jobs'} · {compactMoney(rev)} revenue</p>
             </div>
-            {[
-              { label: 'Square Footage *', key: 'squareFootage', type: 'number' },
-              { label: 'Revenue / SQ ($) *', key: 'revenuePerSq', type: 'number' },
-              { label: 'Est. Days to Complete *', key: 'estimatedDaysToCompletion', type: 'number' },
-              { label: 'Added Date *', key: 'addedDate', type: 'date' },
-              { label: 'Target Start Date', key: 'targetStartDate', type: 'date' },
-            ].map(({ label, key, type }) => (
-              <div key={key}>
-                <label className="block text-sm font-medium text-slate-300 mb-1">{label}</label>
-                <input
-                  type={type}
-                  value={(form as any)[key]}
-                  onChange={(e) => setForm({ ...form, [key]: type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+          ))}
+        </div>
+
+        {/* Crew capacity */}
+        {crews.length > 0 && (
+          <section aria-labelledby="capacity-title" className="bg-slate-800 rounded-xl p-4 border border-slate-700">
+            <h2 id="capacity-title" className="text-sm font-semibold text-slate-300 mb-3">Weekly Production Capacity</h2>
+            <dl className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div><dt className="text-xs text-slate-400">Shingle crews</dt><dd className="text-lg font-bold text-cyan-300">{shingleCrews.length}</dd></div>
+              <div><dt className="text-xs text-slate-400">Shingle SQs / wk</dt><dd className="text-lg font-bold text-cyan-300">{shingleCapacity.toFixed(0)}</dd></div>
+              <div><dt className="text-xs text-slate-400">Metal crews</dt><dd className="text-lg font-bold text-pink-300">{metalCrews.length}</dd></div>
+              <div><dt className="text-xs text-slate-400">Metal SQs / wk</dt><dd className="text-lg font-bold text-pink-300">{metalCapacity.toFixed(0)}</dd></div>
+            </dl>
+            {shingleCapacity > 0 && (shinglePipeline?.total_sqs || 0) > 0 && (
+              <p className="text-xs text-slate-400 mt-2">
+                Shingle lead time: about {((shinglePipeline?.total_sqs || 0) / shingleCapacity).toFixed(1)} weeks at current capacity
+              </p>
+            )}
+            {metalCapacity > 0 && (metalPipeline?.total_sqs || 0) > 0 && (
+              <p className="text-xs text-slate-400">
+                Metal lead time: about {((metalPipeline?.total_sqs || 0) / metalCapacity).toFixed(1)} weeks at current capacity
+              </p>
+            )}
+          </section>
+        )}
+
+        {/* Add/Edit form */}
+        {showForm && (
+          <form onSubmit={handleSave} aria-labelledby="pipeline-form-title" className="bg-slate-800 rounded-xl p-5 md:p-6 border border-slate-700">
+            <h2 id="pipeline-form-title" className="text-lg font-bold text-white mb-4">{editingId ? 'Edit Job' : 'Add Job'}</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="pipe-type" className="block text-sm font-medium text-slate-300 mb-1">Job Type *</label>
+                <select id="pipe-type" value={form.jobType} onChange={(e) => handleTypeChange(e.target.value as 'shingle' | 'metal')} className={inputCls}>
+                  <option value="shingle">Shingle</option>
+                  <option value="metal">Metal</option>
+                </select>
               </div>
-            ))}
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Status</label>
-              <select
-                value={form.status}
-                onChange={(e) => setForm({ ...form, status: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="pending">Pending</option>
-                <option value="scheduled">Scheduled</option>
-                <option value="in_progress">In Progress</option>
-                <option value="completed">Completed</option>
-              </select>
+              <div>
+                <label htmlFor="pipe-sqs" className="block text-sm font-medium text-slate-300 mb-1">Size in squares (SQs) *</label>
+                <input id="pipe-sqs" type="number" min={0} step="any" required value={form.squareFootage} onChange={numField('squareFootage')} className={inputCls} autoFocus />
+                <p className="text-xs text-slate-400 mt-1">One square is 100 sq ft of roof.</p>
+              </div>
+              <div>
+                <label htmlFor="pipe-rate" className="block text-sm font-medium text-slate-300 mb-1">Revenue per square ($) *</label>
+                <input id="pipe-rate" type="number" min={0} step="1" required value={form.revenuePerSq} onChange={numField('revenuePerSq')} className={inputCls} />
+              </div>
+              <div>
+                <label htmlFor="pipe-days" className="block text-sm font-medium text-slate-300 mb-1">Estimated days to complete *</label>
+                <input id="pipe-days" type="number" min={1} step="1" required value={form.estimatedDaysToCompletion} onChange={numField('estimatedDaysToCompletion')} className={inputCls} />
+              </div>
+              <div>
+                <label htmlFor="pipe-added" className="block text-sm font-medium text-slate-300 mb-1">Added Date *</label>
+                <input id="pipe-added" type="date" required value={form.addedDate} onChange={(e) => setForm({ ...form, addedDate: e.target.value })} className={inputCls} />
+              </div>
+              <div>
+                <label htmlFor="pipe-target" className="block text-sm font-medium text-slate-300 mb-1">Target Start Date</label>
+                <input id="pipe-target" type="date" value={form.targetStartDate} onChange={(e) => setForm({ ...form, targetStartDate: e.target.value })} className={inputCls} />
+              </div>
+              <div>
+                <label htmlFor="pipe-status" className="block text-sm font-medium text-slate-300 mb-1">Status</label>
+                <select id="pipe-status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className={inputCls}>
+                  {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </div>
+              <div className="md:col-span-2">
+                <label htmlFor="pipe-notes" className="block text-sm font-medium text-slate-300 mb-1">Notes</label>
+                <input id="pipe-notes" type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes" className={inputCls} />
+              </div>
             </div>
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-slate-300 mb-1">Notes</label>
-              <input
-                type="text"
-                value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                placeholder="Optional notes"
-                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+            <p className="mt-3 text-sm text-slate-300" aria-live="polite">
+              Estimated revenue: <span className="font-semibold text-white">{money((form.squareFootage || 0) * (form.revenuePerSq || 0))}</span>
+            </p>
+            <div className="flex gap-3 mt-4 flex-wrap">
+              <button type="submit" disabled={saving} className={`${btn} bg-green-700 text-white hover:bg-green-600`}>
+                {saving ? 'Saving…' : editingId ? 'Update Job' : 'Add Job'}
+              </button>
+              <button type="button" onClick={closeForm} className={`${btn} bg-slate-600 text-white hover:bg-slate-500`}>Cancel</button>
             </div>
-          </div>
-          <div className="mt-3 text-xs text-slate-400">
-            Estimated revenue: ${((form.squareFootage || 0) * (form.revenuePerSq || 0)).toLocaleString()}
-          </div>
-          <div className="flex gap-3 mt-4">
-            <button onClick={handleSave} disabled={saving}
-              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50">
-              {saving ? 'Saving...' : editingId ? 'Update' : 'Add'}
-            </button>
-            <button onClick={() => setShowForm(false)} className="px-4 py-2 bg-slate-600 text-white rounded hover:bg-slate-500">Cancel</button>
-          </div>
-        </div>
-      )}
+          </form>
+        )}
 
-      {/* Pipeline items table */}
-      {loading ? (
-        <div className="text-center py-8 text-slate-400">Loading...</div>
-      ) : items.length === 0 ? (
-        <div className="bg-slate-800 rounded-lg p-8 text-center text-slate-400">No pipeline items yet.</div>
-      ) : (
-        <div className="bg-slate-800 rounded-lg overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-700 border-b border-slate-600">
-              <tr>
-                {['Type', 'SQs', '$/SQ', 'Revenue', 'Status', 'Added', 'Target Start', 'Notes', 'Actions'].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left font-medium text-slate-300">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-700">
-              {items.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-700/40">
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${item.job_type === 'shingle' ? 'bg-cyan-900/40 text-cyan-300' : 'bg-pink-900/40 text-pink-300'}`}>
-                      {item.job_type}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-300">{Number(item.square_footage ?? 0).toFixed(0)}</td>
-                  <td className="px-4 py-3 text-slate-300">${Number(item.revenue_per_sq ?? 0).toFixed(0)}</td>
-                  <td className="px-4 py-3 text-slate-300">${Number(item.total_revenue ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                  <td className="px-4 py-3 text-slate-400 capitalize">{item.status}</td>
-                  <td className="px-4 py-3 text-slate-400">{String(item.added_date).slice(0, 10)}</td>
-                  <td className="px-4 py-3 text-slate-400">{item.target_start_date ? String(item.target_start_date).slice(0, 10) : '—'}</td>
-                  <td className="px-4 py-3 text-slate-400 max-w-32 truncate">{item.notes || '—'}</td>
-                  <td className="px-4 py-3 space-x-3">
-                    <button onClick={() => handleEdit(item)} className="text-blue-400 hover:text-blue-300 text-sm">Edit</button>
-                    <button onClick={() => handleDelete(item.id)} className="text-red-400 hover:text-red-300 text-sm">Remove</button>
-                  </td>
+        {/* Pipeline items table */}
+        {loading ? (
+          <div className="text-center py-8 text-slate-400" role="status" aria-live="polite">Loading pipeline…</div>
+        ) : !loadError && items.length === 0 ? (
+          <div className="bg-slate-800 rounded-xl border border-slate-700 p-8 text-center text-slate-400">No jobs in the pipeline yet. Add one to start the forecast.</div>
+        ) : items.length > 0 ? (
+          <div className="relative bg-slate-800 rounded-xl border border-slate-700 overflow-x-auto" tabIndex={0} aria-label="Pipeline jobs table, scrolls horizontally">
+            <table className="w-full text-sm">
+              <caption className="sr-only">Pipeline jobs with size, revenue, status and dates.</caption>
+              <thead className="bg-slate-700 border-b border-slate-600">
+                <tr>
+                  {['Type', 'SQs', '$ / SQ', 'Revenue', 'Days', 'Status', 'Added', 'Target Start', 'Notes', 'Actions'].map((h) => (
+                    <th scope="col" key={h} className="px-4 py-3 text-left font-medium text-slate-300 whitespace-nowrap">{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+              </thead>
+              <tbody className="divide-y divide-slate-700">
+                {items.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-700/40">
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${item.job_type === 'shingle' ? 'bg-cyan-900/40 text-cyan-300' : 'bg-pink-900/40 text-pink-300'}`}>
+                        {item.job_type}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-300">{Number(item.square_footage ?? 0).toFixed(0)}</td>
+                    <td className="px-4 py-3 text-slate-300">${Number(item.revenue_per_sq ?? 0).toFixed(0)}</td>
+                    <td className="px-4 py-3 text-slate-300">{money(Number(item.total_revenue ?? 0))}</td>
+                    <td className="px-4 py-3 text-slate-300">{item.estimated_days_to_completion || '—'}</td>
+                    <td className="px-4 py-3 text-slate-300">{STATUS_LABELS[item.status] || item.status}</td>
+                    <td className="px-4 py-3 text-slate-300 whitespace-nowrap">{formatDate(item.added_date)}</td>
+                    <td className="px-4 py-3 text-slate-300 whitespace-nowrap">{item.target_start_date ? formatDate(item.target_start_date) : <span className="text-slate-400">—</span>}</td>
+                    <td className="px-4 py-3 text-slate-300 max-w-48 truncate" title={item.notes || undefined}>{item.notes || <span className="text-slate-400">—</span>}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <button type="button" onClick={() => handleEdit(item)} aria-label={`Edit ${item.job_type} job of ${Number(item.square_footage).toFixed(0)} squares`} className="text-blue-400 hover:text-blue-300 text-sm min-h-[44px] px-2 rounded-lg">Edit</button>
+                      <button type="button" onClick={() => handleDelete(item)} aria-label={`Remove ${item.job_type} job of ${Number(item.square_footage).toFixed(0)} squares`} className="text-red-400 hover:text-red-300 text-sm min-h-[44px] px-2 rounded-lg">Remove</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </div>
+    </>
   )
 }

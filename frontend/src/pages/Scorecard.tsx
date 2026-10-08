@@ -20,6 +20,7 @@ import {
 } from '../services/api'
 import { TeamType } from '../types'
 import { useAuthStore } from '../store/authStore'
+import { useDialog } from '../components/useDialog'
 import { TEAMS, teamLabel } from '../utils/teams'
 
 // ── Local types ───────────────────────────────────────────────────────────────
@@ -255,7 +256,7 @@ function GoalEditor({ metric, weeks, onSaved, onCancel }: GoalEditorProps) {
           Also re-score the past {pastWeeks} weeks
         </label>
       )}
-      <p id={hintId} className="text-[11px] text-slate-500">
+      <p id={hintId} className="text-[11px] text-slate-400">
         {rescorePast
           ? `Applies to all ${weeks.length} weeks shown and future weeks.`
           : 'Applies from this week on; earlier weeks keep their goal.'}
@@ -325,7 +326,7 @@ function GoalCell({ metric, weeks, canEdit, onSaved, onEditCompact }: {
             aria-label={`Edit goal for ${metric.metric_name}, currently ${hasGoal ? goalLabel(metric) : 'not set'}`}
             className="group/goal inline-flex items-center justify-end gap-1.5 min-h-[44px] px-2 rounded text-slate-300 hover:text-white hover:bg-slate-700/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
             {hasGoal ? goalLabel(metric) : <span className="text-blue-400">Set goal</span>}
-            <svg className="w-3.5 h-3.5 text-slate-500 group-hover/goal:text-blue-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <svg className="w-3.5 h-3.5 text-slate-400 group-hover/goal:text-blue-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
             </svg>
@@ -457,10 +458,13 @@ function MetricDetailModal({
     )
   }
 
+  const dialogRef = useDialog<HTMLDivElement>(onClose)
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm px-0 sm:px-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="bg-slate-800 border border-slate-700 rounded-t-2xl sm:rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`${metric.metric_name} details`}
+        className="bg-slate-800 border border-slate-700 rounded-t-2xl sm:rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl">
 
         {/* Header */}
         <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-700 flex-shrink-0">
@@ -618,7 +622,7 @@ function MetricDetailModal({
                       <div key={w}
                         onClick={() => startCreate(w)}
                         className="flex items-center justify-between px-3 py-2.5 min-h-[44px] rounded-lg hover:bg-slate-700/30 active:bg-slate-700/40 transition-colors cursor-pointer">
-                        <span className="text-xs text-slate-500">{fullDate(w)}</span>
+                        <span className="text-xs text-slate-400">{fullDate(w)}</span>
                         <span className="text-xs font-medium text-blue-400">+ Add value</span>
                       </div>
                     )
@@ -633,20 +637,20 @@ function MetricDetailModal({
                       <div className="flex items-center gap-2.5">
                         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
                         <span className="text-xs text-slate-400">{fullDate(w)}</span>
-                        {e.notes && <span className="text-xs text-slate-500 italic truncate max-w-[120px]">{e.notes}</span>}
+                        {e.notes && <span className="text-xs text-slate-400 italic truncate max-w-[120px]">{e.notes}</span>}
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="text-sm font-semibold text-white">{formatValue(e.actual, fmt)}</span>
                         <div className="flex items-center gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                           <button onClick={(ev) => { ev.stopPropagation(); startEdit(e, w) }}
-                            className="text-slate-500 hover:text-blue-400 transition-colors p-1.5">
+                            className="text-slate-400 hover:text-blue-400 transition-colors p-1.5">
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                                 d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                             </svg>
                           </button>
                           <button onClick={(ev) => { ev.stopPropagation(); handleDelete(e.id) }}
-                            className="text-slate-500 hover:text-red-400 transition-colors p-1.5">
+                            className="text-slate-400 hover:text-red-400 transition-colors p-1.5">
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                                 d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -692,10 +696,14 @@ function NewWeekModal({ defaultTeam, onClose, onCreated }: NewWeekModalProps) {
     }
   }
 
+  const dialogRef = useDialog<HTMLDivElement>(onClose)
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl p-6 w-full max-w-sm mx-4">
-        <h2 className="text-white font-semibold text-base mb-4">Create New Week from Template</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="new-week-title"
+        className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl p-6 w-full max-w-sm mx-4 max-h-[90vh] overflow-y-auto">
+        <h2 id="new-week-title" className="text-white font-semibold text-base mb-4">Create New Week from Template</h2>
         {error && <div className="bg-red-500/10 border border-red-500/30 rounded px-3 py-2 text-red-400 text-sm mb-4">{error}</div>}
         <div className="space-y-4">
           <div>
@@ -767,10 +775,14 @@ function AddEntryModal({ defaultTeam, onClose, onCreated, userId }: AddEntryModa
     }
   }
 
+  const dialogRef = useDialog<HTMLDivElement>(onClose)
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-      <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl p-6 w-full max-w-lg">
-        <h2 className="text-white font-semibold text-base mb-4">Add Scorecard Entry</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="add-entry-title"
+        className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <h2 id="add-entry-title" className="text-white font-semibold text-base mb-4">Add Scorecard Entry</h2>
         {error && <div className="bg-red-500/10 border border-red-500/30 rounded px-3 py-2 text-red-400 text-sm mb-4">{error}</div>}
         <form onSubmit={submit} className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -974,12 +986,15 @@ function MetricsAdminModal({ defaultTeam, onClose, onChanged }: MetricsAdminModa
     }
   }
 
+  const dialogRef = useDialog<HTMLDivElement>(finish)
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 backdrop-blur-sm overflow-y-auto py-8 px-4">
-      <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-3xl">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="metrics-editor-title"
+        className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-3xl">
         <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between gap-4">
           <div>
-            <h2 className="text-white font-semibold text-base">Scorecard Metrics</h2>
+            <h2 id="metrics-editor-title" className="text-white font-semibold text-base">Scorecard Metrics</h2>
             <p className="text-xs text-slate-400 mt-0.5">
               Defines the rows each new week starts with. Recorded weeks are never changed here.
             </p>
@@ -1039,7 +1054,7 @@ function MetricsAdminModal({ defaultTeam, onClose, onChanged }: MetricsAdminModa
               <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500" />
             </div>
           ) : rows.length === 0 ? (
-            <div className="text-center py-10 text-slate-500 text-sm">
+            <div className="text-center py-10 text-slate-400 text-sm">
               {teamLabel(team)} has no metrics yet. Add the first one above.
             </div>
           ) : (
@@ -1064,7 +1079,7 @@ function MetricsAdminModal({ defaultTeam, onClose, onChanged }: MetricsAdminModa
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`text-sm font-medium ${row.is_active ? 'text-white' : 'text-slate-500'}`}>
+                          <span className={`text-sm font-medium ${row.is_active ? 'text-white' : 'text-slate-400'}`}>
                             {row.metric_name}
                           </span>
                           {!row.is_active && (
@@ -1114,7 +1129,7 @@ function MetricsAdminModal({ defaultTeam, onClose, onChanged }: MetricsAdminModa
             </ul>
           )}
 
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-400">
             Paused metrics stay out of new weeks but keep their history. Use <span className="text-slate-400">New Week</span> to
             apply the current template to a week.
           </p>
@@ -1339,11 +1354,11 @@ const Scorecard: React.FC = () => {
         {/* Team filter + legend */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <TeamFilter value={team} onChange={t => setTeam(t)} />
-          <div className="flex items-center gap-3 sm:gap-4 text-xs text-slate-500 flex-wrap">
+          <div className="flex items-center gap-3 sm:gap-4 text-xs text-slate-400 flex-wrap">
             <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-400" />On Track</span>
             <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-400" />Off Track</span>
             <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-600" />No Data</span>
-            <span className="text-slate-600 hidden sm:inline">Tap any row for trend & details</span>
+            <span className="text-slate-400 hidden sm:inline">Tap any row for trend & details</span>
           </div>
         </div>
         <p className="text-xs text-slate-400">
@@ -1351,22 +1366,23 @@ const Scorecard: React.FC = () => {
           {isLeadershipOrAdmin && ' Select a goal to change it.'}
           {' '}Total and Avg cover the weeks with a value in the 13 weeks shown.
         </p>
-        <p className="md:hidden text-[11px] text-slate-500 -mt-2">Swipe table horizontally · tap any row for details</p>
+        <p className="md:hidden text-[11px] text-slate-400 -mt-2">Swipe table horizontally · tap any row for details</p>
 
         {loading ? (
           <div className="flex items-center justify-center h-48">
             <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500" />
           </div>
         ) : !history || history.metrics.length === 0 ? (
-          <div className="text-center py-16 text-slate-500 text-sm bg-slate-800 rounded-xl border border-slate-700">
+          <div className="text-center py-16 text-slate-400 text-sm bg-slate-800 rounded-xl border border-slate-700">
             No scorecard data for this period.
             {isLeadershipOrAdmin && (
-              <span> <button onClick={() => setShowNewWeekModal(true)} className="text-blue-400 hover:text-blue-300 underline">Create from template</button></span>
+              <span> <button type="button" onClick={() => setShowNewWeekModal(true)} className="text-blue-400 hover:text-blue-300 underline min-h-[44px] px-1">Create from template</button></span>
             )}
           </div>
         ) : (
-          <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-x-auto">
+          <div className="relative bg-slate-800 rounded-xl border border-slate-700 overflow-x-auto" tabIndex={0} aria-label="Scorecard table, scrolls horizontally">
             <table className="w-full text-sm border-collapse">
+              <caption className="sr-only">Weekly scorecard. Select a metric name to view or edit its weekly entries.</caption>
               <thead>
                 <tr className="border-b border-slate-700">
                   {/* Sticky metric name column */}
@@ -1388,12 +1404,12 @@ const Scorecard: React.FC = () => {
                     return (
                       <th key={w}
                         className={`text-center px-2 py-3 text-xs font-medium uppercase tracking-wide whitespace-nowrap min-w-[60px]
-                          ${isCurrent ? 'text-blue-400 border-l border-r border-blue-500/30 bg-blue-500/5' : 'text-slate-500'}
+                          ${isCurrent ? 'text-blue-400 border-l border-r border-blue-500/30 bg-blue-500/5' : 'text-slate-400'}
                           ${i === history.weeks.length - 2 ? 'border-l border-slate-700/50' : ''}`}>
                         {isCurrent ? (
                           <span className="flex flex-col items-center gap-0.5">
                             <span className="text-blue-400">{shortDate(w)}</span>
-                            <span className="text-[9px] text-blue-500/70 normal-case font-normal">this wk</span>
+                            <span className="text-[10px] text-blue-400 normal-case font-normal">this wk</span>
                           </span>
                         ) : shortDate(w)}
                       </th>
@@ -1410,16 +1426,22 @@ const Scorecard: React.FC = () => {
                       className="hover:bg-slate-700/25 transition-colors cursor-pointer group">
                       {/* Metric name — sticky */}
                       {/* Names wrap on phones so the sticky column leaves room for the goal and weeks. */}
-                      <td className="sticky left-0 z-10 bg-slate-800 group-hover:bg-slate-700/25 px-4 py-3 md:whitespace-nowrap">
-                        <div className="flex items-center gap-2 max-w-[9rem] md:max-w-none">
-                          <svg className="w-3.5 h-3.5 text-slate-600 group-hover:text-blue-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <td className="sticky left-0 z-10 bg-slate-800 group-hover:bg-slate-700/25 px-4 py-2 md:whitespace-nowrap">
+                        {/* The name is a real button so keyboard users can open the metric; the row click is a pointer shortcut. */}
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); openMetric(metric) }}
+                          aria-label={`Open ${metric.metric_name}`}
+                          className="flex items-center gap-2 max-w-[9rem] md:max-w-none text-left min-h-[44px] rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                        >
+                          <svg className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                           </svg>
                           <span className="text-white font-medium text-xs">{metric.metric_name}</span>
                           {(team === 'all' || team === undefined) && user?.role !== 'manager' && (
-                            <span className="text-slate-600 text-[10px] capitalize">{metric.team}</span>
+                            <span className="text-slate-400 text-[11px] capitalize">{metric.team}</span>
                           )}
-                        </div>
+                        </button>
                       </td>
                       {/* Goal — editable in place by leadership/admin */}
                       <GoalCell
@@ -1435,7 +1457,7 @@ const Scorecard: React.FC = () => {
                           // relative: keeps the absolutely positioned sr-only text inside the
                           // table's scroll container instead of widening the page.
                           <span className="relative" title="Percentages aren't summed — see Avg">
-                            <span aria-hidden="true" className="text-slate-500">—</span>
+                            <span aria-hidden="true" className="text-slate-400">—</span>
                             <span className="sr-only">Not summed for percentages</span>
                           </span>
                         ) : formatValue(total, metric.display_format)}
@@ -1455,7 +1477,7 @@ const Scorecard: React.FC = () => {
                               ${cellColor(entry, isCurrent)}`}>
                             {entry?.actual !== null && entry?.actual !== undefined
                               ? formatValue(entry.actual, metric.display_format)
-                              : <span className="text-slate-700">—</span>}
+                              : <span className="relative"><span aria-hidden="true" className="text-slate-500">—</span><span className="sr-only">No entry</span></span>}
                           </td>
                         )
                       })}

@@ -1,9 +1,11 @@
 import React from 'react'
+import { usePageTitle } from '../utils/pageTitle'
 import { Link } from 'react-router-dom'
 
 const PrivacyPolicy: React.FC = () => {
+  usePageTitle('Privacy Policy')
   return (
-    <div className="min-h-screen bg-slate-900 text-white py-12 px-4">
+    <main className="min-h-screen bg-slate-900 text-white py-12 px-4">
       <div className="max-w-4xl mx-auto">
 
         {/* Header */}
@@ -247,7 +249,7 @@ const PrivacyPolicy: React.FC = () => {
                         href="https://accounts.intuit.com"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-400 hover:text-blue-300 transition-colors"
+                        className="text-blue-300 hover:text-blue-200 underline transition-colors"
                       >
                         accounts.intuit.com
                       </a>{' '}
@@ -355,7 +357,7 @@ const PrivacyPolicy: React.FC = () => {
               </ul>
               <p className="text-slate-300 leading-relaxed mt-3">
                 To exercise any of these rights, please contact us at{' '}
-                <a href="mailto:privacy@frameworkops.com" className="text-blue-400 hover:text-blue-300 transition-colors">
+                <a href="mailto:privacy@frameworkops.com" className="text-blue-300 hover:text-blue-200 underline transition-colors">
                   privacy@frameworkops.com
                 </a>
                 . We will respond to your request within a reasonable timeframe and in accordance with
@@ -398,7 +400,7 @@ const PrivacyPolicy: React.FC = () => {
                 from children under 13. If we become aware that a child under 13 has provided us with personal
                 information, we will take steps to delete such information promptly. If you believe a child
                 under 13 has provided information to us, please contact us at{' '}
-                <a href="mailto:privacy@frameworkops.com" className="text-blue-400 hover:text-blue-300 transition-colors">
+                <a href="mailto:privacy@frameworkops.com" className="text-blue-300 hover:text-blue-200 underline transition-colors">
                   privacy@frameworkops.com
                 </a>.
               </p>
@@ -434,7 +436,7 @@ const PrivacyPolicy: React.FC = () => {
                   Email:{' '}
                   <a
                     href="mailto:privacy@frameworkops.com"
-                    className="text-blue-400 hover:text-blue-300 transition-colors"
+                    className="text-blue-300 hover:text-blue-200 underline transition-colors"
                   >
                     privacy@frameworkops.com
                   </a>
@@ -446,7 +448,7 @@ const PrivacyPolicy: React.FC = () => {
 
           {/* Footer */}
           <div className="mt-12 pt-6 border-t border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p className="text-slate-500 text-sm">
+            <p className="text-slate-400 text-sm">
               © 2025 FrameworkOPS LLC. All rights reserved.
             </p>
             <div className="flex gap-4 text-sm">
@@ -461,7 +463,7 @@ const PrivacyPolicy: React.FC = () => {
 
         </div>
       </div>
-    </div>
+    </main>
   )
 }
 
