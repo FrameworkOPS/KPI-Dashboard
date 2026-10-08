@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { pool } from '../config/database';
-import { AuthRequest } from '../middleware/auth';
+import { AuthRequest, invalidateUserCache } from '../middleware/auth';
 import { sendInvitationEmail, isEmailConfigured } from '../services/emailService';
 import { TEAMS_WITH_ALL } from '../constants/teams';
 
@@ -232,6 +232,13 @@ export async function updateUser(req: AuthRequest, res: Response, next: NextFunc
       return;
     }
 
+    // An admin who deactivates or demotes their own account can lock everyone
+    // out when they are the only admin, so those two changes need another admin.
+    if (req.user!.id === id && (active === false || (role !== undefined && role !== 'admin'))) {
+      res.status(400).json({ error: 'You cannot deactivate or change the role of your own account. Ask another admin.' });
+      return;
+    }
+
     // Build dynamic update
     const sets: string[] = [];
     const values: unknown[] = [];
@@ -284,6 +291,7 @@ export async function updateUser(req: AuthRequest, res: Response, next: NextFunc
        RETURNING id, email, first_name, last_name, role, team, teams, active, roster_only, job_duties, created_at`,
       values
     );
+    invalidateUserCache(String(id));
 
     res.json(result.rows[0]);
   } catch (err) {
@@ -308,6 +316,7 @@ export async function deleteUser(req: AuthRequest, res: Response, next: NextFunc
     }
 
     await pool.query('DELETE FROM users WHERE id = $1', [id]);
+    invalidateUserCache(String(id));
     res.json({ message: 'User deleted' });
   } catch (err) {
     next(err);

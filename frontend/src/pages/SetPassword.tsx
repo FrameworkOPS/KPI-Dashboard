@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { getInviteApi, acceptInviteApi } from '../services/api'
+import { usePageTitle } from '../utils/pageTitle'
 
 const SetPassword: React.FC = () => {
   const [params] = useSearchParams()
   const token = params.get('token') || ''
   const navigate = useNavigate()
+  usePageTitle('Set your password')
 
   const [loading, setLoading] = useState(true)
   const [invite, setInvite] = useState<{ email: string; first_name: string | null; team: string } | null>(null)
@@ -46,7 +48,7 @@ const SetPassword: React.FC = () => {
   const inputCls = 'w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-base'
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4 py-8">
+    <main className="min-h-screen bg-slate-900 flex items-center justify-center px-4 py-8">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <img
@@ -72,26 +74,26 @@ const SetPassword: React.FC = () => {
               <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">
                 {error || 'Invalid invitation.'}
               </div>
-              <button onClick={() => navigate('/login')} className="text-blue-400 text-sm hover:underline">
+              <button onClick={() => navigate('/login')} className="text-blue-400 text-sm underline hover:text-blue-300 min-h-[44px] px-3">
                 Go to sign in
               </button>
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-5">
               {error && (
-                <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">{error}</div>
+                <div role="alert" className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">{error}</div>
               )}
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">Email</label>
-                <input type="email" value={invite.email} disabled className={`${inputCls} opacity-70`} />
+                <label htmlFor="invite-email" className="block text-sm font-medium text-slate-300 mb-1.5">Email</label>
+                <input id="invite-email" type="email" value={invite.email} disabled className={`${inputCls} opacity-70`} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">New password</label>
-                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Minimum 6 characters" className={inputCls} />
+                <label htmlFor="invite-password" className="block text-sm font-medium text-slate-300 mb-1.5">New password</label>
+                <input id="invite-password" autoComplete="new-password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Minimum 6 characters" className={inputCls} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">Confirm password</label>
-                <input type="password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="••••••••" className={inputCls} />
+                <label htmlFor="invite-confirm" className="block text-sm font-medium text-slate-300 mb-1.5">Confirm password</label>
+                <input id="invite-confirm" autoComplete="new-password" type="password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="••••••••" className={inputCls} />
               </div>
               <button
                 type="submit"
@@ -104,7 +106,7 @@ const SetPassword: React.FC = () => {
           )}
         </div>
       </div>
-    </div>
+    </main>
   )
 }
 

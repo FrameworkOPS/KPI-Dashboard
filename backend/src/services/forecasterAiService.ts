@@ -1,5 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { pool } from '../config/database';
+import { canAccessTeam, JwtPayload } from '../utils/auth';
+import { computeOnTrack, scorecardTemplateFor } from '../utils/scorecard';
+
+/** The person chatting; tools are authorized against this, never the model's say-so. */
+export type ToolUser = Pick<JwtPayload, 'id' | 'role' | 'team' | 'teams'>;
 
 const FORECASTER_MODEL = process.env.FORECASTER_AI_MODEL || 'claude-sonnet-4-6';
 const SKY_MODEL        = process.env.SKY_AI_MODEL        || 'claude-haiku-4-5-20251001';
@@ -820,6 +825,10 @@ async function tool_set_sales_forecast(input: any, userId: string | null): Promi
 
 async function tool_delete_sales_forecast(input: any): Promise<any> {
   const { start_week, end_week, job_type } = input || {};
+  // Without a range this was `DELETE FROM sales_forecast` — the whole table.
+  if (!start_week || !end_week) {
+    return { error: 'start_week and end_week are required; say which weeks to clear.' };
+  }
   const conditions: string[] = [];
   const values: any[] = [];
   let p = 1;
@@ -1004,14 +1013,25 @@ async function tool_set_scorecard_actual(input: any, userId: string | null): Pro
   if (!team || !week_of || !metric_name || actual === undefined) {
     return { error: 'team, week_of, metric_name, actual required' };
   }
+  // Score against the metric's template the same way the scorecard page does,
+  // so a value Sky enters turns green or red instead of staying neutral.
+  const template = await scorecardTemplateFor(team, metric_name);
+  const actualNum = actual === null ? null : Number(actual);
+  const onTrack = is_on_track != null
+    ? is_on_track
+    : computeOnTrack(template?.goal ?? null, actualNum, template?.lower_is_better ?? false);
   await pool.query(
-    `INSERT INTO scorecard_entries (team, week_of, metric_name, actual, is_on_track, notes, data_source, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,'manual',$7)
+    `INSERT INTO scorecard_entries
+       (team, week_of, metric_name, goal, goal_text, display_format, lower_is_better,
+        actual, is_on_track, notes, data_source, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'manual',$11)
      ON CONFLICT (team, week_of, metric_name) DO UPDATE
-       SET actual=$4, is_on_track=$5, notes=COALESCE($6, scorecard_entries.notes), updated_at=NOW()`,
-    [team, week_of, metric_name, actual, is_on_track ?? null, notes || null, userId],
+       SET actual=$8, is_on_track=$9, notes=COALESCE($10, scorecard_entries.notes), updated_at=NOW()`,
+    [team, week_of, metric_name, template?.goal ?? null, template?.goal_text ?? null,
+     template?.display_format ?? 'number', template?.lower_is_better ?? false,
+     actualNum, onTrack, notes || null, userId],
   );
-  return { ok: true, written: { team, week_of, metric_name, actual, is_on_track } };
+  return { ok: true, written: { team, week_of, metric_name, actual: actualNum, is_on_track: onTrack } };
 }
 
 async function tool_update_meeting_notes(input: any): Promise<any> {
@@ -1282,8 +1302,54 @@ async function tool_set_people_analyzer_entry(input: any, userId: string | null)
   return { ok: true, upserted: r.rows[0] };
 }
 
-async function executeTool(name: string, input: any, userId: string | null): Promise<any> {
+// ── Authorization ────────────────────────────────────────────────────────────
+// Tool calls run with the chatting user's rights, matching the REST API:
+// read tools for everyone, writes for managers and up, and the HR, V/TO and
+// org-chart tools for the roles that own them. The team on a write is checked
+// against the user's teams, both from the input and from the row being edited.
+const WRITE_ROLES = new Set(['admin', 'leadership', 'manager']);
+const LEADERSHIP_ROLES = new Set(['admin', 'leadership']);
+const ADMIN_ONLY_TOOLS = new Set(['set_people_analyzer_entry']);
+const LEADERSHIP_TOOLS = new Set(['update_vto_section', 'update_accountability_seat', 'list_users', 'update_crew_capacity']);
+const WRITE_TOOLS_BY_TAG = new Set(
+  TOOLS.filter((t) => /^\[(DATA|CONFIG)\]/.test(String(t.description || ''))).map((t) => t.name),
+);
+// Tools that edit a row by id: look up that row's team before allowing it.
+const ROW_TEAM_TABLES: Record<string, string> = {
+  update_rock: 'rocks',
+  update_issue: 'issues',
+  update_todo: 'todos',
+  update_meeting_notes: 'meetings',
+};
+
+async function toolDenial(name: string, input: any, user: ToolUser | null): Promise<string | null> {
+  if (!user) return 'You need to be signed in to use this tool.';
+  const { role } = user;
+  if (ADMIN_ONLY_TOOLS.has(name) && role !== 'admin') return `${name} is limited to admins.`;
+  if (LEADERSHIP_TOOLS.has(name) && !LEADERSHIP_ROLES.has(role)) return `${name} is limited to leadership and admins.`;
+  if (WRITE_TOOLS_BY_TAG.has(name) && !WRITE_ROLES.has(role)) {
+    return `${name} changes data, and the ${role} role can only read. Ask a manager or leader to make this change.`;
+  }
+  const team = input?.team;
+  if (typeof team === 'string' && team && !canAccessTeam(role, user.team, team, user.teams)) {
+    return `You don't have access to the ${team} team.`;
+  }
+  const table = ROW_TEAM_TABLES[name];
+  if (table && input?.id) {
+    const r = await pool.query(`SELECT team FROM ${table} WHERE id = $1`, [input.id]);
+    const rowTeam = r.rows[0]?.team;
+    if (rowTeam && !canAccessTeam(role, user.team, rowTeam, user.teams)) {
+      return `That item belongs to the ${rowTeam} team, which you don't have access to.`;
+    }
+  }
+  return null;
+}
+
+async function executeTool(name: string, input: any, user: ToolUser | null): Promise<any> {
+  const userId = user?.id ?? null;
   try {
+    const denied = await toolDenial(name, input, user);
+    if (denied) return { error: denied, denied: true };
     switch (name) {
       case 'get_app_overview':               return await tool_get_app_overview();
       case 'get_scorecard_snapshot':         return await tool_get_scorecard_snapshot(input);
@@ -1355,7 +1421,7 @@ async function chatWithSystem(
   systemPrompt: string,
   disabledName: string,
   history: ChatMessage[],
-  userId: string | null = null,
+  user: ToolUser | null = null,
   model: string = FORECASTER_MODEL,
   maxTokens: number = 4096,
 ): Promise<ChatResult> {
@@ -1388,7 +1454,7 @@ async function chatWithSystem(
       messages.push({ role: 'assistant', content: resp.content });
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const use of toolUses) {
-        const result = await executeTool(use.name, use.input, userId);
+        const result = await executeTool(use.name, use.input, user);
         // Surface warnings/config flags to the UI
         const warning = (result && typeof result === 'object' && result.warning) ? String(result.warning)
           : (CONFIG_TOOLS.has(use.name) && (use.input as any)?.confirmed === true) ? `Base-function change via ${use.name}` : undefined;
@@ -1414,12 +1480,12 @@ async function chatWithSystem(
   };
 }
 
-export async function chatWithForecaster(history: ChatMessage[], userId: string | null = null): Promise<ChatResult> {
-  return chatWithSystem(FORECASTER_SYSTEM_PROMPT, 'The Forecaster AI', history, userId, FORECASTER_MODEL, 4096);
+export async function chatWithForecaster(history: ChatMessage[], user: ToolUser | null = null): Promise<ChatResult> {
+  return chatWithSystem(FORECASTER_SYSTEM_PROMPT, 'The Forecaster AI', history, user, FORECASTER_MODEL, 4096);
 }
 
-export async function chatWithSky(history: ChatMessage[], userId: string | null = null): Promise<ChatResult> {
-  return chatWithSystem(SKY_SYSTEM_PROMPT, 'Sky', history, userId, SKY_MODEL, 1024);
+export async function chatWithSky(history: ChatMessage[], user: ToolUser | null = null): Promise<ChatResult> {
+  return chatWithSystem(SKY_SYSTEM_PROMPT, 'Sky', history, user, SKY_MODEL, 1024);
 }
 
 export function isForecasterAiConfigured(): boolean {

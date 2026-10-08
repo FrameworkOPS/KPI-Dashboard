@@ -235,7 +235,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
         {onClose && (
           <button
             onClick={onClose}
-            className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors flex-shrink-0"
+            className="md:hidden p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors flex-shrink-0"
             aria-label="Close menu"
           >
             <IconClose />
@@ -244,10 +244,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
       </div>
 
       {/* Nav — grouped to reduce visual noise as the page count grows */}
-      <nav className="flex-1 overflow-y-auto py-3 px-3">
+      <nav aria-label="Main" className="flex-1 overflow-y-auto py-3 px-3">
         {visibleGroups.map((group, gi) => (
           <div key={group.label} className={gi > 0 ? 'mt-4' : ''}>
-            <p className="px-3 text-[10px] font-semibold text-slate-600 uppercase tracking-widest mb-1.5">{group.label}</p>
+            <p className="px-3 text-[11px] font-semibold text-slate-400 uppercase tracking-widest mb-1.5">{group.label}</p>
             <ul className="space-y-0.5">
               {group.items.map((item) => (
                 <li key={item.to}>
@@ -288,7 +288,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onClose }) => {
           <button
             onClick={handleLogout}
             title="Log out"
-            className="text-slate-500 hover:text-red-400 transition-colors p-1.5 rounded"
+            aria-label="Log out"
+            className="text-slate-400 hover:text-red-400 transition-colors p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center rounded"
           >
             <IconLogout />
           </button>

@@ -100,7 +100,7 @@ const SectionCard: React.FC<SectionCardProps> = ({ sectionDef, data, onSaved }) 
       onSaved()
       setEditing(false)
     } catch (e: any) {
-      setError(e.response?.data?.message || e.message)
+      setError(e.message || 'Could not save this section')
     } finally {
       setSaving(false)
     }
@@ -109,34 +109,38 @@ const SectionCard: React.FC<SectionCardProps> = ({ sectionDef, data, onSaved }) 
   const inputCls = 'w-full bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent'
 
   const hasContent = data && Object.values(data.content || {}).some((v) => v && String(v).trim())
+  const headingId = `vto-${sectionDef.key}-title`
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700">
+    <section aria-labelledby={headingId} className="bg-slate-800 rounded-xl border border-slate-700">
       <div className="px-5 py-4 border-b border-slate-700 flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-white">{sectionDef.title}</h3>
-          <p className="text-xs text-slate-500 mt-0.5">{sectionDef.description}</p>
+          <h2 id={headingId} className="text-sm font-semibold text-white">{sectionDef.title}</h2>
+          <p className="text-xs text-slate-400 mt-0.5">{sectionDef.description}</p>
         </div>
         {!editing && (
           <button
+            type="button"
             onClick={startEdit}
-            className="flex-shrink-0 text-slate-400 hover:text-blue-400 transition-colors p-1 rounded"
+            aria-label={`Edit ${sectionDef.title}`}
+            className="flex-shrink-0 text-slate-400 hover:text-blue-400 transition-colors p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
             </svg>
           </button>
         )}
       </div>
       <div className="p-5">
-        {error && <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-red-400 text-sm mb-3">{error}</div>}
+        {error && <div role="alert" className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-red-400 text-sm mb-3">{error}</div>}
         {editing ? (
-          <div className="space-y-4">
+          <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); handleSave() }}>
             {sectionDef.fields.map((field) => (
               <div key={field.key}>
-                <label className="block text-xs font-medium text-slate-400 mb-1">{field.label}</label>
+                <label htmlFor={`vto-${sectionDef.key}-${field.key}`} className="block text-xs font-medium text-slate-400 mb-1">{field.label}</label>
                 {field.type === 'textarea' ? (
                   <textarea
+                    id={`vto-${sectionDef.key}-${field.key}`}
                     rows={4}
                     className={inputCls}
                     value={form[field.key] || ''}
@@ -145,6 +149,7 @@ const SectionCard: React.FC<SectionCardProps> = ({ sectionDef, data, onSaved }) 
                   />
                 ) : (
                   <input
+                    id={`vto-${sectionDef.key}-${field.key}`}
                     type="text"
                     className={inputCls}
                     value={form[field.key] || ''}
@@ -155,12 +160,12 @@ const SectionCard: React.FC<SectionCardProps> = ({ sectionDef, data, onSaved }) 
               </div>
             ))}
             <div className="flex justify-end gap-2 pt-2">
-              <button onClick={cancelEdit} className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded-lg transition-colors">Cancel</button>
-              <button onClick={handleSave} disabled={saving} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-60">
+              <button type="button" onClick={cancelEdit} className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 min-h-[44px] rounded-lg transition-colors">Cancel</button>
+              <button type="submit" disabled={saving} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 min-h-[44px] rounded-lg transition-colors disabled:opacity-60">
                 {saving ? 'Saving…' : 'Save'}
               </button>
             </div>
-          </div>
+          </form>
         ) : hasContent ? (
           <div className="space-y-3">
             {sectionDef.fields.map((field) => {
@@ -176,14 +181,14 @@ const SectionCard: React.FC<SectionCardProps> = ({ sectionDef, data, onSaved }) 
           </div>
         ) : (
           <div className="text-center py-6">
-            <p className="text-slate-500 text-sm mb-3">No content yet.</p>
-            <button onClick={startEdit} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
-              + Add content
+            <p className="text-slate-400 text-sm mb-3">No content yet.</p>
+            <button type="button" onClick={startEdit} className="text-xs text-blue-400 hover:text-blue-300 transition-colors min-h-[44px] px-3 rounded-lg">
+              + Add {sectionDef.title}
             </button>
           </div>
         )}
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -193,7 +198,6 @@ const VTO: React.FC = () => {
   const [error, setError] = useState<string | null>(null)
 
   const loadVTO = useCallback(async () => {
-    setLoading(true)
     setError(null)
     try {
       const res = await getVTOApi()
@@ -211,11 +215,17 @@ const VTO: React.FC = () => {
     <>
       <Header title="Vision / Traction Organizer" />
       <div className="p-4 md:p-6 space-y-4">
-        {error && <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm">{error}</div>}
+        {error && (
+          <div role="alert" className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-red-400 text-sm flex items-center justify-between gap-3 flex-wrap">
+            <span>{error}</span>
+            <button type="button" onClick={loadVTO} className="text-white bg-slate-700 hover:bg-slate-600 text-xs px-3 py-2 min-h-[44px] rounded-lg">Retry</button>
+          </div>
+        )}
 
         {loading ? (
-          <div className="flex items-center justify-center h-48">
-            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500" />
+          <div className="flex items-center justify-center h-48" role="status" aria-live="polite">
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500" aria-hidden="true" />
+            <span className="sr-only">Loading…</span>
           </div>
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">

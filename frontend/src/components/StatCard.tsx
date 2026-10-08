@@ -55,7 +55,7 @@ const StatCard: React.FC<StatCardProps> = ({
       </div>
       <p className={`text-2xl md:text-3xl font-bold ${valueColor} truncate`}>{value}</p>
       <div className="flex items-center gap-2">
-        {subtitle && <p className="text-[11px] md:text-xs text-slate-500 truncate">{subtitle}</p>}
+        {subtitle && <p className="text-[11px] md:text-xs text-slate-400 truncate">{subtitle}</p>}
         {trend && trendValue && (
           <span className={`flex items-center gap-0.5 text-xs font-medium ${trendColor}`}>
             {trend === 'up' ? trendIconUp : trend === 'down' ? trendIconDown : null}

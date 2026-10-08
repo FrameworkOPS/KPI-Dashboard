@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { pool } from '../config/database';
+import { toLocalDate } from '../utils/dates';
 import { AuthRequest } from '../middleware/auth';
 
 function getMonday(date: Date): Date {
@@ -127,13 +128,14 @@ export async function getSixMonthForecastData(weeksParam: number = 26, scenario?
     const weekCustomProjects: Array<{ name: string; start_date: string; end_date: string }> = [];
 
     for (const crew of crews) {
-      const crewStart = new Date(crew.start_date);
-      const crewEnd   = crew.terminate_date ? new Date(crew.terminate_date) : null;
+      const crewStart = toLocalDate(crew.start_date);
+      const crewEnd   = crew.terminate_date ? toLocalDate(crew.terminate_date) : null;
       if (crewStart > weekEnd) continue;
       if (crewEnd && crewEnd < weekStart) continue;
       weekCrewIds.add(crew.id);
 
-      const daysSinceStart = Math.floor((weekStart.getTime() - crewStart.getTime()) / (1000 * 60 * 60 * 24));
+      // A crew starting mid-week has 0 days of ramp, never a negative one.
+      const daysSinceStart = Math.max(0, Math.floor((weekStart.getTime() - crewStart.getTime()) / (1000 * 60 * 60 * 24)));
       const rampUpDays     = crew.training_period_days || 30;
       let rampMultiplier   = daysSinceStart >= rampUpDays ? 1.0 : daysSinceStart / rampUpDays;
       if (crewEnd) {
@@ -143,13 +145,13 @@ export async function getSixMonthForecastData(weeksParam: number = 26, scenario?
 
       const blocked = customProjects.some((p: any) => {
         if (p.crew_id !== crew.id) return false;
-        const ps = new Date(p.start_date);
-        const pe = new Date(p.end_date);
+        const ps = toLocalDate(p.start_date);
+        const pe = toLocalDate(p.end_date);
         return ps <= weekEnd && pe >= weekStart;
       });
       if (blocked) {
         weekCustomProjects.push(...customProjects
-          .filter((p: any) => p.crew_id === crew.id && new Date(p.start_date) <= weekEnd && new Date(p.end_date) >= weekStart)
+          .filter((p: any) => p.crew_id === crew.id && toLocalDate(p.start_date) <= weekEnd && toLocalDate(p.end_date) >= weekStart)
           .map((p: any) => ({ name: p.project_name, start_date: String(p.start_date).slice(0, 10), end_date: String(p.end_date).slice(0, 10) }))
         );
         continue;

@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { pool } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
 import { canAccessTeam } from '../utils/auth';
+import { toISODate } from '../utils/dates';
 import { sendMeetingReminder } from '../services/emailService';
 
 // EOS Level 10 meeting agenda — keep in sync with the frontend MeetingRunner.
@@ -35,7 +36,7 @@ function weekDateForDow(reference: Date, targetDow: number): string {
   const fromMon = (currentDow + 6) % 7;
   const targetFromMon = (targetDow + 6) % 7;
   d.setDate(d.getDate() - fromMon + targetFromMon);
-  return d.toISOString().split('T')[0];
+  return toISODate(d);
 }
 
 // Lazily ensure the recurring meeting rows exist for the current and next week.
@@ -130,8 +131,9 @@ export async function createMeeting(req: AuthRequest, res: Response, next: NextF
       return;
     }
 
-    if (rating !== undefined && (rating < 1 || rating > 10)) {
-      res.status(400).json({ error: 'Rating must be between 1 and 10' });
+    // null clears the rating; anything else must be a whole number 1–10.
+    if (rating != null && (!Number.isInteger(Number(rating)) || Number(rating) < 1 || Number(rating) > 10)) {
+      res.status(400).json({ error: 'Rating must be a whole number between 1 and 10' });
       return;
     }
 
@@ -278,10 +280,13 @@ export async function exportIcs(req: AuthRequest, res: Response, next: NextFunct
       res.status(404).json({ error: 'Meeting not found' });
       return;
     }
+    const user = req.user!;
+    if (!canAccessTeam(user.role, user.team, meeting.team, user.teams)) {
+      res.status(403).json({ error: 'Access to this team is not allowed' });
+      return;
+    }
 
-    const dateStr = meeting.meeting_date.toISOString
-      ? meeting.meeting_date.toISOString().split('T')[0].replace(/-/g, '')
-      : String(meeting.meeting_date).split('T')[0].replace(/-/g, '');
+    const dateStr = String(meeting.meeting_date).slice(0, 10).replace(/-/g, '');
 
     const timeRaw = (meeting.meeting_time || '09:00').replace(':', '');
     const timeStr = timeRaw.length === 4 ? timeRaw + '00' : timeRaw;
@@ -359,7 +364,7 @@ export async function sendReminder(req: AuthRequest, res: Response, next: NextFu
       return;
     }
 
-    const dateStr = new Date(meeting.meeting_date + 'T00:00:00').toLocaleDateString('en-US', {
+    const dateStr = new Date(String(meeting.meeting_date).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-US', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     });
     const timeStr = meeting.meeting_time || '9:00 AM';
@@ -485,6 +490,16 @@ export async function startMeeting(req: AuthRequest, res: Response, next: NextFu
 export async function getMeetingStages(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
+    const meetingResult = await pool.query('SELECT team FROM meetings WHERE id = $1', [id]);
+    if (!meetingResult.rows[0]) {
+      res.status(404).json({ error: 'Meeting not found' });
+      return;
+    }
+    const user = req.user!;
+    if (!canAccessTeam(user.role, user.team, meetingResult.rows[0].team, user.teams)) {
+      res.status(403).json({ error: 'Access to this team is not allowed' });
+      return;
+    }
     const stages = await loadStages(id);
     const attendance = await loadAttendance(id);
     res.json({ stages, attendance });

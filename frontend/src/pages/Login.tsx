@@ -1,14 +1,22 @@
 import React, { useState } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, Navigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
+import { usePageTitle } from '../utils/pageTitle'
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const { login, loading, error, clearError } = useAuthStore()
+  const { login, loading, error, clearError, isAuthenticated } = useAuthStore()
   const navigate = useNavigate()
   const location = useLocation()
-  const from = (location.state as any)?.from?.pathname || '/'
+  const nextParam = new URLSearchParams(location.search).get('next')
+  const from = (nextParam && nextParam.startsWith('/') ? nextParam : null)
+    || (location.state as any)?.from?.pathname || '/'
+  usePageTitle('Sign in')
+
+  // A valid session (for example one that finished loading after a slow
+  // server start) never needs the form again.
+  if (isAuthenticated) return <Navigate to={from} replace />
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -22,7 +30,7 @@ const Login: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4 py-8" style={{ paddingTop: 'max(2rem, env(safe-area-inset-top))', paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}>
+    <main className="min-h-screen bg-slate-900 flex items-center justify-center px-4 py-8" style={{ paddingTop: 'max(2rem, env(safe-area-inset-top))', paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}>
       <div className="w-full max-w-md">
         {/* Logo / header */}
         <div className="text-center mb-8">
@@ -39,7 +47,7 @@ const Login: React.FC = () => {
         <div className="bg-slate-800 rounded-2xl border border-slate-700 p-8">
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
-              <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 flex items-center gap-2">
+              <div role="alert" className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 flex items-center gap-2">
                 <svg className="w-4 h-4 text-red-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -49,11 +57,13 @@ const Login: React.FC = () => {
             )}
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">
+              <label htmlFor="login-email" className="block text-sm font-medium text-slate-300 mb-1.5">
                 Email address
               </label>
               <input
+                id="login-email"
                 type="email"
+                autoComplete="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -63,11 +73,13 @@ const Login: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">
+              <label htmlFor="login-password" className="block text-sm font-medium text-slate-300 mb-1.5">
                 Password
               </label>
               <input
+                id="login-password"
                 type="password"
+                autoComplete="current-password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -93,7 +105,7 @@ const Login: React.FC = () => {
           </form>
         </div>
       </div>
-    </div>
+    </main>
   )
 }
 

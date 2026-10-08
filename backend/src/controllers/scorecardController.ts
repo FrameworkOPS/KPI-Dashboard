@@ -3,6 +3,24 @@ import { pool, query } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
 import { canAccessTeam } from '../utils/auth';
 import { isTeam, TEAMS } from '../constants/teams';
+import { computeOnTrack, scorecardTemplateFor } from '../utils/scorecard';
+import { toISODate as toISO } from '../utils/dates';
+
+/** Monday of the current week at local midnight — the scorecard's "this week". */
+function currentMonday(): Date {
+  const now = new Date();
+  const dow = now.getDay();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + (dow === 0 ? -6 : 1 - dow));
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+/** The template's direction for a metric, or null when it has no template. */
+async function templateLowerIsBetter(team: string, metricName: string): Promise<boolean | null> {
+  const template = await scorecardTemplateFor(team, metricName);
+  return template ? template.lower_is_better : null;
+}
 
 export async function getScorecardEntries(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -65,7 +83,8 @@ export async function createScorecardEntry(req: AuthRequest, res: Response, next
       return;
     }
 
-    const isOnTrack = goal != null && actual != null ? actual >= goal : null;
+    const lowerIsBetter = (await templateLowerIsBetter(team, metric_name)) ?? false;
+    const isOnTrack = computeOnTrack(goal ?? null, actual ?? null, lowerIsBetter);
 
     const result = await pool.query(
       `INSERT INTO scorecard_entries
@@ -108,10 +127,11 @@ export async function updateScorecardEntry(req: AuthRequest, res: Response, next
 
     const updatedGoal = goal !== undefined ? goal : entry.goal;
     const updatedActual = actual !== undefined ? actual : entry.actual;
+    const updatedMetricName = metric_name !== undefined && metric_name !== null ? metric_name : entry.metric_name;
+    const lowerIsBetter = (await templateLowerIsBetter(entry.team, updatedMetricName)) ?? entry.lower_is_better;
     const computedIsOnTrack = is_on_track !== undefined
       ? is_on_track
-      : (updatedGoal != null && updatedActual != null ? updatedActual >= updatedGoal : null);
-    const updatedMetricName = metric_name !== undefined && metric_name !== null ? metric_name : entry.metric_name;
+      : computeOnTrack(updatedGoal, updatedActual, lowerIsBetter);
     const explicitDataSource = data_source !== undefined ? data_source : 'manual';
 
     const result = await pool.query(
@@ -202,17 +222,10 @@ export async function getScorecardHistory(req: AuthRequest, res: Response, next:
     const user = req.user!;
     const numWeeks = Math.min(parseInt(String(weeksParam || '13')) || 13, 52);
 
-    // Current Monday
-    const now = new Date();
-    const dow = now.getDay();
-    const diff = dow === 0 ? -6 : 1 - dow;
-    const currentMonday = new Date(now);
-    currentMonday.setDate(now.getDate() + diff);
-    currentMonday.setHours(0, 0, 0, 0);
-    const toISO = (d: Date) => d.toISOString().split('T')[0];
+    const thisMonday = currentMonday();
 
     // Window start
-    const startMonday = new Date(currentMonday);
+    const startMonday = new Date(thisMonday);
     startMonday.setDate(startMonday.getDate() - (numWeeks - 1) * 7);
 
     // Ordered list of week dates (oldest → newest)
@@ -224,7 +237,7 @@ export async function getScorecardHistory(req: AuthRequest, res: Response, next:
     }
 
     const conditions: string[] = [`se.week_of >= $1`, `se.week_of <= $2`];
-    const values: unknown[] = [toISO(startMonday), toISO(currentMonday)];
+    const values: unknown[] = [toISO(startMonday), toISO(thisMonday)];
     let p = 3;
 
     if (team) {
@@ -239,14 +252,22 @@ export async function getScorecardHistory(req: AuthRequest, res: Response, next:
       values.push(user.team);
     }
 
+    // The template (active or paused) is the source of truth for a metric's
+    // current goal; only metrics without one fall back to their latest entry.
+    const effectiveSort = 'COALESCE(CASE WHEN st.is_active THEN st.sort_order END, se.sort_order, 9999)';
     const result = await pool.query(
       `SELECT se.*,
-              COALESCE(st.sort_order, se.sort_order, 9999) AS effective_sort
+              ${effectiveSort} AS effective_sort,
+              st.id AS template_id,
+              st.goal AS template_goal,
+              st.goal_text AS template_goal_text,
+              st.display_format AS template_display_format,
+              st.lower_is_better AS template_lower_is_better
        FROM scorecard_entries se
        LEFT JOIN scorecard_templates st
-         ON st.team = se.team AND st.metric_name = se.metric_name AND st.is_active = true
+         ON st.team = se.team AND st.metric_name = se.metric_name
        WHERE ${conditions.join(' AND ')}
-       ORDER BY COALESCE(st.sort_order, se.sort_order, 9999), se.team, se.metric_name, se.week_of`,
+       ORDER BY ${effectiveSort}, se.team, se.metric_name, se.week_of`,
       values,
     );
 
@@ -257,29 +278,31 @@ export async function getScorecardHistory(req: AuthRequest, res: Response, next:
     interface MetricRow {
       metric_name: string; team: string; display_format: string;
       goal: number | null; goal_text: string | null; lower_is_better: boolean;
-      sort_order: number; data: Record<string, WeekEntry>;
+      sort_order: number; template_id: string | null; data: Record<string, WeekEntry>;
     }
 
     const metricMap = new Map<string, MetricRow>();
 
     for (const row of result.rows) {
       const key = `${row.team}||${row.metric_name}`;
+      const hasTemplate = row.template_id !== null;
       if (!metricMap.has(key)) {
         metricMap.set(key, {
           metric_name: row.metric_name,
           team: row.team,
-          display_format: row.display_format || 'number',
-          goal: row.goal !== null ? Number(row.goal) : null,
-          goal_text: row.goal_text,
-          lower_is_better: row.lower_is_better ?? false,
+          display_format: (hasTemplate ? row.template_display_format : row.display_format) || 'number',
+          goal: hasTemplate
+            ? (row.template_goal !== null ? Number(row.template_goal) : null)
+            : (row.goal !== null ? Number(row.goal) : null),
+          goal_text: hasTemplate ? row.template_goal_text : row.goal_text,
+          lower_is_better: (hasTemplate ? row.template_lower_is_better : row.lower_is_better) ?? false,
           sort_order: Number(row.effective_sort),
+          template_id: row.template_id,
           data: {},
         });
       }
       const m = metricMap.get(key)!;
-      const weekKey = typeof row.week_of === 'string'
-        ? row.week_of.split('T')[0]
-        : toISO(new Date(row.week_of));
+      const weekKey = String(row.week_of).slice(0, 10);
       m.data[weekKey] = {
         id: row.id,
         actual: row.actual !== null ? Number(row.actual) : null,
@@ -287,8 +310,10 @@ export async function getScorecardHistory(req: AuthRequest, res: Response, next:
         data_source: row.data_source,
         notes: row.notes,
       };
-      if (row.goal !== null) m.goal = Number(row.goal);
-      if (row.goal_text !== null) m.goal_text = row.goal_text;
+      if (!hasTemplate) {
+        if (row.goal !== null) m.goal = Number(row.goal);
+        if (row.goal_text !== null) m.goal_text = row.goal_text;
+      }
     }
 
     const metrics = Array.from(metricMap.values())
@@ -530,6 +555,88 @@ export async function reorderTemplates(req: AuthRequest, res: Response, next: Ne
       [team]
     );
     res.json(result.rows);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(err);
+  } finally {
+    client.release();
+  }
+}
+
+// ── Goals ─────────────────────────────────────────────────────────────────────
+// Setting a goal from the scorecard updates the metric's template (so new
+// weeks inherit it) and every recorded week from `effective_from` on, then
+// re-scores those weeks. Earlier weeks keep the goal they were judged against.
+
+const MAX_GOAL = 1e12; // DECIMAL(16,4) holds 12 integer digits
+
+export async function updateMetricGoal(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  const { team, metric_name, goal, effective_from } = req.body;
+
+  if (!isTeam(team)) {
+    res.status(400).json({ error: `team must be one of: ${TEAMS.join(', ')}` });
+    return;
+  }
+  if (typeof metric_name !== 'string' || !metric_name.trim()) {
+    res.status(400).json({ error: 'metric_name is required' });
+    return;
+  }
+  if (goal !== null && (typeof goal !== 'number' || !Number.isFinite(goal))) {
+    res.status(400).json({ error: 'goal must be a number, or null to clear it' });
+    return;
+  }
+  if (goal !== null && Math.abs(goal) >= MAX_GOAL) {
+    res.status(400).json({ error: 'goal is too large' });
+    return;
+  }
+  const fromDate = effective_from === undefined ? toISO(currentMonday()) : effective_from;
+  if (typeof fromDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || Number.isNaN(Date.parse(fromDate))) {
+    res.status(400).json({ error: 'effective_from must be a date (YYYY-MM-DD)' });
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // A typed goal replaces any custom label, which described the old goal.
+    const template = await client.query(
+      `UPDATE scorecard_templates SET goal = $1, goal_text = NULL
+        WHERE team = $2 AND metric_name = $3
+        RETURNING *`,
+      [goal, team, metric_name]
+    );
+    const templateLowerIsBetter: boolean | null = template.rows[0]?.lower_is_better ?? null;
+
+    const entries = await client.query(
+      `UPDATE scorecard_entries SET
+         goal = $1::DECIMAL,
+         goal_text = NULL,
+         is_on_track = CASE
+           WHEN $1::DECIMAL IS NULL OR actual IS NULL THEN NULL
+           WHEN COALESCE($2::BOOLEAN, lower_is_better) THEN actual <= $1::DECIMAL
+           ELSE actual >= $1::DECIMAL
+         END,
+         updated_at = NOW()
+       WHERE team = $3 AND metric_name = $4 AND week_of >= $5
+       RETURNING id`,
+      [goal, templateLowerIsBetter, team, metric_name, fromDate]
+    );
+
+    if (template.rows.length === 0 && entries.rows.length === 0) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ error: `The ${team} scorecard has no metric named "${metric_name}"` });
+      return;
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      goal,
+      goal_text: null,
+      template_updated: template.rows.length > 0,
+      entries_updated: entries.rows.length,
+      effective_from: fromDate,
+    });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     next(err);

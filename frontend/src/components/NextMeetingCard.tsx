@@ -8,9 +8,10 @@ interface Props {
   onMeetingChanged: () => void
 }
 
-// Picks the soonest non-complete meeting (within ~14 days) and renders a card
-// with a one-click Start / Resume button. Today's meeting gets a bigger
-// highlight; same-week meetings show the day name; further out shows the date.
+// Picks the soonest non-complete meeting and renders a card with a one-click
+// Start / Resume button. A meeting left in progress stays here until it is
+// completed, whatever its date. Today's meeting gets a bigger highlight;
+// same-week meetings show the day name; further out shows the date.
 const NextMeetingCard: React.FC<Props> = ({ meetings, onMeetingChanged }) => {
   const [running, setRunning] = useState<Meeting | null>(null)
   const [now, setNow] = useState(() => new Date())
@@ -27,6 +28,7 @@ const NextMeetingCard: React.FC<Props> = ({ meetings, onMeetingChanged }) => {
     return meetings
       .filter(m => m.status !== 'complete')
       .filter(m => {
+        if (m.status === 'in_progress') return true
         const d = parseLocalDate(m.meeting_date)
         return d.getTime() >= today.getTime()
       })
@@ -48,6 +50,7 @@ const NextMeetingCard: React.FC<Props> = ({ meetings, onMeetingChanged }) => {
 
   const dayLabel = isToday
     ? 'Today'
+    : daysAway < 0 ? meetingDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     : daysAway === 1 ? 'Tomorrow'
     : daysAway < 7 ? meetingDay.toLocaleDateString('en-US', { weekday: 'long' })
     : meetingDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -76,20 +79,20 @@ const NextMeetingCard: React.FC<Props> = ({ meetings, onMeetingChanged }) => {
                 {next.team} Level 10 — {dayLabel}
               </p>
               <p className="text-xs text-slate-400 mt-0.5">
-                {next.meeting_time || '08:30'}
+                {next.meeting_time || 'Time not set'}
                 {next.status === 'in_progress' && <span className="ml-2 text-blue-300">· in progress</span>}
               </p>
             </div>
           </div>
           <button
             onClick={() => setRunning(next)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+            className={`flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-lg text-sm font-semibold transition-colors ${
               isToday
                 ? 'bg-blue-600 hover:bg-blue-700 text-white'
                 : 'bg-slate-700 hover:bg-slate-600 text-white'
             }`}
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>

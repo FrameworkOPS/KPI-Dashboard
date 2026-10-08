@@ -52,7 +52,9 @@ export async function connect(req: Request, res: Response): Promise<void> {
     state,
   });
 
-  res.redirect(`${INTUIT_AUTH_URL}?${params.toString()}`);
+  // The SPA calls this with its bearer token and then navigates itself; a
+  // browser-level redirect here can't carry the Authorization header.
+  res.json({ url: `${INTUIT_AUTH_URL}?${params.toString()}` });
 }
 
 export async function callback(req: Request, res: Response): Promise<void> {
@@ -60,15 +62,18 @@ export async function callback(req: Request, res: Response): Promise<void> {
   const appUrl = process.env.APP_URL || '';
 
   // Validate state
+  // Intuit lands the browser here, so failures go back to the Integrations
+  // page as a readable message rather than raw JSON.
+  const fail = (message: string) => res.redirect(`${appUrl}/integrations?qbo=error&message=${encodeURIComponent(message)}`);
   const expiry = pendingStates.get(state);
   if (!expiry || Date.now() > expiry) {
-    res.status(400).json({ error: 'Invalid or expired OAuth state parameter' });
+    fail('The QuickBooks sign-in took too long or was already used. Try connecting again.');
     return;
   }
   pendingStates.delete(state);
 
   if (!code || !realmId) {
-    res.status(400).json({ error: 'Missing code or realmId from Intuit callback' });
+    fail('QuickBooks did not return an authorization code. Try connecting again.');
     return;
   }
 
@@ -116,7 +121,7 @@ export async function callback(req: Request, res: Response): Promise<void> {
     res.redirect(`${appUrl}/integrations?qbo=connected`);
   } catch (err) {
     console.error('QBO OAuth callback error:', err);
-    res.status(500).json({ error: 'Failed to exchange authorization code for tokens' });
+    fail('QuickBooks did not accept the authorization code. Try connecting again.');
   }
 }
 

@@ -11,6 +11,7 @@ import {
   deleteTemplate,
   reorderTemplates,
   createWeekFromTemplate,
+  updateMetricGoal,
 } from '../controllers/scorecardController';
 import { authenticate, requireLeadershipOrAdmin } from '../middleware/auth';
 
@@ -22,6 +23,8 @@ router.post('/templates', authenticate, requireLeadershipOrAdmin, createTemplate
 router.put('/templates/reorder', authenticate, requireLeadershipOrAdmin, reorderTemplates);
 router.put('/templates/:id', authenticate, requireLeadershipOrAdmin, updateTemplate);
 router.delete('/templates/:id', authenticate, requireLeadershipOrAdmin, deleteTemplate);
+// Goals live on the template, so setting one follows the same rule.
+router.put('/goal', authenticate, requireLeadershipOrAdmin, updateMetricGoal);
 router.get('/history', authenticate, getScorecardHistory);
 router.post('/new-week', authenticate, requireLeadershipOrAdmin, createWeekFromTemplate);
 router.get('/', authenticate, getScorecardEntries);

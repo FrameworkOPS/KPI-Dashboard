@@ -102,10 +102,27 @@ export async function updateSeat(req: AuthRequest, res: Response, next: NextFunc
       return;
     }
 
-    // Prevent circular parent references
+    // Prevent circular parent references: a seat can't report to itself or to
+    // anything beneath it, or the whole branch drops out of the chart.
     if (parent_seat_id === id) {
       res.status(400).json({ error: 'A seat cannot be its own parent' });
       return;
+    }
+    if (parent_seat_id) {
+      const cycle = await pool.query(
+        `WITH RECURSIVE ancestors AS (
+           SELECT id, parent_seat_id FROM accountability_seats WHERE id = $1
+           UNION ALL
+           SELECT s.id, s.parent_seat_id FROM accountability_seats s
+             JOIN ancestors a ON s.id = a.parent_seat_id
+         )
+         SELECT 1 FROM ancestors WHERE id = $2 LIMIT 1`,
+        [parent_seat_id, id]
+      );
+      if (cycle.rows.length > 0) {
+        res.status(400).json({ error: 'That seat reports to this one, so it cannot also be its parent' });
+        return;
+      }
     }
 
     const result = await pool.query(

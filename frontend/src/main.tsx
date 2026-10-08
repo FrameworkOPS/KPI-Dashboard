@@ -15,13 +15,23 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 // staleness bugs feel like they hadn't been fixed.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
+    // Whether a worker already controlled this page: on the very first visit
+    // there is none, and claiming the page then must not reload a form someone
+    // is in the middle of filling.
+    const hadController = !!navigator.serviceWorker.controller
     navigator.serviceWorker.register('/sw.js').catch(() => { /* ignore */ })
 
     // Fires when a new SW (with skipWaiting + clientsClaim) takes over the
-    // page. Reload once to pull the new index.html + JS bundles.
+    // page. Reload once to pull the new index.html + JS bundles, but only
+    // when nothing is being edited — a half-written note is worth more than
+    // picking up a deploy a few minutes sooner.
     let reloaded = false
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (reloaded) return
+      if (reloaded || !hadController) return
+      const el = document.activeElement
+      const editing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || (el as HTMLElement).isContentEditable)
+      const dialogOpen = !!document.querySelector('[role="dialog"]')
+      if (editing || dialogOpen) return
       reloaded = true
       window.location.reload()
     })

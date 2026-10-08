@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { pool } from '../config/database';
+import { toLocalDate } from '../utils/dates';
 import { AuthRequest } from '../middleware/auth';
 
 function getMonday(date: Date): Date {
@@ -107,8 +108,8 @@ export async function getMetricsDashboardData(startWeek?: string): Promise<any> 
       const crewDetails: any[] = [];
 
       for (const crew of crews) {
-        const crewStart = new Date(crew.start_date);
-        const crewEnd   = crew.terminate_date ? new Date(crew.terminate_date) : null;
+        const crewStart = toLocalDate(crew.start_date);
+        const crewEnd   = crew.terminate_date ? toLocalDate(crew.terminate_date) : null;
         if (crewStart > weekEnd) continue;
         if (crewEnd && crewEnd < weekStart) continue;
 
@@ -117,7 +118,7 @@ export async function getMetricsDashboardData(startWeek?: string): Promise<any> 
         const rampPct  = daysSinceStart >= rampDays ? 1.0 : daysSinceStart / rampDays;
 
         const blocked = customProjects.some((p: any) =>
-          p.crew_id === crew.id && new Date(p.start_date) <= weekEnd && new Date(p.end_date) >= weekStart
+          p.crew_id === crew.id && toLocalDate(p.start_date) <= weekEnd && toLocalDate(p.end_date) >= weekStart
         );
 
         const baseCap  = parseFloat(crew.weekly_sq_capacity) || (crew.crew_type === 'shingle' ? 200 : 100);

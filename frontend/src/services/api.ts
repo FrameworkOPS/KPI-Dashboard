@@ -16,7 +16,22 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Response interceptor to handle 401
+// Plain-language fallbacks for responses that carry no error text of their
+// own. Pages show `error.message`, so this is what people read.
+const STATUS_MESSAGES: Record<number, string> = {
+  400: 'The request was invalid. Check the form and try again.',
+  403: "You don't have permission to do that.",
+  404: 'That item no longer exists. It may have been removed.',
+  409: 'That conflicts with something that already exists.',
+  413: 'That file is too large.',
+  429: 'Too many requests. Wait a moment and try again.',
+  500: 'Something went wrong on the server. Nothing was changed; try again.',
+  502: 'The server is restarting. Try again in a moment.',
+  503: 'That service is unavailable right now.',
+}
+
+// Response interceptor: redirect on session expiry and make every error
+// readable before it reaches a page's catch block.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -24,9 +39,21 @@ api.interceptors.response.use(
     // page show the error rather than reloading it away (session-expiry
     // redirects only make sense for already-authenticated requests).
     const isLoginRequest = (error.config?.url || '').includes('/auth/login')
-    if (error.response?.status === 401 && !isLoginRequest) {
+    const publicPage = /^\/(login|set-password|eula|privacy)/.test(window.location.pathname)
+    if (error.response?.status === 401 && !isLoginRequest && !publicPage) {
       localStorage.removeItem('token')
-      window.location.href = '/login'
+      // Come back to this page after signing in again.
+      const next = window.location.pathname + window.location.search
+      window.location.href = next && next !== '/' ? `/login?next=${encodeURIComponent(next)}` : '/login'
+    }
+    const status: number | undefined = error.response?.status
+    const serverMessage = error.response?.data?.error
+    if (typeof serverMessage === 'string' && serverMessage.trim()) {
+      error.message = serverMessage
+    } else if (status && STATUS_MESSAGES[status]) {
+      error.message = STATUS_MESSAGES[status]
+    } else if (!error.response) {
+      error.message = 'Could not reach the server. Check your connection and try again.'
     }
     return Promise.reject(error)
   }
@@ -105,6 +132,15 @@ export const deleteScorecardTemplateApi = (id: string) =>
 
 export const reorderScorecardTemplatesApi = (team: string, ordered_ids: string[]) =>
   api.put('/scorecard/templates/reorder', { team, ordered_ids })
+
+// Sets a metric's goal on its template and on recorded weeks from
+// effective_from (default: this week) on, re-scoring those weeks.
+export const updateScorecardGoalApi = (data: {
+  team: string
+  metric_name: string
+  goal: number | null
+  effective_from?: string
+}) => api.put('/scorecard/goal', data)
 
 // ── Rocks ─────────────────────────────────────────────────────────────────────
 export const getRocksApi = (team?: string, quarter?: number, year?: number) =>
@@ -267,3 +303,80 @@ export const downloadMeetingIcsApi = (id: string) =>
   api.get(`/meetings/${id}/ics`, { responseType: 'blob' })
 
 export default api
+
+// ── Forecaster: crews, pipeline, sales forecast, capacity blocks, metrics ────
+// These wrap the shared client so an expired session goes to sign-in and
+// failures carry readable messages, instead of pages showing empty data.
+export const getCrewsApi = (activeOnly = true) =>
+  api.get('/crews', { params: activeOnly ? { active: 'true' } : {} })
+
+export const createCrewApi = (data: any) =>
+  api.post('/crews', data)
+
+export const updateCrewApi = (id: string, data: any) =>
+  api.put(`/crews/${id}`, data)
+
+export const deleteCrewApi = (id: string) =>
+  api.delete(`/crews/${id}`)
+
+export const getCrewStaffApi = (crewId: string) =>
+  api.get(`/crew-staff/crew/${crewId}`)
+
+export const setCrewStaffApi = (data: { crewId: string; leadCount: number; superCount: number; addedDate: string }) =>
+  api.post('/crew-staff', data)
+
+export const getPipelineApi = () =>
+  api.get('/pipeline')
+
+export const getPipelineSummaryApi = () =>
+  api.get('/pipeline/summary')
+
+export const createPipelineItemApi = (data: any) =>
+  api.post('/pipeline', data)
+
+export const updatePipelineItemApi = (id: string, data: any) =>
+  api.put(`/pipeline/${id}`, data)
+
+export const deletePipelineItemApi = (id: string) =>
+  api.delete(`/pipeline/${id}`)
+
+export const getSalesForecastApi = (startWeek: string, endWeek: string) =>
+  api.get('/sales-forecast', { params: { startWeek, endWeek } })
+
+export const setSalesForecastApi = (data: { forecastWeek: string; jobType: string; projectedSquareFootage: number; projectedJobCount?: number }) =>
+  api.post('/sales-forecast', data)
+
+export const getCustomProjectsApi = () =>
+  api.get('/custom-projects')
+
+export const createCustomProjectApi = (data: any) =>
+  api.post('/custom-projects', data)
+
+export const updateCustomProjectApi = (id: string, data: any) =>
+  api.put(`/custom-projects/${id}`, data)
+
+export const deleteCustomProjectApi = (id: string) =>
+  api.delete(`/custom-projects/${id}`)
+
+export const getProductionForecastApi = (weeks: number) =>
+  api.get('/forecasts/six-month', { params: { weeks } })
+
+export const getMetricsDashboardApi = () =>
+  api.get('/metrics/dashboard')
+
+// ── AI assistants ─────────────────────────────────────────────────────────────
+export const getSkyStatusApi = () =>
+  api.get('/sky/status')
+
+export const skyChatApi = (messages: { role: 'user' | 'assistant'; content: string }[]) =>
+  api.post('/sky/chat', { messages })
+
+export const getForecasterAiStatusApi = () =>
+  api.get('/forecaster-ai/status')
+
+export const forecasterAiChatApi = (messages: { role: 'user' | 'assistant'; content: string }[]) =>
+  api.post('/forecaster-ai/chat', { messages })
+
+// ── Integrations ──────────────────────────────────────────────────────────────
+export const getQboConnectUrlApi = () =>
+  api.get<{ url: string }>('/integrations/qbo/connect')

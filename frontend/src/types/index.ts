@@ -57,6 +57,8 @@ export interface Rock {
   team: string;
   owner_id: string;
   owner?: User;
+  owner_first_name?: string | null;
+  owner_last_name?: string | null;
   title: string;
   description: string | null;
   quarter: number;
@@ -77,6 +79,8 @@ export interface Issue {
   status: 'open' | 'in_progress' | 'solved';
   owner_id: string | null;
   owner?: User;
+  owner_first_name?: string | null;
+  owner_last_name?: string | null;
   created_by: string;
   created_at: string;
   vote_count: number;
@@ -90,6 +94,8 @@ export interface Todo {
   description: string | null;
   owner_id: string | null;
   owner?: User;
+  owner_first_name?: string | null;
+  owner_last_name?: string | null;
   due_date: string | null;
   status: 'pending' | 'complete';
   created_by: string;

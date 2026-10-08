@@ -3,6 +3,7 @@ dotenv.config();
 
 import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { initializeDatabase, pool } from './config/database';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
@@ -51,9 +52,24 @@ app.use(helmet({
   crossOriginResourcePolicy: false,
 }));
 
-// Body parsing
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Railway terminates TLS in front of the app; trust its X-Forwarded-For so the
+// rate limiter sees the real client address.
+app.set('trust proxy', 1);
+
+// Body parsing — JSON bodies are small; file uploads go through multer.
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+// Credential endpoints get a per-address limit so passwords can't be guessed.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many sign-in attempts. Wait 15 minutes and try again.' },
+});
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/accept-invite', authLimiter);
 
 // Health check (no auth required)
 app.get('/api/health', (_req, res) => {

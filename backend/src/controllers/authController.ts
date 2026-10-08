@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import { pool } from '../config/database';
 import { signToken } from '../utils/auth';
-import { AuthRequest } from '../middleware/auth';
+import { AuthRequest, invalidateUserCache } from '../middleware/auth';
 import { TEAMS_WITH_ALL } from '../constants/teams';
 
 export async function login(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -190,6 +190,7 @@ export async function updateUser(req: AuthRequest, res: Response, next: NextFunc
        RETURNING id, email, first_name, last_name, role, team, active, created_at, updated_at`,
       values
     );
+    invalidateUserCache(String(id));
 
     res.json(result.rows[0]);
   } catch (err) {
@@ -211,6 +212,7 @@ export async function deleteUser(req: AuthRequest, res: Response, next: NextFunc
       'UPDATE users SET active = false, updated_at = NOW() WHERE id = $1 RETURNING id, email, active',
       [id]
     );
+    invalidateUserCache(String(id));
 
     if (!result.rows[0]) {
       res.status(404).json({ error: 'User not found' });

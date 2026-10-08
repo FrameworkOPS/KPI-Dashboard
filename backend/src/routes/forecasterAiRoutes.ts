@@ -19,7 +19,7 @@ router.post('/chat', authenticate, async (req: AuthRequest, res: Response, next:
       role: message.role === 'assistant' ? ('assistant' as const) : ('user' as const),
       content: String(message.content || '').slice(0, 8000),
     }));
-    const result = await chatWithForecaster(trimmed, req.user?.id || null);
+    const result = await chatWithForecaster(trimmed, req.user ?? null);
     res.json({ success: true, data: result });
   } catch (err) {
     const error = err as { status?: number };

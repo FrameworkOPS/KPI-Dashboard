@@ -101,7 +101,7 @@ export async function getPipelineSummary(req: AuthRequest, res: Response, next: 
               SUM(square_footage) AS total_sqs,
               COUNT(*) AS job_count,
               SUM(total_revenue) AS total_revenue
-       FROM pipeline_items WHERE is_active=true GROUP BY job_type ORDER BY job_type`
+       FROM pipeline_items WHERE is_active=true AND status <> 'completed' GROUP BY job_type ORDER BY job_type`
     );
     const combined = result.rows.reduce(
       (acc: any, row: any) => ({
