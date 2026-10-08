@@ -19,7 +19,7 @@ router.post('/chat', authenticate, async (req: AuthRequest, res: Response, next:
       role: m.role === 'assistant' ? ('assistant' as const) : ('user' as const),
       content: String(m.content || '').slice(0, 8000),
     }));
-    const result = await chatWithSky(trimmed, req.user?.id || null);
+    const result = await chatWithSky(trimmed, req.user ?? null);
     res.json({ success: true, data: result });
   } catch (err) {
     const e = err as any;

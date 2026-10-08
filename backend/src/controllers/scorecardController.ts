@@ -3,8 +3,8 @@ import { pool, query } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
 import { canAccessTeam } from '../utils/auth';
 import { isTeam, TEAMS } from '../constants/teams';
-
-const toISO = (d: Date) => d.toISOString().split('T')[0];
+import { computeOnTrack, scorecardTemplateFor } from '../utils/scorecard';
+import { toISODate as toISO } from '../utils/dates';
 
 /** Monday of the current week at local midnight — the scorecard's "this week". */
 function currentMonday(): Date {
@@ -16,19 +16,10 @@ function currentMonday(): Date {
   return monday;
 }
 
-/** On track means meeting the goal in the metric's direction. */
-function computeOnTrack(goal: number | null, actual: number | null, lowerIsBetter: boolean): boolean | null {
-  if (goal == null || actual == null) return null;
-  return lowerIsBetter ? actual <= goal : actual >= goal;
-}
-
 /** The template's direction for a metric, or null when it has no template. */
 async function templateLowerIsBetter(team: string, metricName: string): Promise<boolean | null> {
-  const result = await pool.query(
-    'SELECT lower_is_better FROM scorecard_templates WHERE team = $1 AND metric_name = $2',
-    [team, metricName]
-  );
-  return result.rows[0] ? result.rows[0].lower_is_better : null;
+  const template = await scorecardTemplateFor(team, metricName);
+  return template ? template.lower_is_better : null;
 }
 
 export async function getScorecardEntries(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
@@ -311,9 +302,7 @@ export async function getScorecardHistory(req: AuthRequest, res: Response, next:
         });
       }
       const m = metricMap.get(key)!;
-      const weekKey = typeof row.week_of === 'string'
-        ? row.week_of.split('T')[0]
-        : toISO(new Date(row.week_of));
+      const weekKey = String(row.week_of).slice(0, 10);
       m.data[weekKey] = {
         id: row.id,
         actual: row.actual !== null ? Number(row.actual) : null,

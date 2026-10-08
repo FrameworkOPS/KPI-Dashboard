@@ -9,15 +9,25 @@ export interface JwtPayload {
   teams?: string[]; // full team membership when the user belongs to >1 team
 }
 
+// A missing secret would let anyone mint an admin token, so production refuses
+// to start without one. Development falls back to a known value and says so.
+const JWT_SECRET: string = (() => {
+  const configured = process.env.JWT_SECRET;
+  if (configured && configured.length >= 16) return configured;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET must be set to a value of at least 16 characters before the server can start.');
+  }
+  console.warn('⚠️  JWT_SECRET is not set — using an insecure development default. Set it in backend/.env.');
+  return 'changeme_jwt_secret';
+})();
+
 export function signToken(payload: JwtPayload): string {
-  const secret = process.env.JWT_SECRET || 'changeme_jwt_secret';
   const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
-  return jwt.sign(payload, secret, { expiresIn } as jwt.SignOptions);
+  return jwt.sign(payload, JWT_SECRET, { expiresIn } as jwt.SignOptions);
 }
 
 export function verifyToken(token: string): JwtPayload {
-  const secret = process.env.JWT_SECRET || 'changeme_jwt_secret';
-  return jwt.verify(token, secret) as JwtPayload;
+  return jwt.verify(token, JWT_SECRET) as JwtPayload;
 }
 
 export function extractToken(req: Request): string | null {

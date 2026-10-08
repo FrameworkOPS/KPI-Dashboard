@@ -7,6 +7,10 @@ dotenv.config();
 // pg returns NUMERIC/DECIMAL as strings by default; parse them as JS numbers
 // so callers don't have to wrap every value in Number().
 types.setTypeParser(1700, parseFloat); // NUMERIC / DECIMAL
+// DATE columns stay 'YYYY-MM-DD' strings. As JS Dates they were local midnight
+// on the server, which serialized to a UTC timestamp and shifted by a day
+// depending on the server's timezone; string keys also compare reliably.
+types.setTypeParser(1082, (value) => value); // DATE
 
 export const pool = process.env.DATABASE_URL
   ? new Pool({
@@ -398,17 +402,24 @@ export async function initializeDatabase(): Promise<void> {
       );
     }
 
-    // Seed known users — only inserts if email doesn't already exist
+    // Seed known users — only inserts if email doesn't already exist, and only
+    // when a password is supplied through the environment: a password in source
+    // is a password everyone with repo access knows.
     const seedUsers = [
-      { email: 'chance@skyright.com', password: process.env.SEED_CHANCE_PW || 'Redroad7318',  first: 'Chance', last: 'Peare',     role: 'admin',      team: 'all'        },
-      { email: 'jorn@skyright.com',   password: process.env.SEED_JORN_PW   || 'Bielefeld1',   first: 'Jorn',   last: 'Bielefeld', role: 'leadership', team: 'leadership' },
-      { email: 'pete@skyright.com',   password: process.env.SEED_PETE_PW   || 'Password',     first: 'Pete',   last: 'Hicks',     role: 'leadership', team: 'leadership' },
+      { email: 'chance@skyright.com', envVar: 'SEED_CHANCE_PW', first: 'Chance', last: 'Peare',     role: 'admin',      team: 'all'        },
+      { email: 'jorn@skyright.com',   envVar: 'SEED_JORN_PW',   first: 'Jorn',   last: 'Bielefeld', role: 'leadership', team: 'leadership' },
+      { email: 'pete@skyright.com',   envVar: 'SEED_PETE_PW',   first: 'Pete',   last: 'Hicks',     role: 'leadership', team: 'leadership' },
     ];
 
     for (const u of seedUsers) {
       const exists = await client.query('SELECT id FROM users WHERE email = $1', [u.email]);
       if (exists.rows.length === 0) {
-        const hash = await bcrypt.hash(u.password, 12);
+        const password = process.env[u.envVar];
+        if (!password) {
+          console.warn(`Not seeding ${u.email}: set ${u.envVar} to create this account`);
+          continue;
+        }
+        const hash = await bcrypt.hash(password, 12);
         await client.query(
           `INSERT INTO users (email, password_hash, first_name, last_name, role, team)
            VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -416,24 +427,6 @@ export async function initializeDatabase(): Promise<void> {
         );
         console.log(`Seeded user: ${u.email} (${u.role})`);
       }
-    }
-
-    // One-time correction: Pete Hicks should be a leadership user with password "Password"
-    // (he was previously seeded as admin with no last name). Idempotent — only updates if needed.
-    {
-      const peteHash = await bcrypt.hash('Password', 12);
-      await client.query(
-        `UPDATE users
-            SET first_name = 'Pete',
-                last_name  = 'Hicks',
-                role       = 'leadership',
-                team       = 'leadership',
-                password_hash = $1,
-                active     = true,
-                updated_at = NOW()
-          WHERE LOWER(email) = 'pete@skyright.com'`,
-        [peteHash]
-      );
     }
 
     // oauth_tokens table
@@ -1079,7 +1072,7 @@ export async function initializeDatabase(): Promise<void> {
         project_id UUID REFERENCES estimate_projects(id) ON DELETE CASCADE,
         file_name VARCHAR(500) NOT NULL,
         file_path VARCHAR(1000) NOT NULL DEFAULT '',
-        doc_type VARCHAR(50),
+        doc_type VARCHAR(255),
         parsed BOOLEAN DEFAULT false,
         parsed_data JSONB,
         parsed_at TIMESTAMP,
@@ -1087,6 +1080,8 @@ export async function initializeDatabase(): Promise<void> {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    // MIME types such as the .docx one are 71 characters; 50 truncated them into a 500.
+    await client.query(`ALTER TABLE estimate_documents ALTER COLUMN doc_type TYPE VARCHAR(255)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_estimate_docs_project ON estimate_documents(project_id)`);
 
     await client.query(`
