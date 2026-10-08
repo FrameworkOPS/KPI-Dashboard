@@ -2,18 +2,10 @@ import React, { useEffect, useRef, useState } from 'react'
 import { createIssueApi, createTodoApi, getUsersRosterApi } from '../services/api'
 import { useAuthStore } from '../store/authStore'
 import { RosterUser } from '../types'
-import { TEAM_VALUES } from '../utils/teams'
+import { accessibleTeams, defaultTeamFor, teamLabel } from '../utils/teams'
+import { emitDataChanged } from '../utils/dataEvents'
 
 type Mode = 'issue' | 'todo'
-
-const TEAMS = TEAM_VALUES
-
-// The logged-in user's team can be 'all' (admin) or blank, neither of which is
-// a valid team to file an issue/todo under — fall back to a real team so
-// submissions don't silently get created under an unfilterable team.
-function defaultTeam(userTeam: string | undefined): string {
-  return userTeam && (TEAMS as readonly string[]).includes(userTeam) ? userTeam : 'sales'
-}
 
 export default function QuickAdd() {
   const { user } = useAuthStore()
@@ -22,12 +14,14 @@ export default function QuickAdd() {
   const [users, setUsers] = useState<RosterUser[]>([])
   const [title, setTitle] = useState('')
   const [ownerId, setOwnerId] = useState('')
-  const [team, setTeam] = useState<string>(defaultTeam(user?.team))
+  const [team, setTeam] = useState<string>(defaultTeamFor(user))
+  const teamOptions = accessibleTeams(user)
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium')
   const [saving, setSaving] = useState(false)
   const [flash, setFlash] = useState<string | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
+  const fabRef = useRef<HTMLButtonElement>(null)
 
   // Load users once when first opened
   useEffect(() => {
@@ -51,12 +45,13 @@ export default function QuickAdd() {
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  // Close on Escape
+  // Close on Escape and hand focus back to the button that opened it
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    if (!open) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpen(false); fabRef.current?.focus() } }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [])
+  }, [open])
 
   const reset = () => {
     setTitle('')
@@ -78,6 +73,7 @@ export default function QuickAdd() {
           status: 'open',
         })
         setFlash('Issue added')
+        emitDataChanged('issues')
       } else {
         await createTodoApi({
           title: title.trim(),
@@ -87,12 +83,13 @@ export default function QuickAdd() {
           due_date: null,
         })
         setFlash('To-Do added')
+        emitDataChanged('todos')
       }
       reset()
       setTimeout(() => { setFlash(null) }, 2000)
-    } catch {
-      setFlash('Failed — try again')
-      setTimeout(() => setFlash(null), 3000)
+    } catch (err: any) {
+      setFlash(`Not added: ${err?.message || 'try again'}`)
+      setTimeout(() => setFlash(null), 5000)
     } finally {
       setSaving(false)
     }
@@ -103,14 +100,16 @@ export default function QuickAdd() {
 
       {/* Popover panel */}
       {open && (
-        <div className="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-80 p-4 mb-1">
+        <div role="dialog" aria-label="Quick add" className="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-80 max-w-[calc(100vw-3rem)] p-4 mb-1">
           {/* Mode toggle */}
-          <div className="flex gap-1 mb-4 bg-slate-900 rounded-lg p-1">
+          <div className="flex gap-1 mb-4 bg-slate-900 rounded-lg p-1" role="group" aria-label="What to add">
             {(['issue', 'todo'] as Mode[]).map((m) => (
               <button
                 key={m}
+                type="button"
+                aria-pressed={mode === m}
                 onClick={() => { setMode(m); reset() }}
-                className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors capitalize ${
+                className={`flex-1 py-2 min-h-[40px] rounded-md text-xs font-semibold transition-colors capitalize ${
                   mode === m ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -120,8 +119,8 @@ export default function QuickAdd() {
           </div>
 
           {flash && (
-            <div className={`mb-3 px-3 py-2 rounded-lg text-xs font-medium text-center ${
-              flash.includes('Failed') ? 'bg-red-900/40 text-red-300' : 'bg-green-900/40 text-green-300'
+            <div role="status" className={`mb-3 px-3 py-2 rounded-lg text-xs font-medium text-center ${
+              flash.startsWith('Not added') ? 'bg-red-900/40 text-red-300' : 'bg-green-900/40 text-green-300'
             }`}>{flash}</div>
           )}
 
@@ -131,6 +130,7 @@ export default function QuickAdd() {
                 ref={titleRef}
                 type="text"
                 required
+                aria-label={mode === 'issue' ? 'Issue title' : 'To-do title'}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder={mode === 'issue' ? 'Issue title…' : 'To-do title…'}
@@ -140,8 +140,9 @@ export default function QuickAdd() {
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wide">Assign to</label>
+                <label htmlFor="quick-add-owner" className="block text-[11px] text-slate-400 mb-1 uppercase tracking-wide">Assign to</label>
                 <select
+                  id="quick-add-owner"
                   value={ownerId}
                   onChange={(e) => setOwnerId(e.target.value)}
                   className="w-full bg-slate-700 border border-slate-600 text-white text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -153,14 +154,16 @@ export default function QuickAdd() {
                 </select>
               </div>
               <div>
-                <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wide">Team</label>
+                <label htmlFor="quick-add-team" className="block text-[11px] text-slate-400 mb-1 uppercase tracking-wide">Team</label>
                 <select
+                  id="quick-add-team"
                   value={team}
                   onChange={(e) => setTeam(e.target.value)}
-                  className="w-full bg-slate-700 border border-slate-600 text-white text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={teamOptions.length === 1}
+                  className="w-full bg-slate-700 border border-slate-600 text-white text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-70"
                 >
-                  {TEAMS.map(t => (
-                    <option key={t} value={t} className="capitalize">{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                  {teamOptions.map(t => (
+                    <option key={t} value={t}>{teamLabel(t)}</option>
                   ))}
                 </select>
               </div>
@@ -168,14 +171,15 @@ export default function QuickAdd() {
 
             {mode === 'issue' && (
               <div>
-                <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wide">Priority</label>
-                <div className="flex gap-1">
+                <p className="block text-[11px] text-slate-400 mb-1 uppercase tracking-wide" id="quick-add-priority">Priority</p>
+                <div className="flex gap-1" role="group" aria-labelledby="quick-add-priority">
                   {(['high', 'medium', 'low'] as const).map(p => (
                     <button
                       key={p}
                       type="button"
+                      aria-pressed={priority === p}
                       onClick={() => setPriority(p)}
-                      className={`flex-1 py-1 rounded text-xs font-medium transition-colors capitalize ${
+                      className={`flex-1 py-2 min-h-[40px] rounded text-xs font-medium transition-colors capitalize ${
                         priority === p
                           ? p === 'high' ? 'bg-red-600 text-white'
                             : p === 'medium' ? 'bg-yellow-600 text-white'
@@ -191,7 +195,7 @@ export default function QuickAdd() {
             <button
               type="submit"
               disabled={saving || !title.trim()}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-lg transition-colors disabled:opacity-50"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 min-h-[44px] rounded-lg transition-colors disabled:opacity-50"
             >
               {saving ? 'Adding…' : `Add ${mode === 'issue' ? 'Issue' : 'To-Do'}`}
             </button>
@@ -201,15 +205,17 @@ export default function QuickAdd() {
 
       {/* FAB */}
       <button
+        ref={fabRef}
         onClick={() => setOpen(o => !o)}
-        title="Quick add issue or to-do"
+        aria-label={open ? 'Close quick add' : 'Quick add issue or to-do'}
+        aria-expanded={open}
         className={`w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 ${
           open
             ? 'bg-slate-700 text-slate-300 rotate-45'
             : 'bg-blue-600 hover:bg-blue-500 text-white'
         }`}
       >
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
         </svg>
       </button>

@@ -137,7 +137,7 @@ const PeriodPicker: React.FC<Props> = ({ period, onChange, label, align = 'left'
         onClick={() => setOpen((o) => !o)}
         className={`flex items-center gap-1.5 text-xs sm:text-sm font-medium px-3 py-2 rounded-lg border transition-colors ${buttonClasses}`}
       >
-        {label && <span className="text-[10px] uppercase text-slate-500 mr-1">{label}</span>}
+        {label && <span className="text-[11px] uppercase text-slate-400 mr-1">{label}</span>}
         <svg className="w-3.5 h-3.5 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
         <span className="truncate max-w-[140px] sm:max-w-none">{period.label}</span>
         <svg className="w-3 h-3 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
@@ -150,7 +150,7 @@ const PeriodPicker: React.FC<Props> = ({ period, onChange, label, align = 'left'
           <div className="grid grid-cols-2 gap-3">
             {(['This', 'Last'] as const).map((group) => (
               <div key={group}>
-                <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">{group}</p>
+                <p className="text-[11px] uppercase tracking-wide text-slate-400 mb-1.5">{group}</p>
                 <div className="flex flex-col gap-1">
                   {PRESETS.filter((p) => p.group === group).map((p) => (
                     <button
@@ -169,7 +169,7 @@ const PeriodPicker: React.FC<Props> = ({ period, onChange, label, align = 'left'
           </div>
 
           <div className="mt-3 pt-3 border-t border-slate-700">
-            <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">Custom range</p>
+            <p className="text-[11px] uppercase tracking-wide text-slate-400 mb-1.5">Custom range</p>
             <div className="grid grid-cols-2 gap-2 mb-2">
               <input
                 type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}

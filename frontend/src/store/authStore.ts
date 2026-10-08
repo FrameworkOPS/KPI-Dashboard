@@ -31,8 +31,11 @@ export const useAuthStore = create<AuthState>((set) => ({
       localStorage.setItem('token', token)
       set({ token, user, isAuthenticated: true, loading: false })
     } catch (err: any) {
-      const message =
-        err.response?.data?.error || 'Invalid email or password'
+      const message = !err.response
+        ? 'Could not reach the server. Check your connection and try again.'
+        : err.response.status === 429
+          ? err.response.data?.error || 'Too many sign-in attempts. Wait a few minutes and try again.'
+          : err.response.data?.error || 'Invalid email or password'
       set({ loading: false, error: message, isAuthenticated: false })
       throw new Error(message)
     }
@@ -40,6 +43,9 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   logout: () => {
     localStorage.removeItem('token')
+    // Nothing from this session should greet the next person on a shared device.
+    for (const key of ['sky_chat_history_v1', 'forecaster_ai_history_v1']) localStorage.removeItem(key)
+    if ('caches' in window) caches.keys().then((keys) => keys.forEach((k) => { if (k.includes('api')) caches.delete(k) })).catch(() => {})
     set({ user: null, token: null, isAuthenticated: false, error: null })
   },
 
@@ -51,19 +57,28 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
     set({ loading: true })
 
-    // Safety timeout — if the API doesn't respond in 8s, stop the spinner
+    // Safety timeout: a cold-started server can take a while, so give it
+    // 20s before showing the sign-in form. The token is kept; if /auth/me
+    // answers later the Login page sends the person straight back in.
     const timeout = setTimeout(() => {
       set({ loading: false, isAuthenticated: false })
-    }, 8000)
+    }, 20000)
 
     try {
       const response = await getMeApi()
       clearTimeout(timeout)
       set({ user: response.data, isAuthenticated: true, loading: false })
-    } catch {
+    } catch (err: any) {
       clearTimeout(timeout)
-      localStorage.removeItem('token')
-      set({ user: null, token: null, isAuthenticated: false, loading: false })
+      // Only a rejected token ends the session. A network blip or a 5xx
+      // keeps the token so a retry can succeed.
+      const status = err?.response?.status
+      if (status === 401 || status === 403) {
+        localStorage.removeItem('token')
+        set({ user: null, token: null, isAuthenticated: false, loading: false })
+      } else {
+        set({ isAuthenticated: false, loading: false })
+      }
     }
   },
 
