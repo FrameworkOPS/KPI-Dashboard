@@ -10,6 +10,7 @@ import {
   getTodosApi,
   getMeetingsApi,
   getQBOSummaryApi,
+  getQBOStatusApi,
 } from '../services/api'
 import { Rock, Issue, Todo, Meeting, QBOSummary } from '../types'
 import { useAuthStore } from '../store/authStore'
@@ -63,8 +64,13 @@ const Dashboard: React.FC = () => {
       }
 
       if (user?.role === 'admin' || user?.role === 'leadership') {
-        const qboRes = await Promise.allSettled([getQBOSummaryApi()])
-        if (qboRes[0].status === 'fulfilled') setQbo(qboRes[0].value.data)
+        // Only ask for the P&L once QuickBooks is actually connected; the
+        // summary endpoint answers 503 otherwise, which just noised the console.
+        const [statusRes] = await Promise.allSettled([getQBOStatusApi()])
+        if (statusRes.status === 'fulfilled' && statusRes.value.data?.connected) {
+          const [qboRes] = await Promise.allSettled([getQBOSummaryApi()])
+          if (qboRes.status === 'fulfilled') setQbo(qboRes.value.data)
+        }
       }
     } catch (e: any) {
       setError(e.message || 'Could not load the dashboard.')
